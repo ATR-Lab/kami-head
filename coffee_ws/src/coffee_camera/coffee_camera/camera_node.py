@@ -8,11 +8,12 @@ import numpy as np
 import threading
 import os
 import subprocess
+import json
 from rclpy.node import Node
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QHBoxLayout, QCheckBox, QMessageBox, QSlider
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
-from std_msgs.msg import Float32MultiArray  # Import for head control messages
+from std_msgs.msg import Float32MultiArray, String  # Added String message for face data
 
 # Models directory for face detection models
 MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
@@ -32,23 +33,53 @@ class HeadController:
         # Target position 
         self.target_position = [0.0, 0.0]
         
-        # Movement parameters
-        self.max_speed = 60.0  # degrees per second
+        # Movement parameters (increased from original)
+        self.max_speed = 90.0  # degrees per second (increased for faster response)
         self.min_speed = 5.0   # minimum speed to avoid very slow movements
-        self.acceleration = 45.0  # degrees per second^2
+        self.acceleration = 60.0  # degrees per second^2 (increased)
         self.current_speed = [0.0, 0.0]  # Current speed for pan and tilt
         
-        # Dynamic damping for overshoot prevention
-        self.damping_distance = 15.0  # degrees - start slowing down when this close to target
+        # Separate parameters for pan/tilt control (axis 0=pan, 1=tilt)
+        # Tilt generally needs slower, more careful control
+        self.max_speed_tilt = 80.0  # degrees per second for tilt (increased for better response)
+        self.damping_distance_tilt = 15.0  # degrees - for tilt
+        self.approach_factor_tilt = 0.6  # Controls how aggressively to approach target (lower = more aggressive)
         
-        # PID control parameters for smoother motion
-        self.kp = 0.8  # Proportional gain
-        self.kd = 0.3  # Derivative gain
+        # Enhanced parameters for smoother motion
+        self.damping_distance = [20.0, 15.0]  # [pan, tilt] - tilt has shorter damping distance
+        self.approach_factor = [0.7, 0.6]  # Controls how aggressively to approach target
+        
+        # Improved PID control parameters - separate for pan and tilt
+        # Make tilt more responsive with higher gain
+        self.kp = [0.9, 0.85]  # Proportional gain [pan, tilt] - increased for tilt
+        self.kd = [0.4, 0.4]  # Derivative gain [pan, tilt] - lowered damping for tilt
+        self.ki = [0.05, 0.06]  # Integral gain [pan, tilt] - increased for tilt
         self.prev_error = [0.0, 0.0]
+        self.integral = [0.0, 0.0]  # Integral term for slow error correction
+        self.max_integral = [10.0, 10.0]  # Limit integral windup [pan, tilt]
+        
+        # Prediction for motion (anticipatory control)
+        self.target_history = [[], []]  # Store recent target positions
+        self.history_size = 5  # Number of past targets to remember
+        self.prev_targets = [[0.0, 0.0], [0.0, 0.0]]  # Last two targets for velocity estimation
+        self.target_velocity = [0.0, 0.0]  # Estimated target velocity
+        
+        # Dead zone (ignore very small movements)
+        self.dead_zone = [0.2, 0.1]  # [pan, tilt] degrees - smaller dead zone for tilt
         
         # Update rate
         self.update_interval = 0.02  # 50Hz update rate
         self.last_update_time = time.time()
+        
+        # Movement thresholds from Pimoroni implementation - reduce for tilt
+        self.move_threshold = [3.0, 1.0]  # [pan, tilt] - Reduced threshold for tilt
+        
+        # Limits for the head movement
+        self.pan_limits = [-90.0, 90.0]   # Minimum and maximum pan angles
+        self.tilt_limits = [-45.0, 30.0]  # Minimum and maximum tilt angles
+        
+        # Flag to determine if we're using internal control (True) or delegating to head_tracking.py (False)
+        self.use_internal_control = True
         
         # Start control thread
         self.running = True
@@ -56,20 +87,44 @@ class HeadController:
         self.control_thread.daemon = True
         self.control_thread.start()
         
-        self.node.get_logger().info("Head controller initialized")
+        self.node.get_logger().info("Enhanced head controller initialized with improved tilt control")
     
     def set_target(self, pan, tilt):
-        """Set target position for the head"""
-        # Constrain to valid range (-90 to 90 degrees)
-        pan = max(-90.0, min(90.0, pan))
-        tilt = max(-45.0, min(45.0, tilt))
+        """Set target position for the head with smoother transitions"""
+        # Constrain to valid range 
+        pan = max(self.pan_limits[0], min(self.pan_limits[1], pan))
+        tilt = max(self.tilt_limits[0], min(self.tilt_limits[1], tilt))
         
+        # Store previous target for velocity calculation
+        self.prev_targets[1] = self.prev_targets[0]
+        self.prev_targets[0] = self.target_position.copy()
+        
+        # Update target position
         self.target_position = [pan, tilt]
+        
+        # Add to history for prediction
+        self.target_history[0].append(pan)
+        self.target_history[1].append(tilt)
+        
+        # Keep history at fixed size
+        if len(self.target_history[0]) > self.history_size:
+            self.target_history[0].pop(0)
+            self.target_history[1].pop(0)
+        
+        # Calculate target velocity for predictive control
+        if len(self.target_history[0]) >= 2:
+            dt = self.update_interval  # Approximate time between updates
+            self.target_velocity[0] = (self.target_history[0][-1] - self.target_history[0][-2]) / dt
+            self.target_velocity[1] = (self.target_history[1][-1] - self.target_history[1][-2]) / dt
     
-    def set_max_speed(self, speed):
-        """Set maximum panning speed"""
-        self.max_speed = max(5.0, min(120.0, speed))
-        self.node.get_logger().info(f"Head max speed set to {self.max_speed} deg/s")
+    def set_max_speed(self, speed, axis=0):
+        """Set maximum speed for pan or tilt"""
+        if axis == 0:  # Pan
+            self.max_speed = max(5.0, min(120.0, speed))
+            self.node.get_logger().info(f"Head pan max speed set to {self.max_speed} deg/s")
+        else:  # Tilt
+            self.max_speed_tilt = max(5.0, min(90.0, speed))
+            self.node.get_logger().info(f"Head tilt max speed set to {self.max_speed_tilt} deg/s")
     
     def stop(self):
         """Stop the control thread"""
@@ -77,34 +132,64 @@ class HeadController:
         if self.control_thread.is_alive():
             self.control_thread.join(timeout=1.0)
     
-    def _calculate_adaptive_speed(self, error, axis):
-        """Calculate appropriate speed based on distance to target with PID control"""
+    def _predict_target_position(self, axis, lookahead_time):
+        """Predict where the target will be in the near future based on recent movement"""
+        # Simple linear prediction based on current velocity
+        predicted_pos = self.target_position[axis] + self.target_velocity[axis] * lookahead_time
+        
+        # Constrain prediction to valid ranges
+        if axis == 0:  # pan
+            return max(self.pan_limits[0], min(self.pan_limits[1], predicted_pos))
+        else:  # tilt
+            return max(self.tilt_limits[0], min(self.tilt_limits[1], predicted_pos))
+    
+    def _calculate_adaptive_speed(self, error, axis, dt):
+        """Calculate appropriate speed based on distance to target with enhanced PID control"""
+        # Skip tiny movements (dead zone)
+        if abs(error) < self.dead_zone[axis]:
+            self.integral[axis] = 0  # Reset integral when in dead zone
+            return 0.0
+        
         # Calculate PID terms
-        p_term = self.kp * error
+        p_term = self.kp[axis] * error
+        
+        # Integral term with anti-windup
+        self.integral[axis] += error * dt
+        self.integral[axis] = max(-self.max_integral[axis], min(self.max_integral[axis], self.integral[axis]))
+        i_term = self.ki[axis] * self.integral[axis]
         
         # Derivative term (damping)
-        d_term = self.kd * (error - self.prev_error[axis]) / self.update_interval
+        d_term = self.kd[axis] * (error - self.prev_error[axis]) / dt if dt > 0 else 0
         self.prev_error[axis] = error
         
         # Calculate raw speed from PID controller
-        raw_speed = p_term + d_term
+        raw_speed = p_term + i_term + d_term
         
         # Distance-based speed limiting to prevent overshooting
         distance = abs(error)
         
         # Apply stronger damping when getting close to target
-        if distance < self.damping_distance:
-            # Gradually reduce speed as we approach target
-            speed_factor = distance / self.damping_distance
+        if distance < self.damping_distance[axis]:
+            # Progressive speed reduction - slower as we get closer (non-linear)
+            speed_factor = (distance / self.damping_distance[axis]) ** self.approach_factor[axis]
             raw_speed *= speed_factor
         
-        # Apply speed limits
-        if abs(raw_speed) < self.min_speed and abs(error) > 0.5:
+        # Apply predictive control for moving targets
+        # Add a component to compensate for target movement
+        if abs(self.target_velocity[axis]) > 1.0:  # Only if target is moving significantly
+            # Add a component that tends to match target velocity
+            velocity_match = self.target_velocity[axis] * 0.8  # 80% of target velocity
+            raw_speed += velocity_match
+        
+        # Apply speed limits - different for pan vs tilt
+        max_speed = self.max_speed if axis == 0 else self.max_speed_tilt
+        
+        if abs(raw_speed) < self.min_speed and abs(error) > 1.0:
             # Ensure we move at least at min_speed if not very close to target
             raw_speed = self.min_speed if raw_speed > 0 else -self.min_speed
-        elif abs(raw_speed) > self.max_speed:
+        elif abs(raw_speed) > max_speed:
             # Cap at max_speed
-            raw_speed = self.max_speed if raw_speed > 0 else -self.max_speed
+            raw_speed = max_speed if raw_speed > 0 else -max_speed
         
         return raw_speed
     
@@ -119,28 +204,65 @@ class HeadController:
                 time.sleep(0.001)
                 continue
             
-            # Calculate errors
-            pan_error = self.target_position[0] - self.current_position[0]
-            tilt_error = self.target_position[1] - self.current_position[1]
-            
-            # Calculate adaptive speeds
-            self.current_speed[0] = self._calculate_adaptive_speed(pan_error, 0)
-            self.current_speed[1] = self._calculate_adaptive_speed(tilt_error, 1)
-            
-            # Update positions based on calculated speeds
-            self.current_position[0] += self.current_speed[0] * dt
-            self.current_position[1] += self.current_speed[1] * dt
-            
-            # Publish head position
-            msg = Float32MultiArray()
-            msg.data = self.current_position
-            self.head_pub.publish(msg)
+            # Only process if we're using internal control
+            if self.use_internal_control:
+                # Calculate errors from predicted target positions (look ahead by a small amount)
+                lookahead_time = 0.1  # 100ms prediction
+                predicted_pan = self._predict_target_position(0, lookahead_time)
+                predicted_tilt = self._predict_target_position(1, lookahead_time)
+                
+                pan_error = predicted_pan - self.current_position[0]
+                tilt_error = predicted_tilt - self.current_position[1]
+                
+                # Log significant tilt errors for debugging
+                if abs(tilt_error) > 5.0:
+                    self.node.get_logger().debug(
+                        f"Tilt: target={predicted_tilt:.2f}, current={self.current_position[1]:.2f}, " + 
+                        f"error={tilt_error:.2f}"
+                    )
+                
+                # Only move if error exceeds threshold (reduces jitter)
+                if abs(pan_error) < self.move_threshold[0]:
+                    pan_error = 0
+                    self.integral[0] = 0  # Reset integral term
+                
+                if abs(tilt_error) < self.move_threshold[1]:
+                    tilt_error = 0
+                    self.integral[1] = 0  # Reset integral term
+                    
+                # Calculate adaptive speeds with time-aware calculation
+                self.current_speed[0] = self._calculate_adaptive_speed(pan_error, 0, dt)
+                self.current_speed[1] = self._calculate_adaptive_speed(tilt_error, 1, dt)
+                
+                # Update positions based on calculated speeds
+                self.current_position[0] += self.current_speed[0] * dt
+                self.current_position[1] += self.current_speed[1] * dt
+                
+                # Ensure positions stay within limits
+                self.current_position[0] = max(self.pan_limits[0], min(self.pan_limits[1], self.current_position[0]))
+                self.current_position[1] = max(self.tilt_limits[0], min(self.tilt_limits[1], self.current_position[1]))
+                
+                # Publish head position
+                msg = Float32MultiArray()
+                msg.data = self.current_position
+                self.head_pub.publish(msg)
+                
+                # Add debugging for tilt publishing
+                if abs(self.current_speed[1]) > 0.1:  # Only log when actually moving
+                    self.node.get_logger().debug(
+                        f"Publishing tilt: pos={self.current_position[1]:.2f}, speed={self.current_speed[1]:.2f}"
+                    )
             
             # Update last update time
             self.last_update_time = current_time
             
             # Small sleep to prevent tight loops
             time.sleep(0.001)
+    
+    def set_use_internal_control(self, use_internal):
+        """Set whether to use internal control or delegate to head_tracking.py"""
+        self.use_internal_control = use_internal
+        self.node.get_logger().info(f"Head control mode set to {'internal' if use_internal else 'external'}")
 
 
 class FrameGrabber(QObject):
@@ -417,6 +539,60 @@ class FrameGrabber(QObject):
         
         return frame
     
+    def draw_face_tracking_indicators(self, frame, faces):
+        """Draw tracking indicators to show how well faces are centered"""
+        if not faces:
+            return frame
+        
+        # Get frame dimensions
+        h, w = frame.shape[:2]
+        center_x = w // 2
+        center_y = h // 2
+        
+        # Draw horizontal and vertical center lines
+        cv2.line(frame, (center_x, 0), (center_x, h), (255, 255, 255), 1)
+        cv2.line(frame, (0, center_y), (w, center_y), (255, 255, 255), 1)
+        
+        # Draw target zones
+        target_zone_size_x = w // 8
+        target_zone_size_y = h // 8
+        cv2.rectangle(frame, 
+                     (center_x - target_zone_size_x, center_y - target_zone_size_y),
+                     (center_x + target_zone_size_x, center_y + target_zone_size_y),
+                     (0, 255, 255), 1)
+        
+        # Draw tracking indicators for each face
+        for face in faces:
+            # Calculate offsets from center
+            x_offset = face['center_x'] - center_x
+            y_offset = face['center_y'] - center_y
+            
+            # Normalize offsets to frame size
+            x_offset_norm = x_offset / (w / 2)
+            y_offset_norm = y_offset / (h / 2)
+            
+            # Calculate color based on how centered the face is
+            # Green when centered, yellow when slightly off, red when way off
+            offset_magnitude = (x_offset_norm**2 + y_offset_norm**2)**0.5
+            if offset_magnitude < 0.1:  # Well centered
+                indicator_color = (0, 255, 0)  # Green
+            elif offset_magnitude < 0.3:  # Slightly off
+                indicator_color = (0, 255, 255)  # Yellow
+            else:  # Way off
+                indicator_color = (0, 0, 255)  # Red
+            
+            # Draw lines from center of face to center of frame
+            cv2.line(frame, (face['center_x'], face['center_y']), (center_x, face['center_y']), indicator_color, 2)
+            cv2.line(frame, (face['center_x'], face['center_y']), (face['center_x'], center_y), indicator_color, 2)
+            
+            # Show offset values
+            cv2.putText(frame, f"X: {x_offset_norm:.2f}", (10, h - 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, indicator_color, 2)
+            cv2.putText(frame, f"Y: {y_offset_norm:.2f}", (10, h - 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, indicator_color, 2)
+        
+        return frame
+    
     def _capture_loop(self):
         try:
             # Try different backends if the default doesn't work
@@ -506,6 +682,8 @@ class FrameGrabber(QObject):
                     # Draw smoothed faces on every frame
                     if last_faces:
                         frame = self.draw_face_circles(frame, last_faces)
+                        # Add tracking visualization
+                        frame = self.draw_face_tracking_indicators(frame, last_faces)
                 
                 # Add FPS text to frame
                 frame_count += 1
@@ -547,6 +725,12 @@ class CameraViewer(QMainWindow):
         
         # Initialize head controller
         self.head_controller = HeadController(node)
+        
+        # Create face data publisher for head_tracking.py
+        self.face_data_pub = node.create_publisher(String, 'face_detection_data', 10)
+        
+        # Flag to use external head tracking system (head_tracking.py)
+        self.use_external_tracking = False  # Default to internal tracking
         
         self.initUI()
         self.check_video_devices()
@@ -602,6 +786,12 @@ class CameraViewer(QMainWindow):
         self.face_detection_checkbox.stateChanged.connect(self.toggle_face_detection)
         quality_layout.addWidget(self.face_detection_checkbox)
         
+        # External tracking toggle
+        self.external_tracking_checkbox = QCheckBox("Use External Tracking")
+        self.external_tracking_checkbox.setChecked(self.use_external_tracking)
+        self.external_tracking_checkbox.stateChanged.connect(self.toggle_external_tracking)
+        quality_layout.addWidget(self.external_tracking_checkbox)
+        
         controls_layout.addLayout(quality_layout)
         
         # Head control parameters
@@ -609,18 +799,31 @@ class CameraViewer(QMainWindow):
         head_control_label = QLabel("Head Control:")
         head_control_layout.addWidget(head_control_label)
         
-        # Speed control slider
-        speed_label = QLabel("Panning Speed:")
-        self.speed_slider = QSlider(Qt.Horizontal)
-        self.speed_slider.setMinimum(5)
-        self.speed_slider.setMaximum(120)
-        self.speed_slider.setValue(60)  # Default speed
-        self.speed_slider.setTickPosition(QSlider.TicksBelow)
-        self.speed_slider.setTickInterval(10)
-        self.speed_slider.valueChanged.connect(self.set_panning_speed)
+        # Pan speed control slider
+        pan_speed_label = QLabel("Pan Speed:")
+        self.pan_speed_slider = QSlider(Qt.Horizontal)
+        self.pan_speed_slider.setMinimum(5)
+        self.pan_speed_slider.setMaximum(120)
+        self.pan_speed_slider.setValue(90)  # Default speed
+        self.pan_speed_slider.setTickPosition(QSlider.TicksBelow)
+        self.pan_speed_slider.setTickInterval(10)
+        self.pan_speed_slider.valueChanged.connect(self.set_pan_speed)
         
-        head_control_layout.addWidget(speed_label)
-        head_control_layout.addWidget(self.speed_slider)
+        head_control_layout.addWidget(pan_speed_label)
+        head_control_layout.addWidget(self.pan_speed_slider)
+        
+        # Tilt speed control slider
+        tilt_speed_label = QLabel("Tilt Speed:")
+        self.tilt_speed_slider = QSlider(Qt.Horizontal)
+        self.tilt_speed_slider.setMinimum(5)
+        self.tilt_speed_slider.setMaximum(90)
+        self.tilt_speed_slider.setValue(70)  # Default speed
+        self.tilt_speed_slider.setTickPosition(QSlider.TicksBelow)
+        self.tilt_speed_slider.setTickInterval(10)
+        self.tilt_speed_slider.valueChanged.connect(self.set_tilt_speed)
+        
+        head_control_layout.addWidget(tilt_speed_label)
+        head_control_layout.addWidget(self.tilt_speed_slider)
         
         controls_layout.addLayout(head_control_layout)
         
@@ -638,12 +841,20 @@ class CameraViewer(QMainWindow):
         self.qt_image = None
         self.pixmap = None
     
-    def set_panning_speed(self, value):
+    def toggle_external_tracking(self, state):
+        """Toggle between internal and external tracking"""
+        self.toggle_tracking_mode(bool(state))
+        
+    def set_pan_speed(self, value):
         """Update the head panning speed"""
-        self.head_controller.set_max_speed(float(value))
+        self.head_controller.set_max_speed(float(value), axis=0)
+    
+    def set_tilt_speed(self, value):
+        """Update the head tilting speed"""
+        self.head_controller.set_max_speed(float(value), axis=1)
     
     def on_face_detected(self, faces):
-        """Handle detected faces by directing head to look at them"""
+        """Handle detected faces by directing head to look at them (improved Pimoroni-style tracking)"""
         if not faces:
             return
             
@@ -653,27 +864,73 @@ class CameraViewer(QMainWindow):
         # Get the best face
         face = faces[0]
         
-        # Convert pixel coordinates to angles
-        # Assuming camera has 60° horizontal FOV and camera is centered
+        # Publish face data for head_tracking.py
+        self.publish_face_data(faces)
+        
+        # If using external tracking, don't control motors directly
+        if self.use_external_tracking:
+            return
+            
+        # Get camera and frame dimensions
         frame_width = self.frame_grabber.frame_width
         frame_height = self.frame_grabber.frame_height
         
-        # Calculate angle offset from center
-        # X: -30° (left) to +30° (right)
-        # Y: -22.5° (up) to +22.5° (down) for typical 16:9 aspect ratio
+        # Calculate center of frame
         center_x = frame_width / 2
         center_y = frame_height / 2
         
-        # Calculate normalized position (-1 to 1)
-        x_norm = (face['center_x'] - center_x) / center_x
-        y_norm = (face['center_y'] - center_y) / center_y
+        # Calculate offset from center in pixels
+        turn_x = face['center_x'] - center_x
+        turn_y = face['center_y'] - center_y
         
-        # Convert to angles (assuming 60° horizontal FOV)
-        pan_angle = x_norm * 30.0  # -30° to +30°
-        tilt_angle = y_norm * 22.5  # -22.5° to +22.5°
+        # Convert to normalized offsets (-1 to 1)
+        turn_x /= center_x
+        turn_y /= center_y
+        
+        # Field of view adjustments - most webcams have different horizontal vs vertical FOV
+        horizontal_fov = 60.0  # Typical webcam horizontal FOV in degrees
+        # Vertical FOV is typically narrower due to 16:9 aspect ratio
+        vertical_fov = horizontal_fov * (frame_height / frame_width)  # Usually around 40-45 degrees
+        
+        # Convert to angles with gain factors for responsive tracking
+        # Horizontal tracking (pan)
+        pan_gain = 3.5  # Higher gain for more responsive tracking
+        pan_angle = turn_x * pan_gain * (horizontal_fov / 2)  # Scale by half FOV
+        
+        # Vertical tracking (tilt) - with refined calculations for better accuracy
+        # Increase gain for tilt to make it more responsive
+        tilt_gain = 4.5  # Higher gain for tilt to be more responsive (increased from 3.0)
+        tilt_angle = turn_y * tilt_gain * (vertical_fov / 2)  # Scale by half FOV
+        
+        # Apply smoothing based on face size - larger/closer faces need more precise tracking
+        size_factor_pan = min(1.0, face['radius'] / 100)  # Normalize by expected size
+        size_factor_tilt = min(1.2, face['radius'] / 70)  # Make tilt more responsive with higher factor
+        
+        # Get current head position 
+        current_pan, current_tilt = self.head_controller.current_position
+        
+        # Calculate new target positions using absolute positions
+        # Invert pan direction (negative turn_x means head should turn right/positive)
+        target_pan = current_pan - pan_angle * size_factor_pan
+        
+        # FIXED: For tilt: positive turn_y (face below center) means tilt up (positive angle)
+        # This reverses our previous logic which was incorrect
+        target_tilt = current_tilt + tilt_angle * size_factor_tilt
+        
+        # Constrain to valid ranges
+        target_pan = max(self.head_controller.pan_limits[0], min(self.head_controller.pan_limits[1], target_pan))
+        target_tilt = max(self.head_controller.tilt_limits[0], min(self.head_controller.tilt_limits[1], target_tilt))
+        
+        # Add more detailed debug logging
+        self.node.get_logger().info(
+            f"Face tracking: pos=({face['center_x']:.0f},{face['center_y']:.0f}), " +
+            f"offset=({turn_x:.2f},{turn_y:.2f}), " +
+            f"tilt_angle={tilt_angle:.2f}, factor={size_factor_tilt:.2f}, " +
+            f"current_tilt={current_tilt:.2f}, target_tilt={target_tilt:.2f}"
+        )
         
         # Send to head controller
-        self.head_controller.set_target(pan_angle, tilt_angle)
+        self.head_controller.set_target(target_pan, target_tilt)
     
     def toggle_face_detection(self, state):
         """Toggle face detection on/off"""
@@ -875,6 +1132,49 @@ class CameraViewer(QMainWindow):
         self.frame_grabber.stop()
         self.head_controller.stop()
         event.accept()
+
+    def toggle_tracking_mode(self, use_external):
+        """Toggle between internal and external tracking"""
+        self.use_external_tracking = use_external
+        self.head_controller.set_use_internal_control(not use_external)
+        self.node.get_logger().info(f"Using {'external' if use_external else 'internal'} head tracking")
+
+    def publish_face_data(self, faces):
+        """Publish face data for head_tracking.py to use"""
+        if not faces:
+            return
+            
+        # Create a serializable version of the face data
+        serializable_faces = []
+        for face in faces:
+            # Create a clean dict with only the needed fields
+            face_dict = {
+                'x1': int(face['x1']),
+                'y1': int(face['y1']),
+                'x2': int(face['x2']),
+                'y2': int(face['y2']),
+                'center_x': int(face['center_x']),
+                'center_y': int(face['center_y']),
+                'confidence': float(face['confidence']),
+                'radius': int(face['radius'])
+            }
+            serializable_faces.append(face_dict)
+            
+        # Create message with frame dimensions and faces
+        msg_data = {
+            'frame_width': self.frame_grabber.frame_width,
+            'frame_height': self.frame_grabber.frame_height,
+            'faces': serializable_faces
+        }
+        
+        # Convert to JSON and publish
+        msg = String()
+        msg.data = json.dumps(msg_data)
+        self.face_data_pub.publish(msg)
+        
+        # Log publication occasionally
+        if len(faces) > 0 and time.time() % 5 < 0.1:  # Log roughly every 5 seconds
+            self.node.get_logger().debug(f"Published face data with {len(faces)} faces")
 
 
 class CameraNode(Node):

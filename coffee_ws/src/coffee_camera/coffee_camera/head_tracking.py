@@ -6,8 +6,10 @@ import threading
 import time
 import sys
 import cv2
+import json
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
+from std_msgs.msg import String
 from dynamixel_sdk_custom_interfaces.msg import SetPosition
 from dynamixel_sdk_custom_interfaces.srv import GetPosition
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -138,6 +140,14 @@ class HeadTrackingSystem(QObject):
             qos
         )
         
+        # Subscribe to face detection data from camera_node.py
+        self.face_subscription = self.node.create_subscription(
+            String,
+            'face_detection_data',
+            self.face_data_callback,
+            10
+        )
+        
         # Initialize motor positions
         self.last_update_time = time.time()
         
@@ -146,6 +156,60 @@ class HeadTrackingSystem(QObject):
         
         # Set tilt to default position at startup
         self.set_tilt_to_default()
+        
+        # Last time we received face data
+        self.last_face_data_time = time.time()
+        
+        self.node.get_logger().info("Head tracking system initialized and ready for face data")
+    
+    def face_data_callback(self, msg):
+        """Process face data received from camera_node.py"""
+        try:
+            # Parse the JSON data
+            data = json.loads(msg.data)
+            
+            # Update frame dimensions
+            self.frame_width = data['frame_width']
+            self.frame_height = data['frame_height']
+            self.center_x = self.frame_width // 2
+            self.center_y = self.frame_height // 2
+            
+            # Update the last face data time
+            self.last_face_data_time = time.time()
+            
+            # Process the faces if tracking is enabled
+            if self.tracking_enabled and len(data['faces']) > 0:
+                faces = data['faces']
+                self.node.get_logger().debug(f"Received {len(faces)} faces from camera_node")
+                
+                # Convert to format expected by process_faces
+                opencv_faces = []
+                for face in faces:
+                    opencv_face = face  # Already in the correct format from camera_node
+                    opencv_faces.append(opencv_face)
+                
+                # Process the faces (without a frame)
+                self.process_faces_data(opencv_faces)
+            elif self.tracking_enabled and len(data['faces']) == 0:
+                # No faces detected
+                if not self.scanning:
+                    self.start_scanning()
+                self.target_face = None
+                self.tracking_status.emit("No faces detected, scanning...")
+            
+        except Exception as e:
+            self.node.get_logger().error(f"Error processing face data: {e}")
+    
+    def check_face_data_timeout(self):
+        """Check if we've stopped receiving face data and reset if needed"""
+        if time.time() - self.last_face_data_time > 5.0:  # 5 second timeout
+            if self.tracking_enabled:
+                self.node.get_logger().warn("Face data timeout - no data received for 5 seconds")
+                self.tracking_status.emit("Face data timeout - check camera_node")
+                # Start scanning if we were tracking
+                if not self.scanning:
+                    self.start_scanning()
+                self.target_face = None
     
     def set_frame_size(self, width, height):
         """Update frame size and center coordinates"""
@@ -160,7 +224,7 @@ class HeadTrackingSystem(QObject):
             # Reset PIDs when starting tracking
             self.pan_pid.reset()
             self.tilt_pid.reset()
-            self.tracking_status.emit("Tracking enabled - searching for face")
+            self.tracking_status.emit("Tracking enabled - waiting for face data")
             # Start scanning if no faces detected
             self.start_scanning()
         elif not enabled and self.tracking_enabled:
@@ -288,8 +352,164 @@ class HeadTrackingSystem(QObject):
         elif motor_id == self.tilt_motor_id:
             self.current_tilt_position = position
     
+    def process_faces_data(self, faces):
+        """Process face data received from camera_node.py (no frame needed)"""
+        if not self.tracking_enabled:
+            return
+            
+        if not faces:
+            # No faces detected, make sure scanning is active
+            if not self.scanning:
+                self.start_scanning()
+            self.target_face = None
+            return
+        else:
+            # Faces detected, stop scanning
+            self.stop_scanning()
+        
+        # Select target face if we don't have one
+        if self.target_face is None and faces:
+            # Choose the largest face (closest to camera) or the center-most face
+            largest_area = 0
+            closest_to_center = float('inf')
+            
+            for i, face in enumerate(faces):
+                # Calculate face area
+                width = face['x2'] - face['x1']
+                height = face['y2'] - face['y1']
+                area = width * height
+                
+                # Calculate distance from center
+                dx = face['center_x'] - self.center_x
+                dy = face['center_y'] - self.center_y
+                distance_from_center = (dx*dx + dy*dy) ** 0.5
+                
+                # Prioritize larger faces unless they're far from center
+                score = distance_from_center - area * 0.02
+                
+                if score < closest_to_center:
+                    closest_to_center = score
+                    largest_area = area
+                    self.target_face = i
+            
+            if self.target_face is not None:
+                self.tracking_status.emit(f"Tracking face {self.target_face+1}/{len(faces)}")
+        
+        # If we have a target face, track it
+        if self.target_face is not None and self.target_face < len(faces):
+            face = faces[self.target_face]
+            
+            # Calculate error from center of frame
+            error_x = self.center_x - face['center_x']
+            error_y = self.center_y - face['center_y']
+            
+            # Track both horizontally and vertically now
+            if abs(error_x) > self.deadzone_x:
+                # Calculate PID outputs - invert error_x for correct pan direction
+                pan_adjustment = self.pan_pid.compute(0, -error_x)  # Negative to match motor directions
+                
+                # Current positions in degrees
+                current_pan_angle = (self.current_pan_position * self.degrees_per_position) % 360
+                
+                # Calculate new pan angle
+                new_pan_angle = current_pan_angle + pan_adjustment
+                
+                # Ensure angle is within valid range
+                new_pan_angle = max(self.pan_min_angle, min(new_pan_angle, self.pan_max_angle))
+                
+                # Set as target for smoothing
+                self.target_pan_angle = new_pan_angle
+                
+                # Apply smoothing for less jittery movement
+                smoothed_angle = self.apply_smoothing(self.target_pan_angle)
+                
+                # Update scan angle to current position
+                self.current_scan_angle = smoothed_angle
+                
+                # Convert to motor position
+                new_pan_position = int(smoothed_angle * self.positions_per_degree)
+                
+                # Limit update rate to prevent overwhelming motors
+                current_time = time.time()
+                if current_time - self.last_update_time > 0.05:  # 20Hz max update rate
+                    self.send_motor_command(self.pan_motor_id, new_pan_position)
+                    self.last_update_time = current_time
+                    
+                    # Log control values
+                    self.node.get_logger().debug(
+                        f"Error X: {error_x}, "
+                        f"PID: {pan_adjustment:.2f}, "
+                        f"Angle: {smoothed_angle:.1f}"
+                    )
+            
+            # Add tilt control based on vertical error
+            if abs(error_y) > self.deadzone_y:
+                # Calculate PID output for tilt
+                # FIXED: Invert the error_y for correct tilt behavior
+                # When face is above center (negative error_y), tilt up (toward 225)
+                # When face is below center (positive error_y), tilt down (toward 135)
+                tilt_adjustment = self.tilt_pid.compute(0, -error_y)  # Inverted to match correct direction
+                
+                # Current tilt angle in degrees
+                current_tilt_angle = (self.current_tilt_position * self.degrees_per_position) % 360
+                
+                # Log the current and target angles
+                self.node.get_logger().debug(
+                    f"Tilt: current={current_tilt_angle:.1f}, error_y={error_y}, " +
+                    f"adjustment={tilt_adjustment:.2f}"
+                )
+                
+                # Calculate new tilt angle
+                new_tilt_angle = current_tilt_angle + tilt_adjustment
+                
+                # Ensure angle is within valid range (135=down, 225=up, 180=forward)
+                new_tilt_angle = max(self.tilt_min_angle, min(new_tilt_angle, self.tilt_max_angle))
+                
+                # Apply a non-linear damping when close to limits to prevent oscillation
+                margin = 5.0  # degrees from limit
+                if new_tilt_angle > (self.tilt_max_angle - margin):
+                    # Close to upper limit (looking up)
+                    factor = 1.0 - ((new_tilt_angle - (self.tilt_max_angle - margin)) / margin)
+                    tilt_adjustment *= max(0.3, factor)  # Slow down but don't completely stop
+                    new_tilt_angle = current_tilt_angle + tilt_adjustment
+                elif new_tilt_angle < (self.tilt_min_angle + margin):
+                    # Close to lower limit (looking down)
+                    factor = 1.0 - (((self.tilt_min_angle + margin) - new_tilt_angle) / margin)
+                    tilt_adjustment *= max(0.3, factor)  # Slow down but don't completely stop
+                    new_tilt_angle = current_tilt_angle + tilt_adjustment
+                
+                # Apply stronger smoothing to tilt movement than pan
+                # Increase this factor to reduce tilt jitter
+                tilt_smoothing = 0.8  # Higher = smoother but slower
+                smoothed_tilt = (tilt_smoothing * current_tilt_angle) + ((1.0 - tilt_smoothing) * new_tilt_angle)
+                
+                # Convert to motor position
+                new_tilt_position = int(smoothed_tilt * self.positions_per_degree)
+                
+                # Send tilt command with rate limiting
+                current_time = time.time()
+                if current_time - self.last_update_time > 0.05:  # 20Hz max update rate
+                    self.send_motor_command(self.tilt_motor_id, new_tilt_position)
+                    
+                    # Log control values
+                    self.node.get_logger().debug(
+                        f"Error Y: {error_y}, "
+                        f"PID: {tilt_adjustment:.2f}, "
+                        f"Target: {new_tilt_angle:.1f}, "
+                        f"Smoothed: {smoothed_tilt:.1f}"
+                    )
+            
+            # Update tracking status
+            self.tracking_status.emit(f"Tracking: C={face['confidence']:.2f} X={error_x} Y={error_y}")
+            
+        else:
+            # If we lost the target face, clear the target and search again
+            self.target_face = None
+            self.tracking_status.emit("Target lost - searching for face")
+            self.start_scanning()
+    
     def process_faces(self, frame, faces):
-        """Process detected faces and control motors if tracking is enabled"""
+        """Process detected faces and control motors if tracking is enabled (legacy method)"""
         if not self.tracking_enabled:
             # If tracking disabled, just return the frame
             return frame
@@ -344,6 +564,7 @@ class HeadTrackingSystem(QObject):
             
             # Calculate error from center of frame (only care about x-axis for panning)
             error_x = self.center_x - face['center_x']
+            error_y = self.center_y - face['center_y']  # Add for vertical tracking
             
             # Draw crosshair at center of frame
             cv2.line(frame, (self.center_x, 0), (self.center_x, self.frame_height), (0, 255, 0), 1)
@@ -394,6 +615,40 @@ class HeadTrackingSystem(QObject):
                         f"Angle: {smoothed_angle:.1f}"
                     )
             
+            # Add tilt control based on vertical error
+            if abs(error_y) > self.deadzone_y:
+                # FIXED: Invert the error_y for correct tilt behavior
+                tilt_adjustment = self.tilt_pid.compute(0, -error_y)  # Invert error for correct direction
+                
+                # Current tilt angle in degrees
+                current_tilt_angle = (self.current_tilt_position * self.degrees_per_position) % 360
+                
+                # Calculate new tilt angle
+                new_tilt_angle = current_tilt_angle + tilt_adjustment
+                
+                # Ensure angle is within valid range (135=down, 225=up, 180=forward)
+                new_tilt_angle = max(self.tilt_min_angle, min(new_tilt_angle, self.tilt_max_angle))
+                
+                # Apply stronger smoothing to tilt movement
+                tilt_smoothing = 0.8  # Higher = smoother but slower
+                smoothed_tilt = (tilt_smoothing * current_tilt_angle) + ((1.0 - tilt_smoothing) * new_tilt_angle)
+                
+                # Convert to motor position
+                new_tilt_position = int(smoothed_tilt * self.positions_per_degree)
+                
+                # Send tilt command with rate limiting
+                current_time = time.time()
+                if current_time - self.last_update_time > 0.05:  # 20Hz max update rate
+                    self.send_motor_command(self.tilt_motor_id, new_tilt_position)
+                    
+                    # Log control values
+                    self.node.get_logger().debug(
+                        f"Error Y: {error_y}, "
+                        f"PID: {tilt_adjustment:.2f}, "
+                        f"Target: {new_tilt_angle:.1f}, "
+                        f"Smoothed: {smoothed_tilt:.1f}"
+                    )
+            
             # Show tracking info on frame
             cv2.putText(frame, f"Tracking: {face['confidence']:.2f}", (10, self.frame_height - 30), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
@@ -435,6 +690,12 @@ class HeadTrackingUI(QMainWindow):
         self.node = node
         self.head_tracker = head_tracker
         self.head_tracker.tracking_status.connect(self.update_status)
+        
+        # Add timer to check for data timeouts
+        self.timeout_timer = QTimer()
+        self.timeout_timer.timeout.connect(self.head_tracker.check_face_data_timeout)
+        self.timeout_timer.start(1000)  # Check every second
+        
         self.initUI()
     
     def initUI(self):
