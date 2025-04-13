@@ -1,0 +1,5 @@
+rclpy>=0.9.0
+numpy>=1.20.0
+PyQt5>=5.15.0  # For the UI elements
+pyqtgraph>=0.12.0  # For plotting
+pyyaml>=5.1.0  # For configuration handling 
