@@ -14,7 +14,8 @@ from std_msgs.msg import String
 from dynamixel_sdk_custom_interfaces.msg import SetPosition
 from dynamixel_sdk_custom_interfaces.srv import GetPosition
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                            QLabel, QPushButton, QCheckBox, QSlider, QComboBox, QGroupBox)
+                            QLabel, QPushButton, QCheckBox, QSlider, QComboBox, QGroupBox,
+                            QDoubleSpinBox)
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer
 
@@ -89,8 +90,16 @@ class HeadTrackingSystem(QObject):
         self.center_x = self.frame_width // 2
         self.center_y = self.frame_height // 2
         
-        # Vector-based movement threshold
-        self.movement_threshold = 40  # Pixels - only move if vector magnitude exceeds this
+        # Communication parameters
+        self.update_rate_hz = 30.0  # Default 30Hz update rate (configurable)
+        self.update_interval = 1.0 / self.update_rate_hz  # Calculated interval in seconds
+        self.baud_rate = 1000000  # Default baud rate for Dynamixel motors (configurable)
+        self.baudrate_options = [9600, 19200, 57600, 115200, 1000000, 2000000, 3000000, 4000000, 4500000]
+        
+        # Separate pan and tilt thresholds
+        self.pan_threshold = 40  # Horizontal pixel threshold
+        self.tilt_threshold = 25  # Vertical pixel threshold (typically smaller for more sensitive vertical tracking)
+        self.movement_threshold = 40  # Legacy vector threshold (kept for compatibility)
         
         # Individual deadzone region used for display purposes
         self.deadzone_x = 60  # Increased deadzone for smoother movement
@@ -177,6 +186,31 @@ class HeadTrackingSystem(QObject):
         self.last_face_data_time = time.time()
         
         self.node.get_logger().info("Head tracking system initialized and ready for face data")
+    
+    def set_update_rate(self, rate_hz):
+        """Set the motor update rate in Hz"""
+        self.update_rate_hz = max(1.0, min(100.0, rate_hz))  # Limit between 1Hz and 100Hz
+        self.update_interval = 1.0 / self.update_rate_hz
+        self.node.get_logger().info(f"Motor update rate set to {self.update_rate_hz:.1f}Hz (interval: {self.update_interval:.4f}s)")
+    
+    def set_baud_rate(self, baud_rate):
+        """Set the motor communication baud rate"""
+        self.baud_rate = baud_rate
+        self.node.get_logger().info(f"Motor baud rate set to {self.baud_rate}")
+        
+        # Attempt to update the baud rate dynamically if possible
+        # Note: This may require restarting the motor service to take effect
+        try:
+            # Publish the baud rate change to a parameter
+            self.node.declare_parameter('dynamixel_baud_rate', self.baud_rate)
+            self.node.set_parameter([rclpy.parameter.Parameter(
+                'dynamixel_baud_rate', 
+                rclpy.parameter.Parameter.Type.INTEGER,
+                self.baud_rate
+            )])
+            self.node.get_logger().info("Dynamixel baud rate parameter updated - may require restart to take effect")
+        except Exception as e:
+            self.node.get_logger().warn(f"Could not update baud rate parameter: {e}")
     
     def face_data_callback(self, msg):
         """Process face data received from camera_node.py"""
@@ -403,8 +437,12 @@ class HeadTrackingSystem(QObject):
         # Calculate vector magnitude (distance from center)
         vector_magnitude = math.sqrt(error_x**2 + error_y**2)
         
-        # If magnitude is below threshold, don't move
-        if vector_magnitude < self.movement_threshold:
+        # Check if movement is needed based on separate thresholds
+        need_pan_movement = abs(error_x) > self.pan_threshold
+        need_tilt_movement = abs(error_y) > self.tilt_threshold
+        
+        # If neither axis needs movement, don't move
+        if not need_pan_movement and not need_tilt_movement:
             return None, None, 0, 0, 0
         
         # Current angles
@@ -413,9 +451,9 @@ class HeadTrackingSystem(QObject):
         
         if self.use_pid_smoothing:
             # PID-based approach
-            # Calculate the adjustments using PIDs
-            pan_adjustment = self.pan_pid.compute(0, -error_x)
-            tilt_adjustment = self.tilt_pid.compute(0, -error_y)
+            # Calculate the adjustments using PIDs, but only if needed
+            pan_adjustment = self.pan_pid.compute(0, -error_x) if need_pan_movement else 0
+            tilt_adjustment = self.tilt_pid.compute(0, -error_y) if need_tilt_movement else 0
             
             # Calculate new angles
             new_pan_angle = current_pan_angle + pan_adjustment
@@ -449,9 +487,9 @@ class HeadTrackingSystem(QObject):
             
             # Normalize the vector for consistent movement speed
             if vector_magnitude > 0:
-                # Normalize the error vector
-                normalized_x = error_x / vector_magnitude
-                normalized_y = error_y / vector_magnitude
+                # Apply movements only where needed
+                normalized_x = error_x / vector_magnitude if need_pan_movement else 0
+                normalized_y = error_y / vector_magnitude if need_tilt_movement else 0
                 
                 # Scale movement based on distance - farther = faster
                 distance_factor = min(1.0, vector_magnitude / 300)  # Cap at 1.0
@@ -541,7 +579,7 @@ class HeadTrackingSystem(QObject):
                 
             # Send coordinated movement command
             current_time = time.time()
-            if current_time - self.last_update_time > 0.03:  # ~30Hz update rate for coordinated movement
+            if current_time - self.last_update_time > self.update_interval:  # Use configurable rate
                 self.send_coordinated_movement(pan_angle, tilt_angle)
                 self.last_update_time = current_time
                 
@@ -656,7 +694,7 @@ class HeadTrackingSystem(QObject):
                 
                 # Limit update rate to prevent overwhelming motors
                 current_time = time.time()
-                if current_time - self.last_update_time > 0.05:  # 20Hz max update rate
+                if current_time - self.last_update_time > self.update_interval:  # Use configurable rate
                     self.send_motor_command(self.pan_motor_id, new_pan_position)
                     self.last_update_time = current_time
                     
@@ -690,7 +728,7 @@ class HeadTrackingSystem(QObject):
                 
                 # Send tilt command with rate limiting
                 current_time = time.time()
-                if current_time - self.last_update_time > 0.05:  # 20Hz max update rate
+                if current_time - self.last_update_time > self.update_interval:  # Use configurable rate
                     self.send_motor_command(self.tilt_motor_id, new_tilt_position)
                     
                     # Log control values
@@ -753,7 +791,7 @@ class HeadTrackingUI(QMainWindow):
     
     def initUI(self):
         self.setWindowTitle('Head Tracking Control')
-        self.setGeometry(100, 100, 500, 550)  # Increased size for more controls
+        self.setGeometry(100, 100, 500, 600)  # Increased height for additional controls
         
         # Main widget and layout
         main_widget = QWidget()
@@ -793,25 +831,91 @@ class HeadTrackingUI(QMainWindow):
         tracking_group.setLayout(tracking_layout)
         main_layout.addWidget(tracking_group)
         
+        # Communication settings group
+        comm_group = QGroupBox("Communication Settings")
+        comm_layout = QVBoxLayout()
+        
+        # Update rate control
+        comm_layout.addWidget(QLabel("Update Rate (Hz):"))
+        update_rate_layout = QHBoxLayout()
+        
+        # Use a more precise spinbox for update rate
+        self.update_rate_spinbox = QDoubleSpinBox()
+        self.update_rate_spinbox.setRange(1.0, 100.0)
+        self.update_rate_spinbox.setValue(self.head_tracker.update_rate_hz)
+        self.update_rate_spinbox.setDecimals(1)
+        self.update_rate_spinbox.setSingleStep(1.0)
+        self.update_rate_spinbox.valueChanged.connect(self.update_rate_changed)
+        
+        # Also provide a slider for quick adjustments
+        self.update_rate_slider = QSlider(Qt.Horizontal)
+        self.update_rate_slider.setRange(10, 100)
+        self.update_rate_slider.setValue(int(self.head_tracker.update_rate_hz))
+        self.update_rate_slider.setTickPosition(QSlider.TicksBelow)
+        self.update_rate_slider.setTickInterval(10)
+        self.update_rate_slider.valueChanged.connect(self.update_rate_slider_changed)
+        
+        update_rate_layout.addWidget(self.update_rate_spinbox)
+        update_rate_layout.addWidget(self.update_rate_slider)
+        comm_layout.addLayout(update_rate_layout)
+        
+        # Baud rate dropdown
+        comm_layout.addWidget(QLabel("Baud Rate:"))
+        self.baud_rate_combo = QComboBox()
+        for rate in self.head_tracker.baudrate_options:
+            self.baud_rate_combo.addItem(f"{rate}", rate)
+        
+        # Set current value
+        current_index = self.baud_rate_combo.findData(self.head_tracker.baud_rate)
+        if current_index >= 0:
+            self.baud_rate_combo.setCurrentIndex(current_index)
+        
+        self.baud_rate_combo.currentIndexChanged.connect(self.baud_rate_changed)
+        comm_layout.addWidget(self.baud_rate_combo)
+        
+        # Add a note about baud rate
+        note_label = QLabel("Note: Baud rate changes may require restarting the motor service")
+        note_label.setStyleSheet("color: #666; font-size: 10px;")
+        comm_layout.addWidget(note_label)
+        
+        comm_group.setLayout(comm_layout)
+        main_layout.addWidget(comm_group)
+        
         # Movement Threshold Controls
-        threshold_group = QGroupBox("Movement Threshold")
+        threshold_group = QGroupBox("Movement Thresholds")
         threshold_layout = QVBoxLayout()
         
-        # Movement threshold slider with value display
-        threshold_layout.addWidget(QLabel("Movement Threshold (pixels):"))
-        threshold_control_layout = QHBoxLayout()
-        self.threshold_slider = QSlider(Qt.Horizontal)
-        self.threshold_slider.setRange(10, 100)  # 10-100 pixel range
-        self.threshold_slider.setValue(int(self.head_tracker.movement_threshold))
-        self.threshold_slider.setTickPosition(QSlider.TicksBelow)
-        self.threshold_slider.setTickInterval(10)
-        self.threshold_slider.valueChanged.connect(self.update_threshold)
+        # Pan threshold slider with value display
+        threshold_layout.addWidget(QLabel("Pan Threshold (pixels):"))
+        pan_threshold_layout = QHBoxLayout()
+        self.pan_threshold_slider = QSlider(Qt.Horizontal)
+        self.pan_threshold_slider.setRange(10, 100)  # 10-100 pixel range
+        self.pan_threshold_slider.setValue(int(self.head_tracker.pan_threshold))
+        self.pan_threshold_slider.setTickPosition(QSlider.TicksBelow)
+        self.pan_threshold_slider.setTickInterval(10)
+        self.pan_threshold_slider.valueChanged.connect(self.update_pan_threshold)
         
-        self.threshold_value_label = QLabel(f"{self.head_tracker.movement_threshold}")
+        self.pan_threshold_value_label = QLabel(f"{self.head_tracker.pan_threshold}")
         
-        threshold_control_layout.addWidget(self.threshold_slider)
-        threshold_control_layout.addWidget(self.threshold_value_label)
-        threshold_layout.addLayout(threshold_control_layout)
+        pan_threshold_layout.addWidget(self.pan_threshold_slider)
+        pan_threshold_layout.addWidget(self.pan_threshold_value_label)
+        threshold_layout.addLayout(pan_threshold_layout)
+        
+        # Tilt threshold slider with value display
+        threshold_layout.addWidget(QLabel("Tilt Threshold (pixels):"))
+        tilt_threshold_layout = QHBoxLayout()
+        self.tilt_threshold_slider = QSlider(Qt.Horizontal)
+        self.tilt_threshold_slider.setRange(5, 80)  # 5-80 pixel range (lower for vertical)
+        self.tilt_threshold_slider.setValue(int(self.head_tracker.tilt_threshold))
+        self.tilt_threshold_slider.setTickPosition(QSlider.TicksBelow)
+        self.tilt_threshold_slider.setTickInterval(5)
+        self.tilt_threshold_slider.valueChanged.connect(self.update_tilt_threshold)
+        
+        self.tilt_threshold_value_label = QLabel(f"{self.head_tracker.tilt_threshold}")
+        
+        tilt_threshold_layout.addWidget(self.tilt_threshold_slider)
+        tilt_threshold_layout.addWidget(self.tilt_threshold_value_label)
+        threshold_layout.addLayout(tilt_threshold_layout)
         
         threshold_group.setLayout(threshold_layout)
         main_layout.addWidget(threshold_group)
@@ -998,40 +1102,45 @@ class HeadTrackingUI(QMainWindow):
         tuning_group.setLayout(tuning_layout)
         main_layout.addWidget(tuning_group)
     
-    def update_threshold(self):
-        """Update movement threshold"""
-        value = self.threshold_slider.value()
-        self.head_tracker.movement_threshold = value
-        self.threshold_value_label.setText(f"{value}")
-        self.node.get_logger().info(f"Movement threshold set to {value} pixels")
+    def update_rate_changed(self):
+        """Handle update rate change from the spinbox"""
+        value = self.update_rate_spinbox.value()
+        # Update slider without triggering its callback
+        self.update_rate_slider.blockSignals(True)
+        self.update_rate_slider.setValue(int(value))
+        self.update_rate_slider.blockSignals(False)
+        # Update the tracking system
+        self.head_tracker.set_update_rate(value)
     
-    def update_min_pan_speed(self):
-        """Update minimum pan speed"""
-        value = float(self.min_pan_slider.value())
-        self.head_tracker.min_pan_speed = value
-        self.min_pan_value_label.setText(f"{value:.1f}")
-        self.node.get_logger().info(f"Min pan speed set to {value:.1f} deg/s")
+    def update_rate_slider_changed(self):
+        """Handle update rate change from the slider"""
+        value = float(self.update_rate_slider.value())
+        # Update spinbox without triggering its callback
+        self.update_rate_spinbox.blockSignals(True)
+        self.update_rate_spinbox.setValue(value)
+        self.update_rate_spinbox.blockSignals(False)
+        # Update the tracking system
+        self.head_tracker.set_update_rate(value)
     
-    def update_max_pan_speed(self):
-        """Update maximum pan speed"""
-        value = float(self.max_pan_slider.value())
-        self.head_tracker.max_pan_speed = value
-        self.max_pan_value_label.setText(f"{value:.1f}")
-        self.node.get_logger().info(f"Max pan speed set to {value:.1f} deg/s")
+    def baud_rate_changed(self):
+        """Handle baud rate change"""
+        value = self.baud_rate_combo.currentData()
+        if value:
+            self.head_tracker.set_baud_rate(value)
     
-    def update_min_tilt_speed(self):
-        """Update minimum tilt speed"""
-        value = float(self.min_tilt_slider.value())
-        self.head_tracker.min_tilt_speed = value
-        self.min_tilt_value_label.setText(f"{value:.1f}")
-        self.node.get_logger().info(f"Min tilt speed set to {value:.1f} deg/s")
+    def update_pan_threshold(self):
+        """Update pan movement threshold"""
+        value = self.pan_threshold_slider.value()
+        self.head_tracker.pan_threshold = value
+        self.pan_threshold_value_label.setText(f"{value}")
+        self.node.get_logger().info(f"Pan threshold set to {value} pixels")
     
-    def update_max_tilt_speed(self):
-        """Update maximum tilt speed"""
-        value = float(self.max_tilt_slider.value())
-        self.head_tracker.max_tilt_speed = value
-        self.max_tilt_value_label.setText(f"{value:.1f}")
-        self.node.get_logger().info(f"Max tilt speed set to {value:.1f} deg/s")
+    def update_tilt_threshold(self):
+        """Update tilt movement threshold"""
+        value = self.tilt_threshold_slider.value()
+        self.head_tracker.tilt_threshold = value
+        self.tilt_threshold_value_label.setText(f"{value}")
+        self.node.get_logger().info(f"Tilt threshold set to {value} pixels")
     
     def toggle_tracking(self, state):
         """Toggle head tracking"""
@@ -1096,6 +1205,34 @@ class HeadTrackingUI(QMainWindow):
         self.head_tracker.scan_speed = value
         self.scan_speed_value_label.setText(f"{value:.1f}")
         self.node.get_logger().info(f"Scan speed updated: {value:.1f}")
+    
+    def update_min_pan_speed(self):
+        """Update minimum pan speed"""
+        value = float(self.min_pan_slider.value())
+        self.head_tracker.min_pan_speed = value
+        self.min_pan_value_label.setText(f"{value:.1f}")
+        self.node.get_logger().info(f"Min pan speed set to {value:.1f} deg/s")
+    
+    def update_max_pan_speed(self):
+        """Update maximum pan speed"""
+        value = float(self.max_pan_slider.value())
+        self.head_tracker.max_pan_speed = value
+        self.max_pan_value_label.setText(f"{value:.1f}")
+        self.node.get_logger().info(f"Max pan speed set to {value:.1f} deg/s")
+    
+    def update_min_tilt_speed(self):
+        """Update minimum tilt speed"""
+        value = float(self.min_tilt_slider.value())
+        self.head_tracker.min_tilt_speed = value
+        self.min_tilt_value_label.setText(f"{value:.1f}")
+        self.node.get_logger().info(f"Min tilt speed set to {value:.1f} deg/s")
+    
+    def update_max_tilt_speed(self):
+        """Update maximum tilt speed"""
+        value = float(self.max_tilt_slider.value())
+        self.head_tracker.max_tilt_speed = value
+        self.max_tilt_value_label.setText(f"{value:.1f}")
+        self.node.get_logger().info(f"Max tilt speed set to {value:.1f} deg/s")
     
     def update_status(self, status):
         """Update status label"""
