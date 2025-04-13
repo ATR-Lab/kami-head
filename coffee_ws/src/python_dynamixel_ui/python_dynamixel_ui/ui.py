@@ -4,17 +4,37 @@ import sys
 import math
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, 
                             QVBoxLayout, QHBoxLayout, QLabel,
                             QPushButton, QCheckBox)
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QBrush
-from PyQt5.QtCore import Qt, QPoint, QRect
+from PyQt5.QtCore import Qt, QPoint, QRect, QTimer
+
+# Import Dynamixel SDK interfaces
+from dynamixel_sdk_custom_interfaces.msg import SetPosition
+from dynamixel_sdk_custom_interfaces.srv import GetPosition
+
+# Default settings from the read_write_node example
+DXL_PAN_ID = 1   # Pan motor ID
+DXL_TILT_ID = 2  # Tilt motor ID
+
+# Constants for position conversion
+# Dynamixel position range is typically 0-4095 for a full 360 degrees
+# In the UI we use 0-360 degrees, so we need conversion
+MIN_POSITION = 0
+MAX_POSITION = 4095
+POSITION_RANGE = MAX_POSITION - MIN_POSITION
+DEGREES_PER_POSITION = 360.0 / POSITION_RANGE
+POSITIONS_PER_DEGREE = POSITION_RANGE / 360.0
 
 class MotorControlWidget(QWidget):
-    def __init__(self, motor_name="Motor", parent=None):
+    def __init__(self, motor_id, motor_name="Motor", parent=None):
         super().__init__(parent)
+        self.motor_id = motor_id
         self.motor_name = motor_name
         self.angle = 0  # Angle in degrees
+        self.position = 0  # Position in Dynamixel units (0-4095)
         self.radius = 100
         self.circle_center = QPoint(self.radius + 20, self.radius + 20)
         self.dragging = False
@@ -49,6 +69,12 @@ class MotorControlWidget(QWidget):
         controls_layout.addWidget(self.reset_button)
         
         self.main_layout.addLayout(controls_layout)
+        
+        # Conversion helpers
+        self.rosnode = None  # Will be set by parent
+
+    def set_ros_node(self, node):
+        self.rosnode = node
 
     def paintCircleWidget(self, event):
         painter = QPainter(self.circle_widget)
@@ -69,7 +95,7 @@ class MotorControlWidget(QWidget):
         painter.drawText(name_rect, Qt.AlignCenter, self.motor_name)
         
         # Draw angle text
-        angle_text = f"{self.angle:.1f}°"
+        angle_text = f"{self.angle:.1f}°  (Pos: {self.position})"
         painter.drawText(name_rect.translated(0, 25), Qt.AlignCenter, angle_text)
         
         # Draw line from center to edge (like a clock hand)
@@ -102,6 +128,9 @@ class MotorControlWidget(QWidget):
 
     def circleMouseReleaseEvent(self, event):
         self.dragging = False
+        if self.torque_enabled and self.rosnode:
+            # Send final position to motor when releasing
+            self.send_position_to_motor()
 
     def updateAngle(self, x, y):
         # Calculate angle from center to mouse point
@@ -112,31 +141,65 @@ class MotorControlWidget(QWidget):
         # Normalize to 0-360 range
         self.angle = angle % 360
         
+        # Convert angle to Dynamixel position
+        self.position = int(self.angle * POSITIONS_PER_DEGREE)
+        
         # Update display
         self.circle_widget.update()
         
-        # In a real application, you would send the angle to the Dynamixel motor
-        print(f"{self.motor_name} angle set to: {self.angle:.1f}°")
+        # Only send to motor if dragging stopped (to reduce traffic)
+        # Full position will be sent when mouse is released
+
+    def send_position_to_motor(self):
+        if self.rosnode and self.torque_enabled:
+            msg = SetPosition()
+            msg.id = self.motor_id
+            msg.position = self.position
+            self.rosnode.publisher.publish(msg)
+            self.rosnode.get_logger().info(f"{self.motor_name} (ID: {self.motor_id}) position set to: {self.position}")
     
     def toggleTorque(self, state):
         self.torque_enabled = bool(state)
         self.circle_widget.update()
-        print(f"{self.motor_name} torque {'enabled' if self.torque_enabled else 'disabled'}")
+        if self.rosnode:
+            self.rosnode.get_logger().info(f"{self.motor_name} (ID: {self.motor_id}) torque {'enabled' if self.torque_enabled else 'disabled'}")
+            # In a real implementation, you would send torque command to motor here
+            # However, the example doesn't have a direct torque toggle topic
+            # You would need to add this functionality to the read_write_node
     
     def resetPosition(self):
         self.angle = 0
+        self.position = 0
         self.circle_widget.update()
-        print(f"{self.motor_name} position reset to 0°")
+        
+        if self.rosnode and self.torque_enabled:
+            self.rosnode.get_logger().info(f"{self.motor_name} (ID: {self.motor_id}) position reset to 0")
+            self.send_position_to_motor()
+    
+    def set_position_from_motor(self, position):
+        # Update UI from motor position
+        self.position = position
+        self.angle = (position * DEGREES_PER_POSITION) % 360
+        self.circle_widget.update()
 
 
 class DynamixelControlUI(QMainWindow):
-    def __init__(self):
+    def __init__(self, node):
         super().__init__()
+        self.node = node
         self.initUI()
+        
+        # Create a timer to periodically refresh motor positions
+        self.refresh_timer = QTimer()
+        self.refresh_timer.timeout.connect(self.refresh_motor_positions)
+        self.refresh_timer.start(1000)  # Refresh every second
+        
+        # Initial motor position read
+        self.read_motor_positions()
         
     def initUI(self):
         self.setWindowTitle('Dynamixel Motor Control')
-        self.setGeometry(100, 100, 600, 500)  # Made the window taller
+        self.setGeometry(100, 100, 600, 500)
         
         # Main widget and layout
         main_widget = QWidget()
@@ -153,30 +216,100 @@ class DynamixelControlUI(QMainWindow):
         motors_layout = QHBoxLayout()
         
         # Pan motor control
-        self.pan_motor = MotorControlWidget("Pan Motor")
+        self.pan_motor = MotorControlWidget(DXL_PAN_ID, "Pan Motor")
+        self.pan_motor.set_ros_node(self.node)
         motors_layout.addWidget(self.pan_motor)
         
         # Tilt motor control
-        self.tilt_motor = MotorControlWidget("Tilt Motor")
+        self.tilt_motor = MotorControlWidget(DXL_TILT_ID, "Tilt Motor")
+        self.tilt_motor.set_ros_node(self.node)
         motors_layout.addWidget(self.tilt_motor)
         
         main_layout.addLayout(motors_layout)
+    
+    def read_motor_positions(self):
+        """Read current motor positions from the motors"""
+        self.node.get_logger().info('Reading motor positions...')
+        self.get_motor_position(DXL_PAN_ID, self.pan_motor)
+        self.get_motor_position(DXL_TILT_ID, self.tilt_motor)
+    
+    def get_motor_position(self, motor_id, motor_widget):
+        """Get position for a specific motor"""
+        client = self.node.create_client(GetPosition, 'get_position')
+        
+        while not client.wait_for_service(timeout_sec=1.0):
+            self.node.get_logger().info('Waiting for get_position service...')
+        
+        request = GetPosition.Request()
+        request.id = motor_id
+        
+        future = client.call_async(request)
+        future.add_done_callback(
+            lambda f: self.process_position_response(f, motor_widget)
+        )
+    
+    def process_position_response(self, future, motor_widget):
+        """Process the response from the get_position service"""
+        try:
+            response = future.result()
+            self.node.get_logger().info(f'Received position {response.position} for motor ID {motor_widget.motor_id}')
+            motor_widget.set_position_from_motor(response.position)
+        except Exception as e:
+            self.node.get_logger().error(f'Service call failed: {e}')
+    
+    def refresh_motor_positions(self):
+        """Periodically refresh motor positions"""
+        self.read_motor_positions()
+        
+    def closeEvent(self, event):
+        """Handle window close event to stop the timer"""
+        self.refresh_timer.stop()
+        event.accept()
+
+
+class DynamixelUINode(Node):
+    def __init__(self):
+        super().__init__('dynamixel_ui_node')
+        
+        # Set up QoS profile
+        qos = QoSProfile(depth=10)
+        
+        # Create publisher to send position commands
+        self.publisher = self.create_publisher(
+            SetPosition,
+            'set_position',
+            qos
+        )
+        
+        self.get_logger().info('DynamixelUINode is running')
+        
+        # Start the UI
+        app = QApplication(sys.argv)
+        self.ui = DynamixelControlUI(self)
+        self.ui.show()
+        
+        # Start a background thread for ROS spinning
+        from threading import Thread
+        self.ros_thread = Thread(target=self.spin_thread)
+        self.ros_thread.daemon = True
+        self.ros_thread.start()
+        
+        # Start Qt event loop
+        app.exec_()
+    
+    def spin_thread(self):
+        """Background thread for ROS spinning"""
+        rclpy.spin(self)
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = Node('dynamixel_ui')
-    
-    app = QApplication(sys.argv)
-    window = DynamixelControlUI()
-    window.show()
     
     try:
-        app.exec_()
+        node = DynamixelUINode()
     except KeyboardInterrupt:
         pass
     finally:
-        node.destroy_node()
         rclpy.shutdown()
 
 
