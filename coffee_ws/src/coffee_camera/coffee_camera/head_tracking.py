@@ -7,6 +7,7 @@ import time
 import sys
 import cv2
 import json
+import math  # Added for vector calculations
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from std_msgs.msg import String
@@ -88,7 +89,10 @@ class HeadTrackingSystem(QObject):
         self.center_x = self.frame_width // 2
         self.center_y = self.frame_height // 2
         
-        # Deadzone region where we don't move motors (to prevent jitter)
+        # Vector-based movement threshold
+        self.movement_threshold = 40  # Pixels - only move if vector magnitude exceeds this
+        
+        # Individual deadzone region used for display purposes
         self.deadzone_x = 60  # Increased deadzone for smoother movement
         self.deadzone_y = 30  # pixels from center
         
@@ -116,9 +120,13 @@ class HeadTrackingSystem(QObject):
         self.scan_timer = None
         self.current_scan_angle = self.default_pan_angle
         
-        # Smoothing for pan movements
+        # Smoothing for movement
         self.target_pan_angle = self.default_pan_angle
+        self.target_tilt_angle = self.default_tilt_angle
         self.smoothing_factor = 0.85  # Higher = smoother but slower response (between 0-1)
+        
+        # Add toggle for PID smoothing
+        self.use_pid_smoothing = True  # Default on - can be toggled from UI
         
         # Dynamixel position conversion
         self.min_position = 0
@@ -131,6 +139,12 @@ class HeadTrackingSystem(QObject):
         # Lower kp, higher kd for smoother movement
         self.pan_pid = PIDController(kp=0.1, ki=0.005, kd=0.08, output_limits=(-5, 5))
         self.tilt_pid = PIDController(kp=0.15, ki=0.01, kd=0.05, output_limits=(-8, 8))
+        
+        # Parameters for coordinated movement
+        self.min_pan_speed = 1.0   # deg/s
+        self.min_tilt_speed = 1.0  # deg/s
+        self.max_pan_speed = 20.0  # deg/s - higher for faster response
+        self.max_tilt_speed = 15.0 # deg/s - slightly slower for tilt
         
         # Create ROS publisher for motor control
         qos = QoSProfile(depth=10)
@@ -150,6 +164,8 @@ class HeadTrackingSystem(QObject):
         
         # Initialize motor positions
         self.last_update_time = time.time()
+        self.last_pan_update_time = time.time()
+        self.last_tilt_update_time = time.time()
         
         # Read initial motor positions
         self.read_motor_positions()
@@ -352,6 +368,119 @@ class HeadTrackingSystem(QObject):
         elif motor_id == self.tilt_motor_id:
             self.current_tilt_position = position
     
+    def set_pid_smoothing(self, enabled):
+        """Enable or disable PID smoothing"""
+        self.use_pid_smoothing = enabled
+        
+        # Reset PIDs if toggling
+        if enabled:
+            self.pan_pid.reset()
+            self.tilt_pid.reset()
+        
+        self.node.get_logger().info(f"PID smoothing {'enabled' if enabled else 'disabled'}")
+    
+    def send_coordinated_movement(self, pan_angle, tilt_angle):
+        """Send coordinated movement commands to both motors simultaneously"""
+        # Convert angles to positions
+        pan_position = int(pan_angle * self.positions_per_degree)
+        tilt_position = int(tilt_angle * self.positions_per_degree)
+        
+        # Send both commands in quick succession
+        self.send_motor_command(self.pan_motor_id, pan_position)
+        self.send_motor_command(self.tilt_motor_id, tilt_position)
+        
+        # Log the coordinated command
+        self.node.get_logger().debug(
+            f"Coordinated movement: Pan={pan_angle:.1f}°, Tilt={tilt_angle:.1f}°"
+        )
+    
+    def calculate_coordinated_movement(self, face):
+        """Calculate coordinated movement vector to target face"""
+        # Calculate error from center of frame
+        error_x = self.center_x - face['center_x']
+        error_y = self.center_y - face['center_y']
+        
+        # Calculate vector magnitude (distance from center)
+        vector_magnitude = math.sqrt(error_x**2 + error_y**2)
+        
+        # If magnitude is below threshold, don't move
+        if vector_magnitude < self.movement_threshold:
+            return None, None, 0, 0, 0
+        
+        # Current angles
+        current_pan_angle = (self.current_pan_position * self.degrees_per_position) % 360
+        current_tilt_angle = (self.current_tilt_position * self.degrees_per_position) % 360
+        
+        if self.use_pid_smoothing:
+            # PID-based approach
+            # Calculate the adjustments using PIDs
+            pan_adjustment = self.pan_pid.compute(0, -error_x)
+            tilt_adjustment = self.tilt_pid.compute(0, -error_y)
+            
+            # Calculate new angles
+            new_pan_angle = current_pan_angle + pan_adjustment
+            new_tilt_angle = current_tilt_angle + tilt_adjustment
+            
+            # Apply margins near limits
+            margin = 5.0  # degrees from limit
+            if new_tilt_angle > (self.tilt_max_angle - margin):
+                factor = 1.0 - ((new_tilt_angle - (self.tilt_max_angle - margin)) / margin)
+                tilt_adjustment *= max(0.3, factor)
+                new_tilt_angle = current_tilt_angle + tilt_adjustment
+            elif new_tilt_angle < (self.tilt_min_angle + margin):
+                factor = 1.0 - (((self.tilt_min_angle + margin) - new_tilt_angle) / margin)
+                tilt_adjustment *= max(0.3, factor)
+                new_tilt_angle = current_tilt_angle + tilt_adjustment
+            
+            # Apply smoothing for less jittery movement
+            smoothed_pan_angle = (self.smoothing_factor * current_pan_angle) + ((1.0 - self.smoothing_factor) * new_pan_angle)
+            smoothed_tilt_angle = (self.smoothing_factor * current_tilt_angle) + ((1.0 - self.smoothing_factor) * new_tilt_angle)
+            
+            # Ensure angles are within valid range
+            smoothed_pan_angle = max(self.pan_min_angle, min(self.pan_max_angle, smoothed_pan_angle))
+            smoothed_tilt_angle = max(self.tilt_min_angle, min(self.tilt_max_angle, smoothed_tilt_angle))
+            
+            return smoothed_pan_angle, smoothed_tilt_angle, error_x, error_y, vector_magnitude
+        else:
+            # Direct proportional approach
+            # Scale the errors to angles (with gain factors)
+            pan_gain = 0.05  # Direct proportional gain
+            tilt_gain = 0.04  # Direct proportional gain
+            
+            # Normalize the vector for consistent movement speed
+            if vector_magnitude > 0:
+                # Normalize the error vector
+                normalized_x = error_x / vector_magnitude
+                normalized_y = error_y / vector_magnitude
+                
+                # Scale movement based on distance - farther = faster
+                distance_factor = min(1.0, vector_magnitude / 300)  # Cap at 1.0
+                
+                # Apply graduated speed based on distance
+                pan_speed = self.min_pan_speed + distance_factor * (self.max_pan_speed - self.min_pan_speed)
+                tilt_speed = self.min_tilt_speed + distance_factor * (self.max_tilt_speed - self.min_tilt_speed)
+                
+                # Calculate adjustments with normalized direction and variable speed
+                pan_adjustment = -normalized_x * pan_speed * 0.05  # Time factor for smooth movement
+                tilt_adjustment = -normalized_y * tilt_speed * 0.05
+            else:
+                pan_adjustment = 0
+                tilt_adjustment = 0
+            
+            # Calculate new angles
+            new_pan_angle = current_pan_angle + pan_adjustment
+            new_tilt_angle = current_tilt_angle + tilt_adjustment
+            
+            # Ensure angles are within valid range
+            new_pan_angle = max(self.pan_min_angle, min(self.pan_max_angle, new_pan_angle))
+            new_tilt_angle = max(self.tilt_min_angle, min(self.tilt_max_angle, new_tilt_angle))
+            
+            # Apply smoothing for less jittery movement
+            smoothed_pan_angle = (self.smoothing_factor * current_pan_angle) + ((1.0 - self.smoothing_factor) * new_pan_angle)
+            smoothed_tilt_angle = (self.smoothing_factor * current_tilt_angle) + ((1.0 - self.smoothing_factor) * new_tilt_angle)
+            
+            return smoothed_pan_angle, smoothed_tilt_angle, error_x, error_y, vector_magnitude
+    
     def process_faces_data(self, faces):
         """Process face data received from camera_node.py (no frame needed)"""
         if not self.tracking_enabled:
@@ -399,108 +528,31 @@ class HeadTrackingSystem(QObject):
         if self.target_face is not None and self.target_face < len(faces):
             face = faces[self.target_face]
             
-            # Calculate error from center of frame
-            error_x = self.center_x - face['center_x']
-            error_y = self.center_y - face['center_y']
+            # Calculate coordinated movement to target
+            pan_angle, tilt_angle, error_x, error_y, vector_magnitude = self.calculate_coordinated_movement(face)
             
-            # Track both horizontally and vertically now
-            if abs(error_x) > self.deadzone_x:
-                # Calculate PID outputs - invert error_x for correct pan direction
-                pan_adjustment = self.pan_pid.compute(0, -error_x)  # Negative to match motor directions
-                
-                # Current positions in degrees
-                current_pan_angle = (self.current_pan_position * self.degrees_per_position) % 360
-                
-                # Calculate new pan angle
-                new_pan_angle = current_pan_angle + pan_adjustment
-                
-                # Ensure angle is within valid range
-                new_pan_angle = max(self.pan_min_angle, min(new_pan_angle, self.pan_max_angle))
-                
-                # Set as target for smoothing
-                self.target_pan_angle = new_pan_angle
-                
-                # Apply smoothing for less jittery movement
-                smoothed_angle = self.apply_smoothing(self.target_pan_angle)
-                
-                # Update scan angle to current position
-                self.current_scan_angle = smoothed_angle
-                
-                # Convert to motor position
-                new_pan_position = int(smoothed_angle * self.positions_per_degree)
-                
-                # Limit update rate to prevent overwhelming motors
-                current_time = time.time()
-                if current_time - self.last_update_time > 0.05:  # 20Hz max update rate
-                    self.send_motor_command(self.pan_motor_id, new_pan_position)
-                    self.last_update_time = current_time
-                    
-                    # Log control values
-                    self.node.get_logger().debug(
-                        f"Error X: {error_x}, "
-                        f"PID: {pan_adjustment:.2f}, "
-                        f"Angle: {smoothed_angle:.1f}"
-                    )
+            # Skip if no movement needed
+            if pan_angle is None:
+                # Face is close enough to center - no movement needed
+                return
             
-            # Add tilt control based on vertical error
-            if abs(error_y) > self.deadzone_y:
-                # Calculate PID output for tilt
-                # FIXED: Invert the error_y for correct tilt behavior
-                # When face is above center (negative error_y), tilt up (toward 225)
-                # When face is below center (positive error_y), tilt down (toward 135)
-                tilt_adjustment = self.tilt_pid.compute(0, -error_y)  # Inverted to match correct direction
+            # Update current scan angle for scanning continuity
+            self.current_scan_angle = pan_angle
                 
-                # Current tilt angle in degrees
-                current_tilt_angle = (self.current_tilt_position * self.degrees_per_position) % 360
+            # Send coordinated movement command
+            current_time = time.time()
+            if current_time - self.last_update_time > 0.03:  # ~30Hz update rate for coordinated movement
+                self.send_coordinated_movement(pan_angle, tilt_angle)
+                self.last_update_time = current_time
                 
-                # Log the current and target angles
+                # Log tracking data
                 self.node.get_logger().debug(
-                    f"Tilt: current={current_tilt_angle:.1f}, error_y={error_y}, " +
-                    f"adjustment={tilt_adjustment:.2f}"
+                    f"Vector: mag={vector_magnitude:.1f}, coords=({error_x:.1f}, {error_y:.1f}), " +
+                    f"Pan={pan_angle:.1f}°, Tilt={tilt_angle:.1f}°"
                 )
-                
-                # Calculate new tilt angle
-                new_tilt_angle = current_tilt_angle + tilt_adjustment
-                
-                # Ensure angle is within valid range (135=down, 225=up, 180=forward)
-                new_tilt_angle = max(self.tilt_min_angle, min(new_tilt_angle, self.tilt_max_angle))
-                
-                # Apply a non-linear damping when close to limits to prevent oscillation
-                margin = 5.0  # degrees from limit
-                if new_tilt_angle > (self.tilt_max_angle - margin):
-                    # Close to upper limit (looking up)
-                    factor = 1.0 - ((new_tilt_angle - (self.tilt_max_angle - margin)) / margin)
-                    tilt_adjustment *= max(0.3, factor)  # Slow down but don't completely stop
-                    new_tilt_angle = current_tilt_angle + tilt_adjustment
-                elif new_tilt_angle < (self.tilt_min_angle + margin):
-                    # Close to lower limit (looking down)
-                    factor = 1.0 - (((self.tilt_min_angle + margin) - new_tilt_angle) / margin)
-                    tilt_adjustment *= max(0.3, factor)  # Slow down but don't completely stop
-                    new_tilt_angle = current_tilt_angle + tilt_adjustment
-                
-                # Apply stronger smoothing to tilt movement than pan
-                # Increase this factor to reduce tilt jitter
-                tilt_smoothing = 0.8  # Higher = smoother but slower
-                smoothed_tilt = (tilt_smoothing * current_tilt_angle) + ((1.0 - tilt_smoothing) * new_tilt_angle)
-                
-                # Convert to motor position
-                new_tilt_position = int(smoothed_tilt * self.positions_per_degree)
-                
-                # Send tilt command with rate limiting
-                current_time = time.time()
-                if current_time - self.last_update_time > 0.05:  # 20Hz max update rate
-                    self.send_motor_command(self.tilt_motor_id, new_tilt_position)
-                    
-                    # Log control values
-                    self.node.get_logger().debug(
-                        f"Error Y: {error_y}, "
-                        f"PID: {tilt_adjustment:.2f}, "
-                        f"Target: {new_tilt_angle:.1f}, "
-                        f"Smoothed: {smoothed_tilt:.1f}"
-                    )
             
             # Update tracking status
-            self.tracking_status.emit(f"Tracking: C={face['confidence']:.2f} X={error_x} Y={error_y}")
+            self.tracking_status.emit(f"Tracking: C={face['confidence']:.2f} D={vector_magnitude:.1f}")
             
         else:
             # If we lost the target face, clear the target and search again
@@ -675,6 +727,7 @@ class HeadTrackingSystem(QObject):
         # Reset scan angle
         self.current_scan_angle = self.default_pan_angle
         self.target_pan_angle = self.default_pan_angle
+        self.target_tilt_angle = self.default_tilt_angle
         
         # Reset PID controllers
         self.pan_pid.reset()
@@ -700,7 +753,7 @@ class HeadTrackingUI(QMainWindow):
     
     def initUI(self):
         self.setWindowTitle('Head Tracking Control')
-        self.setGeometry(100, 100, 400, 350)
+        self.setGeometry(100, 100, 500, 550)  # Increased size for more controls
         
         # Main widget and layout
         main_widget = QWidget()
@@ -730,62 +783,255 @@ class HeadTrackingUI(QMainWindow):
         self.reset_button.clicked.connect(self.reset_head_position)
         tracking_layout.addWidget(self.reset_button)
         
+        # PID Smoothing toggle
+        self.pid_smoothing_checkbox = QCheckBox("Use PID Smoothing")
+        self.pid_smoothing_checkbox.setChecked(self.head_tracker.use_pid_smoothing)
+        self.pid_smoothing_checkbox.stateChanged.connect(self.toggle_pid_smoothing)
+        tracking_layout.addWidget(self.pid_smoothing_checkbox)
+        
         # Add to main layout
         tracking_group.setLayout(tracking_layout)
         main_layout.addWidget(tracking_group)
         
+        # Movement Threshold Controls
+        threshold_group = QGroupBox("Movement Threshold")
+        threshold_layout = QVBoxLayout()
+        
+        # Movement threshold slider with value display
+        threshold_layout.addWidget(QLabel("Movement Threshold (pixels):"))
+        threshold_control_layout = QHBoxLayout()
+        self.threshold_slider = QSlider(Qt.Horizontal)
+        self.threshold_slider.setRange(10, 100)  # 10-100 pixel range
+        self.threshold_slider.setValue(int(self.head_tracker.movement_threshold))
+        self.threshold_slider.setTickPosition(QSlider.TicksBelow)
+        self.threshold_slider.setTickInterval(10)
+        self.threshold_slider.valueChanged.connect(self.update_threshold)
+        
+        self.threshold_value_label = QLabel(f"{self.head_tracker.movement_threshold}")
+        
+        threshold_control_layout.addWidget(self.threshold_slider)
+        threshold_control_layout.addWidget(self.threshold_value_label)
+        threshold_layout.addLayout(threshold_control_layout)
+        
+        threshold_group.setLayout(threshold_layout)
+        main_layout.addWidget(threshold_group)
+        
+        # Movement Speed Controls
+        speed_group = QGroupBox("Pan/Tilt Speed Settings")
+        speed_layout = QVBoxLayout()
+        
+        # Min Pan Speed
+        speed_layout.addWidget(QLabel("Min Pan Speed (deg/s):"))
+        min_pan_layout = QHBoxLayout()
+        self.min_pan_slider = QSlider(Qt.Horizontal)
+        self.min_pan_slider.setRange(1, 10)
+        self.min_pan_slider.setValue(int(self.head_tracker.min_pan_speed))
+        self.min_pan_slider.valueChanged.connect(self.update_min_pan_speed)
+        self.min_pan_value_label = QLabel(f"{self.head_tracker.min_pan_speed:.1f}")
+        min_pan_layout.addWidget(self.min_pan_slider)
+        min_pan_layout.addWidget(self.min_pan_value_label)
+        speed_layout.addLayout(min_pan_layout)
+        
+        # Max Pan Speed
+        speed_layout.addWidget(QLabel("Max Pan Speed (deg/s):"))
+        max_pan_layout = QHBoxLayout()
+        self.max_pan_slider = QSlider(Qt.Horizontal)
+        self.max_pan_slider.setRange(10, 50)
+        self.max_pan_slider.setValue(int(self.head_tracker.max_pan_speed))
+        self.max_pan_slider.valueChanged.connect(self.update_max_pan_speed)
+        self.max_pan_value_label = QLabel(f"{self.head_tracker.max_pan_speed:.1f}")
+        max_pan_layout.addWidget(self.max_pan_slider)
+        max_pan_layout.addWidget(self.max_pan_value_label)
+        speed_layout.addLayout(max_pan_layout)
+        
+        # Min Tilt Speed
+        speed_layout.addWidget(QLabel("Min Tilt Speed (deg/s):"))
+        min_tilt_layout = QHBoxLayout()
+        self.min_tilt_slider = QSlider(Qt.Horizontal)
+        self.min_tilt_slider.setRange(1, 10)
+        self.min_tilt_slider.setValue(int(self.head_tracker.min_tilt_speed))
+        self.min_tilt_slider.valueChanged.connect(self.update_min_tilt_speed)
+        self.min_tilt_value_label = QLabel(f"{self.head_tracker.min_tilt_speed:.1f}")
+        min_tilt_layout.addWidget(self.min_tilt_slider)
+        min_tilt_layout.addWidget(self.min_tilt_value_label)
+        speed_layout.addLayout(min_tilt_layout)
+        
+        # Max Tilt Speed
+        speed_layout.addWidget(QLabel("Max Tilt Speed (deg/s):"))
+        max_tilt_layout = QHBoxLayout()
+        self.max_tilt_slider = QSlider(Qt.Horizontal)
+        self.max_tilt_slider.setRange(10, 50)
+        self.max_tilt_slider.setValue(int(self.head_tracker.max_tilt_speed))
+        self.max_tilt_slider.valueChanged.connect(self.update_max_tilt_speed)
+        self.max_tilt_value_label = QLabel(f"{self.head_tracker.max_tilt_speed:.1f}")
+        max_tilt_layout.addWidget(self.max_tilt_slider)
+        max_tilt_layout.addWidget(self.max_tilt_value_label)
+        speed_layout.addLayout(max_tilt_layout)
+        
+        speed_group.setLayout(speed_layout)
+        main_layout.addWidget(speed_group)
+        
         # PID tuning controls
-        tuning_group = QGroupBox("Pan Tuning")
+        tuning_group = QGroupBox("PID Tuning")
         tuning_layout = QVBoxLayout()
         
         # Pan PID controls
+        tuning_layout.addWidget(QLabel("Pan PID:"))
         pan_layout = QHBoxLayout()
-        pan_layout.addWidget(QLabel("P:"))
+        
+        # P control
+        p_layout = QVBoxLayout()
+        p_layout.addWidget(QLabel("P:"))
+        p_control_layout = QHBoxLayout()
         self.pan_p_slider = QSlider(Qt.Horizontal)
-        self.pan_p_slider.setRange(0, 50)  # Reduced range for finer control
+        self.pan_p_slider.setRange(0, 50)  # Finer control
         self.pan_p_slider.setValue(int(self.head_tracker.pan_pid.kp * 100))
         self.pan_p_slider.valueChanged.connect(self.update_pan_pid)
-        pan_layout.addWidget(self.pan_p_slider)
+        self.pan_p_value_label = QLabel(f"{self.head_tracker.pan_pid.kp:.2f}")
+        p_control_layout.addWidget(self.pan_p_slider)
+        p_control_layout.addWidget(self.pan_p_value_label)
+        p_layout.addLayout(p_control_layout)
+        pan_layout.addLayout(p_layout)
         
-        pan_layout.addWidget(QLabel("I:"))
+        # I control
+        i_layout = QVBoxLayout()
+        i_layout.addWidget(QLabel("I:"))
+        i_control_layout = QHBoxLayout()
         self.pan_i_slider = QSlider(Qt.Horizontal)
-        self.pan_i_slider.setRange(0, 50)  # Reduced range for finer control
-        self.pan_i_slider.setValue(int(self.head_tracker.pan_pid.ki * 100))
+        self.pan_i_slider.setRange(0, 50)
+        self.pan_i_slider.setValue(int(self.head_tracker.pan_pid.ki * 1000))
         self.pan_i_slider.valueChanged.connect(self.update_pan_pid)
-        pan_layout.addWidget(self.pan_i_slider)
+        self.pan_i_value_label = QLabel(f"{self.head_tracker.pan_pid.ki:.3f}")
+        i_control_layout.addWidget(self.pan_i_slider)
+        i_control_layout.addWidget(self.pan_i_value_label)
+        i_layout.addLayout(i_control_layout)
+        pan_layout.addLayout(i_layout)
         
-        pan_layout.addWidget(QLabel("D:"))
+        # D control
+        d_layout = QVBoxLayout()
+        d_layout.addWidget(QLabel("D:"))
+        d_control_layout = QHBoxLayout()
         self.pan_d_slider = QSlider(Qt.Horizontal)
-        self.pan_d_slider.setRange(0, 50)  # Reduced range for finer control
+        self.pan_d_slider.setRange(0, 50)
         self.pan_d_slider.setValue(int(self.head_tracker.pan_pid.kd * 100))
         self.pan_d_slider.valueChanged.connect(self.update_pan_pid)
-        pan_layout.addWidget(self.pan_d_slider)
+        self.pan_d_value_label = QLabel(f"{self.head_tracker.pan_pid.kd:.2f}")
+        d_control_layout.addWidget(self.pan_d_slider)
+        d_control_layout.addWidget(self.pan_d_value_label)
+        d_layout.addLayout(d_control_layout)
+        pan_layout.addLayout(d_layout)
         
         tuning_layout.addLayout(pan_layout)
         
+        # Tilt PID controls
+        tuning_layout.addWidget(QLabel("Tilt PID:"))
+        tilt_layout = QHBoxLayout()
+        
+        # P control
+        p_layout = QVBoxLayout()
+        p_layout.addWidget(QLabel("P:"))
+        p_control_layout = QHBoxLayout()
+        self.tilt_p_slider = QSlider(Qt.Horizontal)
+        self.tilt_p_slider.setRange(0, 50)
+        self.tilt_p_slider.setValue(int(self.head_tracker.tilt_pid.kp * 100))
+        self.tilt_p_slider.valueChanged.connect(self.update_tilt_pid)
+        self.tilt_p_value_label = QLabel(f"{self.head_tracker.tilt_pid.kp:.2f}")
+        p_control_layout.addWidget(self.tilt_p_slider)
+        p_control_layout.addWidget(self.tilt_p_value_label)
+        p_layout.addLayout(p_control_layout)
+        tilt_layout.addLayout(p_layout)
+        
+        # I control
+        i_layout = QVBoxLayout()
+        i_layout.addWidget(QLabel("I:"))
+        i_control_layout = QHBoxLayout()
+        self.tilt_i_slider = QSlider(Qt.Horizontal)
+        self.tilt_i_slider.setRange(0, 50)
+        self.tilt_i_slider.setValue(int(self.head_tracker.tilt_pid.ki * 1000))
+        self.tilt_i_slider.valueChanged.connect(self.update_tilt_pid)
+        self.tilt_i_value_label = QLabel(f"{self.head_tracker.tilt_pid.ki:.3f}")
+        i_control_layout.addWidget(self.tilt_i_slider)
+        i_control_layout.addWidget(self.tilt_i_value_label)
+        i_layout.addLayout(i_control_layout)
+        tilt_layout.addLayout(i_layout)
+        
+        # D control
+        d_layout = QVBoxLayout()
+        d_layout.addWidget(QLabel("D:"))
+        d_control_layout = QHBoxLayout()
+        self.tilt_d_slider = QSlider(Qt.Horizontal)
+        self.tilt_d_slider.setRange(0, 50)
+        self.tilt_d_slider.setValue(int(self.head_tracker.tilt_pid.kd * 100))
+        self.tilt_d_slider.valueChanged.connect(self.update_tilt_pid)
+        self.tilt_d_value_label = QLabel(f"{self.head_tracker.tilt_pid.kd:.2f}")
+        d_control_layout.addWidget(self.tilt_d_slider)
+        d_control_layout.addWidget(self.tilt_d_value_label)
+        d_layout.addLayout(d_control_layout)
+        tilt_layout.addLayout(d_layout)
+        
+        tuning_layout.addLayout(tilt_layout)
+        
         # Smoothing slider
+        tuning_layout.addWidget(QLabel("Smoothing:"))
         smoothing_layout = QHBoxLayout()
-        smoothing_layout.addWidget(QLabel("Smoothing:"))
         self.smoothing_slider = QSlider(Qt.Horizontal)
         self.smoothing_slider.setRange(50, 95)  # 0.5 to 0.95
         self.smoothing_slider.setValue(int(self.head_tracker.smoothing_factor * 100))
         self.smoothing_slider.valueChanged.connect(self.update_smoothing)
+        self.smoothing_value_label = QLabel(f"{self.head_tracker.smoothing_factor:.2f}")
         smoothing_layout.addWidget(self.smoothing_slider)
+        smoothing_layout.addWidget(self.smoothing_value_label)
         tuning_layout.addLayout(smoothing_layout)
         
         # Scanning controls
+        tuning_layout.addWidget(QLabel("Scan Speed:"))
         scan_layout = QHBoxLayout()
-        scan_layout.addWidget(QLabel("Scan Speed:"))
         self.scan_speed_slider = QSlider(Qt.Horizontal)
-        self.scan_speed_slider.setRange(1, 10)  # Reduced range for smoother scanning
+        self.scan_speed_slider.setRange(1, 10)
         self.scan_speed_slider.setValue(int(self.head_tracker.scan_speed))
         self.scan_speed_slider.valueChanged.connect(self.update_scan_speed)
+        self.scan_speed_value_label = QLabel(f"{self.head_tracker.scan_speed:.1f}")
         scan_layout.addWidget(self.scan_speed_slider)
+        scan_layout.addWidget(self.scan_speed_value_label)
         tuning_layout.addLayout(scan_layout)
         
-        # Add to main layout
         tuning_group.setLayout(tuning_layout)
         main_layout.addWidget(tuning_group)
+    
+    def update_threshold(self):
+        """Update movement threshold"""
+        value = self.threshold_slider.value()
+        self.head_tracker.movement_threshold = value
+        self.threshold_value_label.setText(f"{value}")
+        self.node.get_logger().info(f"Movement threshold set to {value} pixels")
+    
+    def update_min_pan_speed(self):
+        """Update minimum pan speed"""
+        value = float(self.min_pan_slider.value())
+        self.head_tracker.min_pan_speed = value
+        self.min_pan_value_label.setText(f"{value:.1f}")
+        self.node.get_logger().info(f"Min pan speed set to {value:.1f} deg/s")
+    
+    def update_max_pan_speed(self):
+        """Update maximum pan speed"""
+        value = float(self.max_pan_slider.value())
+        self.head_tracker.max_pan_speed = value
+        self.max_pan_value_label.setText(f"{value:.1f}")
+        self.node.get_logger().info(f"Max pan speed set to {value:.1f} deg/s")
+    
+    def update_min_tilt_speed(self):
+        """Update minimum tilt speed"""
+        value = float(self.min_tilt_slider.value())
+        self.head_tracker.min_tilt_speed = value
+        self.min_tilt_value_label.setText(f"{value:.1f}")
+        self.node.get_logger().info(f"Min tilt speed set to {value:.1f} deg/s")
+    
+    def update_max_tilt_speed(self):
+        """Update maximum tilt speed"""
+        value = float(self.max_tilt_slider.value())
+        self.head_tracker.max_tilt_speed = value
+        self.max_tilt_value_label.setText(f"{value:.1f}")
+        self.node.get_logger().info(f"Max tilt speed set to {value:.1f} deg/s")
     
     def toggle_tracking(self, state):
         """Toggle head tracking"""
@@ -795,26 +1041,61 @@ class HeadTrackingUI(QMainWindow):
         if bool(state):
             self.head_tracker.set_tilt_to_default()
     
+    def toggle_pid_smoothing(self, state):
+        """Toggle PID smoothing on/off"""
+        self.head_tracker.set_pid_smoothing(bool(state))
+    
     def reset_head_position(self):
         """Reset head to default position"""
         self.head_tracker.reset_head_position()
     
     def update_pan_pid(self):
         """Update PID values from sliders"""
-        self.head_tracker.pan_pid.kp = self.pan_p_slider.value() / 100.0
-        self.head_tracker.pan_pid.ki = self.pan_i_slider.value() / 100.0
-        self.head_tracker.pan_pid.kd = self.pan_d_slider.value() / 100.0
-        self.node.get_logger().info(f"Pan PID updated: P={self.head_tracker.pan_pid.kp:.2f}, I={self.head_tracker.pan_pid.ki:.2f}, D={self.head_tracker.pan_pid.kd:.2f}")
+        p_value = self.pan_p_slider.value() / 100.0
+        i_value = self.pan_i_slider.value() / 1000.0
+        d_value = self.pan_d_slider.value() / 100.0
+        
+        self.head_tracker.pan_pid.kp = p_value
+        self.head_tracker.pan_pid.ki = i_value
+        self.head_tracker.pan_pid.kd = d_value
+        
+        # Update value labels
+        self.pan_p_value_label.setText(f"{p_value:.2f}")
+        self.pan_i_value_label.setText(f"{i_value:.3f}")
+        self.pan_d_value_label.setText(f"{d_value:.2f}")
+        
+        self.node.get_logger().info(f"Pan PID updated: P={p_value:.2f}, I={i_value:.3f}, D={d_value:.2f}")
+    
+    def update_tilt_pid(self):
+        """Update tilt PID values from sliders"""
+        p_value = self.tilt_p_slider.value() / 100.0
+        i_value = self.tilt_i_slider.value() / 1000.0
+        d_value = self.tilt_d_slider.value() / 100.0
+        
+        self.head_tracker.tilt_pid.kp = p_value
+        self.head_tracker.tilt_pid.ki = i_value
+        self.head_tracker.tilt_pid.kd = d_value
+        
+        # Update value labels
+        self.tilt_p_value_label.setText(f"{p_value:.2f}")
+        self.tilt_i_value_label.setText(f"{i_value:.3f}")
+        self.tilt_d_value_label.setText(f"{d_value:.2f}")
+        
+        self.node.get_logger().info(f"Tilt PID updated: P={p_value:.2f}, I={i_value:.3f}, D={d_value:.2f}")
     
     def update_smoothing(self):
         """Update motion smoothing factor"""
-        self.head_tracker.smoothing_factor = self.smoothing_slider.value() / 100.0
-        self.node.get_logger().info(f"Smoothing updated: {self.head_tracker.smoothing_factor:.2f}")
+        value = self.smoothing_slider.value() / 100.0
+        self.head_tracker.smoothing_factor = value
+        self.smoothing_value_label.setText(f"{value:.2f}")
+        self.node.get_logger().info(f"Smoothing updated: {value:.2f}")
     
     def update_scan_speed(self):
         """Update scanning speed"""
-        self.head_tracker.scan_speed = self.scan_speed_slider.value()
-        self.node.get_logger().info(f"Scan speed updated: {self.head_tracker.scan_speed}")
+        value = self.scan_speed_slider.value()
+        self.head_tracker.scan_speed = value
+        self.scan_speed_value_label.setText(f"{value:.1f}")
+        self.node.get_logger().info(f"Scan speed updated: {value:.1f}")
     
     def update_status(self, status):
         """Update status label"""
