@@ -28,13 +28,18 @@ POSITION_RANGE = MAX_POSITION - MIN_POSITION
 DEGREES_PER_POSITION = 360.0 / POSITION_RANGE
 POSITIONS_PER_DEGREE = POSITION_RANGE / 360.0
 
+# Default angles for motors
+DEFAULT_PAN_ANGLE = 90   # Pan motor default position (90 degrees)
+DEFAULT_TILT_ANGLE = 180  # Tilt motor default position (180 degrees)
+
 class MotorControlWidget(QWidget):
-    def __init__(self, motor_id, motor_name="Motor", parent=None):
+    def __init__(self, motor_id, motor_name="Motor", default_angle=0, parent=None):
         super().__init__(parent)
         self.motor_id = motor_id
         self.motor_name = motor_name
-        self.angle = 0  # Angle in degrees
-        self.position = 0  # Position in Dynamixel units (0-4095)
+        self.default_angle = default_angle
+        self.angle = default_angle  # Angle in degrees
+        self.position = int(default_angle * POSITIONS_PER_DEGREE)  # Position in Dynamixel units
         self.radius = 100
         self.circle_center = QPoint(self.radius + 20, self.radius + 20)
         self.dragging = False
@@ -79,7 +84,7 @@ class MotorControlWidget(QWidget):
     def paintCircleWidget(self, event):
         painter = QPainter(self.circle_widget)
         painter.setRenderHint(QPainter.Antialiasing)
-        
+
         # Draw circle
         painter.setPen(QPen(Qt.black, 2))
         if self.torque_enabled:
@@ -93,7 +98,7 @@ class MotorControlWidget(QWidget):
         painter.setFont(QFont("Arial", 12, QFont.Bold))
         name_rect = QRect(20, 2 * self.radius + 30, 2 * self.radius, 30)
         painter.drawText(name_rect, Qt.AlignCenter, self.motor_name)
-        
+
         # Draw angle text
         angle_text = f"{self.angle:.1f}°  (Pos: {self.position})"
         painter.drawText(name_rect.translated(0, 25), Qt.AlignCenter, angle_text)
@@ -106,7 +111,7 @@ class MotorControlWidget(QWidget):
         line_end_x = self.circle_center.x() + self.radius * math.cos(math.radians(self.angle - 90))
         line_end_y = self.circle_center.y() + self.radius * math.sin(math.radians(self.angle - 90))
         painter.drawLine(self.circle_center, QPoint(int(line_end_x), int(line_end_y)))
-        
+
         # Draw a small circle at the center
         painter.setPen(QPen(Qt.black, 1))
         painter.setBrush(QBrush(Qt.black))
@@ -168,12 +173,12 @@ class MotorControlWidget(QWidget):
             # You would need to add this functionality to the read_write_node
     
     def resetPosition(self):
-        self.angle = 0
-        self.position = 0
+        self.angle = self.default_angle
+        self.position = int(self.default_angle * POSITIONS_PER_DEGREE)
         self.circle_widget.update()
         
         if self.rosnode and self.torque_enabled:
-            self.rosnode.get_logger().info(f"{self.motor_name} (ID: {self.motor_id}) position reset to 0")
+            self.rosnode.get_logger().info(f"{self.motor_name} (ID: {self.motor_id}) position reset to {self.default_angle}°")
             self.send_position_to_motor()
     
     def set_position_from_motor(self, position):
@@ -188,11 +193,6 @@ class DynamixelControlUI(QMainWindow):
         super().__init__()
         self.node = node
         self.initUI()
-        
-        # Create a timer to periodically refresh motor positions
-        self.refresh_timer = QTimer()
-        self.refresh_timer.timeout.connect(self.refresh_motor_positions)
-        self.refresh_timer.start(1000)  # Refresh every second
         
         # Initial motor position read
         self.read_motor_positions()
@@ -215,13 +215,13 @@ class DynamixelControlUI(QMainWindow):
         # Motor controls layout
         motors_layout = QHBoxLayout()
         
-        # Pan motor control
-        self.pan_motor = MotorControlWidget(DXL_PAN_ID, "Pan Motor")
+        # Pan motor control (default angle: 90 degrees)
+        self.pan_motor = MotorControlWidget(DXL_PAN_ID, "Pan Motor", DEFAULT_PAN_ANGLE)
         self.pan_motor.set_ros_node(self.node)
         motors_layout.addWidget(self.pan_motor)
         
-        # Tilt motor control
-        self.tilt_motor = MotorControlWidget(DXL_TILT_ID, "Tilt Motor")
+        # Tilt motor control (default angle: 180 degrees)
+        self.tilt_motor = MotorControlWidget(DXL_TILT_ID, "Tilt Motor", DEFAULT_TILT_ANGLE)
         self.tilt_motor.set_ros_node(self.node)
         motors_layout.addWidget(self.tilt_motor)
         
@@ -256,15 +256,6 @@ class DynamixelControlUI(QMainWindow):
             motor_widget.set_position_from_motor(response.position)
         except Exception as e:
             self.node.get_logger().error(f'Service call failed: {e}')
-    
-    def refresh_motor_positions(self):
-        """Periodically refresh motor positions"""
-        self.read_motor_positions()
-        
-    def closeEvent(self, event):
-        """Handle window close event to stop the timer"""
-        self.refresh_timer.stop()
-        event.accept()
 
 
 class DynamixelUINode(Node):
