@@ -9,19 +9,145 @@ import threading
 import os
 import subprocess
 from rclpy.node import Node
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QHBoxLayout, QCheckBox, QMessageBox
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QHBoxLayout, QCheckBox, QMessageBox, QSlider
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
+from std_msgs.msg import Float32MultiArray  # Import for head control messages
 
 # Models directory for face detection models
 MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 os.makedirs(MODELS_DIR, exist_ok=True)
 
 
+class HeadController:
+    """Controls head servos based on face position"""
+    def __init__(self, node):
+        self.node = node
+        # Create publisher for head position commands
+        self.head_pub = node.create_publisher(Float32MultiArray, 'head_position', 10)
+
+        # Current head position (pan, tilt)
+        self.current_position = [0.0, 0.0]  # [pan, tilt] in degrees
+        
+        # Target position 
+        self.target_position = [0.0, 0.0]
+        
+        # Movement parameters
+        self.max_speed = 60.0  # degrees per second
+        self.min_speed = 5.0   # minimum speed to avoid very slow movements
+        self.acceleration = 45.0  # degrees per second^2
+        self.current_speed = [0.0, 0.0]  # Current speed for pan and tilt
+        
+        # Dynamic damping for overshoot prevention
+        self.damping_distance = 15.0  # degrees - start slowing down when this close to target
+        
+        # PID control parameters for smoother motion
+        self.kp = 0.8  # Proportional gain
+        self.kd = 0.3  # Derivative gain
+        self.prev_error = [0.0, 0.0]
+        
+        # Update rate
+        self.update_interval = 0.02  # 50Hz update rate
+        self.last_update_time = time.time()
+        
+        # Start control thread
+        self.running = True
+        self.control_thread = threading.Thread(target=self._control_loop)
+        self.control_thread.daemon = True
+        self.control_thread.start()
+        
+        self.node.get_logger().info("Head controller initialized")
+    
+    def set_target(self, pan, tilt):
+        """Set target position for the head"""
+        # Constrain to valid range (-90 to 90 degrees)
+        pan = max(-90.0, min(90.0, pan))
+        tilt = max(-45.0, min(45.0, tilt))
+        
+        self.target_position = [pan, tilt]
+    
+    def set_max_speed(self, speed):
+        """Set maximum panning speed"""
+        self.max_speed = max(5.0, min(120.0, speed))
+        self.node.get_logger().info(f"Head max speed set to {self.max_speed} deg/s")
+    
+    def stop(self):
+        """Stop the control thread"""
+        self.running = False
+        if self.control_thread.is_alive():
+            self.control_thread.join(timeout=1.0)
+    
+    def _calculate_adaptive_speed(self, error, axis):
+        """Calculate appropriate speed based on distance to target with PID control"""
+        # Calculate PID terms
+        p_term = self.kp * error
+        
+        # Derivative term (damping)
+        d_term = self.kd * (error - self.prev_error[axis]) / self.update_interval
+        self.prev_error[axis] = error
+        
+        # Calculate raw speed from PID controller
+        raw_speed = p_term + d_term
+        
+        # Distance-based speed limiting to prevent overshooting
+        distance = abs(error)
+        
+        # Apply stronger damping when getting close to target
+        if distance < self.damping_distance:
+            # Gradually reduce speed as we approach target
+            speed_factor = distance / self.damping_distance
+            raw_speed *= speed_factor
+        
+        # Apply speed limits
+        if abs(raw_speed) < self.min_speed and abs(error) > 0.5:
+            # Ensure we move at least at min_speed if not very close to target
+            raw_speed = self.min_speed if raw_speed > 0 else -self.min_speed
+        elif abs(raw_speed) > self.max_speed:
+            # Cap at max_speed
+            raw_speed = self.max_speed if raw_speed > 0 else -self.max_speed
+        
+        return raw_speed
+    
+    def _control_loop(self):
+        """Main control loop for head movement"""
+        while self.running:
+            current_time = time.time()
+            dt = current_time - self.last_update_time
+            
+            if dt < self.update_interval:
+                # Wait until update interval has passed
+                time.sleep(0.001)
+                continue
+            
+            # Calculate errors
+            pan_error = self.target_position[0] - self.current_position[0]
+            tilt_error = self.target_position[1] - self.current_position[1]
+            
+            # Calculate adaptive speeds
+            self.current_speed[0] = self._calculate_adaptive_speed(pan_error, 0)
+            self.current_speed[1] = self._calculate_adaptive_speed(tilt_error, 1)
+            
+            # Update positions based on calculated speeds
+            self.current_position[0] += self.current_speed[0] * dt
+            self.current_position[1] += self.current_speed[1] * dt
+            
+            # Publish head position
+            msg = Float32MultiArray()
+            msg.data = self.current_position
+            self.head_pub.publish(msg)
+            
+            # Update last update time
+            self.last_update_time = current_time
+            
+            # Small sleep to prevent tight loops
+            time.sleep(0.001)
+
+
 class FrameGrabber(QObject):
     """Dedicated thread for frame capture to improve performance"""
     frame_ready = pyqtSignal(np.ndarray)
     error = pyqtSignal(str)
+    face_detected = pyqtSignal(list)  # Signal emitted when face is detected
     
     def __init__(self):
         super().__init__()
@@ -372,6 +498,10 @@ class FrameGrabber(QObject):
                         faces = self.detect_faces_dnn(frame)
                         # Smooth the face positions to reduce flickering
                         last_faces = self.smooth_face_detections(faces)
+                        
+                        # Emit signal with detected faces for head control
+                        if last_faces:
+                            self.face_detected.emit(last_faces)
                     
                     # Draw smoothed faces on every frame
                     if last_faces:
@@ -411,8 +541,13 @@ class CameraViewer(QMainWindow):
         self.frame_grabber = FrameGrabber()
         self.frame_grabber.frame_ready.connect(self.process_frame)
         self.frame_grabber.error.connect(self.handle_camera_error)
+        self.frame_grabber.face_detected.connect(self.on_face_detected)
         self.high_quality = False
         self.face_detection_enabled = True
+        
+        # Initialize head controller
+        self.head_controller = HeadController(node)
+        
         self.initUI()
         self.check_video_devices()
         self.scan_cameras()
@@ -469,6 +604,26 @@ class CameraViewer(QMainWindow):
         
         controls_layout.addLayout(quality_layout)
         
+        # Head control parameters
+        head_control_layout = QVBoxLayout()
+        head_control_label = QLabel("Head Control:")
+        head_control_layout.addWidget(head_control_label)
+        
+        # Speed control slider
+        speed_label = QLabel("Panning Speed:")
+        self.speed_slider = QSlider(Qt.Horizontal)
+        self.speed_slider.setMinimum(5)
+        self.speed_slider.setMaximum(120)
+        self.speed_slider.setValue(60)  # Default speed
+        self.speed_slider.setTickPosition(QSlider.TicksBelow)
+        self.speed_slider.setTickInterval(10)
+        self.speed_slider.valueChanged.connect(self.set_panning_speed)
+        
+        head_control_layout.addWidget(speed_label)
+        head_control_layout.addWidget(self.speed_slider)
+        
+        controls_layout.addLayout(head_control_layout)
+        
         # Camera diagnostics button
         self.diagnostics_button = QPushButton("Camera Diagnostics")
         self.diagnostics_button.clicked.connect(self.show_diagnostics)
@@ -482,6 +637,43 @@ class CameraViewer(QMainWindow):
         # Pre-allocate buffers for better performance
         self.qt_image = None
         self.pixmap = None
+    
+    def set_panning_speed(self, value):
+        """Update the head panning speed"""
+        self.head_controller.set_max_speed(float(value))
+    
+    def on_face_detected(self, faces):
+        """Handle detected faces by directing head to look at them"""
+        if not faces:
+            return
+            
+        # Sort faces by confidence and size (prefer largest, most confident face)
+        faces.sort(key=lambda f: f['confidence'] * f['radius'], reverse=True)
+        
+        # Get the best face
+        face = faces[0]
+        
+        # Convert pixel coordinates to angles
+        # Assuming camera has 60° horizontal FOV and camera is centered
+        frame_width = self.frame_grabber.frame_width
+        frame_height = self.frame_grabber.frame_height
+        
+        # Calculate angle offset from center
+        # X: -30° (left) to +30° (right)
+        # Y: -22.5° (up) to +22.5° (down) for typical 16:9 aspect ratio
+        center_x = frame_width / 2
+        center_y = frame_height / 2
+        
+        # Calculate normalized position (-1 to 1)
+        x_norm = (face['center_x'] - center_x) / center_x
+        y_norm = (face['center_y'] - center_y) / center_y
+        
+        # Convert to angles (assuming 60° horizontal FOV)
+        pan_angle = x_norm * 30.0  # -30° to +30°
+        tilt_angle = y_norm * 22.5  # -22.5° to +22.5°
+        
+        # Send to head controller
+        self.head_controller.set_target(pan_angle, tilt_angle)
     
     def toggle_face_detection(self, state):
         """Toggle face detection on/off"""
@@ -542,6 +734,9 @@ class CameraViewer(QMainWindow):
         # Face detection status
         info += f"Face Detection: {'Enabled' if self.face_detection_enabled else 'Disabled'}\n"
         info += f"Using OpenCV DNN-based face detector\n\n"
+        
+        # Head tracking status
+        info += f"Head Tracking Speed: {self.head_controller.max_speed} deg/s\n"
         
         # Check which OpenCV backends are available
         info += "Available OpenCV Backends:\n"
@@ -678,6 +873,7 @@ class CameraViewer(QMainWindow):
     def closeEvent(self, event):
         """Clean up when window is closed"""
         self.frame_grabber.stop()
+        self.head_controller.stop()
         event.accept()
 
 
