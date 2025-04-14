@@ -186,7 +186,7 @@ class EyeTrackingNode(Node):
     def tilt_angle_callback(self, msg):
         """Update current tilt angle from motor feedback"""
         self.tilt_angle = msg.data
-    
+        
     def update_ros(self):
         """Update ROS components and publish data"""
         # Process any pending callbacks

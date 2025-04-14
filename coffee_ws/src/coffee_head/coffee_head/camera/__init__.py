@@ -1,0 +1,1 @@
+# Camera module for face detection and camera management 
