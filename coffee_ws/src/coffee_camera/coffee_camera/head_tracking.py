@@ -11,6 +11,7 @@ import math  # Added for vector calculations
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from std_msgs.msg import String
+from geometry_msgs.msg import Vector3
 from dynamixel_sdk_custom_interfaces.msg import SetPosition
 from dynamixel_sdk_custom_interfaces.srv import GetPosition
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -77,6 +78,7 @@ class HeadTrackingSystem(QObject):
     """Head tracking system that controls pan/tilt motors to keep faces centered"""
     frame_processed = pyqtSignal(np.ndarray)
     tracking_status = pyqtSignal(str)
+    face_velocity = pyqtSignal(float, float, float)  # velocity_x, velocity_y, magnitude
     
     def __init__(self, node):
         super().__init__()
@@ -90,6 +92,14 @@ class HeadTrackingSystem(QObject):
         self.center_x = self.frame_width // 2
         self.center_y = self.frame_height // 2
         
+        # Face movement tracking
+        self.prev_face_positions = {}  # Dictionary to store previous face positions {face_id: [(x, y, timestamp), ...]}
+        self.face_positions_history = 5  # Number of positions to keep for each face
+        self.face_velocities = {}  # Dictionary to store face velocities {face_id: (vx, vy, magnitude)}
+        self.velocity_smoothing = 0.7  # Smoothing factor for velocity calculations
+        self.min_velocity_display = 5  # Minimum velocity magnitude to display vector
+        self.last_face_update = time.time()
+        
         # Communication parameters
         self.update_rate_hz = 30.0  # Default 30Hz update rate (configurable)
         self.update_interval = 1.0 / self.update_rate_hz  # Calculated interval in seconds
@@ -97,8 +107,8 @@ class HeadTrackingSystem(QObject):
         self.baudrate_options = [9600, 19200, 57600, 115200, 1000000, 2000000, 3000000, 4000000, 4500000]
         
         # Separate pan and tilt thresholds
-        self.pan_threshold = 40  # Horizontal pixel threshold
-        self.tilt_threshold = 25  # Vertical pixel threshold (typically smaller for more sensitive vertical tracking)
+        self.pan_threshold = 20  # Horizontal pixel threshold
+        self.tilt_threshold = 80  # Vertical pixel threshold (typically smaller for more sensitive vertical tracking)
         self.movement_threshold = 40  # Legacy vector threshold (kept for compatibility)
         
         # Individual deadzone region used for display purposes
@@ -132,7 +142,7 @@ class HeadTrackingSystem(QObject):
         # Smoothing for movement
         self.target_pan_angle = self.default_pan_angle
         self.target_tilt_angle = self.default_tilt_angle
-        self.smoothing_factor = 0.85  # Higher = smoother but slower response (between 0-1)
+        self.smoothing_factor = 0.7  # Higher = smoother but slower response (between 0-1)
         
         # Add toggle for PID smoothing
         self.use_pid_smoothing = True  # Default on - can be toggled from UI
@@ -152,7 +162,7 @@ class HeadTrackingSystem(QObject):
         # Parameters for coordinated movement
         self.min_pan_speed = 1.0   # deg/s
         self.min_tilt_speed = 1.0  # deg/s
-        self.max_pan_speed = 20.0  # deg/s - higher for faster response
+        self.max_pan_speed = 80.0  # deg/s - higher for faster response
         self.max_tilt_speed = 15.0 # deg/s - slightly slower for tilt
         
         # Create ROS publisher for motor control
@@ -161,6 +171,13 @@ class HeadTrackingSystem(QObject):
             SetPosition,
             'set_position',
             qos
+        )
+        
+        # Publisher for face velocity vector
+        self.velocity_publisher = self.node.create_publisher(
+            Vector3,
+            'face_velocity',
+            10
         )
         
         # Subscribe to face detection data from camera_node.py
@@ -534,6 +551,9 @@ class HeadTrackingSystem(QObject):
             # Faces detected, stop scanning
             self.stop_scanning()
         
+        # Calculate face velocities
+        self.calculate_face_velocities(faces)
+        
         # Select target face if we don't have one
         if self.target_face is None and faces:
             # Choose the largest face (closest to camera) or the center-most face
@@ -583,6 +603,17 @@ class HeadTrackingSystem(QObject):
                 self.send_coordinated_movement(pan_angle, tilt_angle)
                 self.last_update_time = current_time
                 
+                # Publish face velocity if available
+                face_id = self.target_face
+                if face_id in self.face_velocities:
+                    vx, vy, magnitude = self.face_velocities[face_id]
+                    velocity_msg = Vector3()
+                    velocity_msg.x = float(vx)
+                    velocity_msg.y = float(vy)
+                    velocity_msg.z = float(magnitude)  # Use z for magnitude
+                    self.velocity_publisher.publish(velocity_msg)
+                    self.face_velocity.emit(vx, vy, magnitude)
+                
                 # Log tracking data
                 self.node.get_logger().debug(
                     f"Vector: mag={vector_magnitude:.1f}, coords=({error_x:.1f}, {error_y:.1f}), " +
@@ -590,13 +621,88 @@ class HeadTrackingSystem(QObject):
                 )
             
             # Update tracking status
-            self.tracking_status.emit(f"Tracking: C={face['confidence']:.2f} D={vector_magnitude:.1f}")
+            vel_info = ""
+            if self.target_face in self.face_velocities:
+                vx, vy, magnitude = self.face_velocities[self.target_face]
+                vel_info = f", V={magnitude:.1f}"
+            
+            self.tracking_status.emit(f"Tracking: C={face['confidence']:.2f} D={vector_magnitude:.1f}{vel_info}")
             
         else:
             # If we lost the target face, clear the target and search again
             self.target_face = None
             self.tracking_status.emit("Target lost - searching for face")
             self.start_scanning()
+    
+    def calculate_face_velocities(self, faces):
+        """Calculate velocities for each face based on position history"""
+        current_time = time.time()
+        time_delta = current_time - self.last_face_update
+        
+        # Skip if time delta is too small to avoid division by zero
+        if time_delta < 0.01:
+            return
+            
+        # Update face position history and calculate velocities
+        for i, face in enumerate(faces):
+            face_id = i  # Use index as face ID
+            center_x = face['center_x']
+            center_y = face['center_y']
+            
+            # Add current position to history
+            if face_id not in self.prev_face_positions:
+                self.prev_face_positions[face_id] = []
+            
+            # Add new position with timestamp
+            self.prev_face_positions[face_id].append((center_x, center_y, current_time))
+            
+            # Keep only the most recent positions
+            if len(self.prev_face_positions[face_id]) > self.face_positions_history:
+                self.prev_face_positions[face_id].pop(0)
+            
+            # Need at least 2 positions to calculate velocity
+            if len(self.prev_face_positions[face_id]) >= 2:
+                # Use the most recent positions for velocity calculation
+                prev_x, prev_y, prev_time = self.prev_face_positions[face_id][-2]
+                
+                # Calculate pixel displacement
+                dx = center_x - prev_x
+                dy = center_y - prev_y
+                
+                # Calculate time difference
+                dt = current_time - prev_time
+                
+                if dt > 0:
+                    # Calculate velocity in pixels per second
+                    vx = dx / dt
+                    vy = dy / dt
+                    
+                    # Calculate velocity magnitude
+                    magnitude = math.sqrt(vx*vx + vy*vy)
+                    
+                    # Apply smoothing if we have previous velocity
+                    if face_id in self.face_velocities:
+                        prev_vx, prev_vy, prev_magnitude = self.face_velocities[face_id]
+                        
+                        # Smooth the velocity components
+                        vx = self.velocity_smoothing * prev_vx + (1 - self.velocity_smoothing) * vx
+                        vy = self.velocity_smoothing * prev_vy + (1 - self.velocity_smoothing) * vy
+                        
+                        # Recalculate magnitude after smoothing
+                        magnitude = math.sqrt(vx*vx + vy*vy)
+                    
+                    # Store the calculated velocity
+                    self.face_velocities[face_id] = (vx, vy, magnitude)
+        
+        # Clean up velocities for faces not in current frame
+        faces_ids = set(range(len(faces)))
+        for face_id in list(self.face_velocities.keys()):
+            if face_id not in faces_ids:
+                del self.face_velocities[face_id]
+                if face_id in self.prev_face_positions:
+                    del self.prev_face_positions[face_id]
+        
+        self.last_face_update = current_time
     
     def process_faces(self, frame, faces):
         """Process detected faces and control motors if tracking is enabled (legacy method)"""
@@ -613,6 +719,9 @@ class HeadTrackingSystem(QObject):
         else:
             # Faces detected, stop scanning
             self.stop_scanning()
+        
+        # Calculate face velocities
+        self.calculate_face_velocities(faces)
         
         # Select target face if we don't have one
         if self.target_face is None and faces:
@@ -651,6 +760,31 @@ class HeadTrackingSystem(QObject):
                          (face['x1'], face['y1']), 
                          (face['x2'], face['y2']), 
                          (0, 0, 255), 2)
+            
+            # Draw velocity vector if available and magnitude is significant
+            face_id = self.target_face
+            if face_id in self.face_velocities:
+                vx, vy, magnitude = self.face_velocities[face_id]
+                
+                # Only draw if velocity is significant
+                if magnitude > self.min_velocity_display:
+                    # Get face center point
+                    start_x = int(face['center_x'])
+                    start_y = int(face['center_y'])
+                    
+                    # Scale vector for display (adjustable scale factor)
+                    scale = min(0.5, 50.0 / max(1.0, magnitude))  # Limit max length
+                    end_x = int(start_x + vx * scale)
+                    end_y = int(start_y + vy * scale)
+                    
+                    # Draw arrow showing velocity vector
+                    cv2.arrowedLine(frame, (start_x, start_y), (end_x, end_y), 
+                                   (0, 255, 255), 2, tipLength=0.3)
+                    
+                    # Display velocity magnitude
+                    cv2.putText(frame, f"V: {magnitude:.1f} px/s", 
+                               (start_x + 10, start_y - 10), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
             
             # Calculate error from center of frame (only care about x-axis for panning)
             error_x = self.center_x - face['center_x']
@@ -781,11 +915,17 @@ class HeadTrackingUI(QMainWindow):
         self.node = node
         self.head_tracker = head_tracker
         self.head_tracker.tracking_status.connect(self.update_status)
+        self.head_tracker.face_velocity.connect(self.update_velocity)
         
         # Add timer to check for data timeouts
         self.timeout_timer = QTimer()
         self.timeout_timer.timeout.connect(self.head_tracker.check_face_data_timeout)
         self.timeout_timer.start(1000)  # Check every second
+        
+        # Velocity display
+        self.velocity_x = 0.0
+        self.velocity_y = 0.0
+        self.velocity_magnitude = 0.0
         
         self.initUI()
     
@@ -803,6 +943,11 @@ class HeadTrackingUI(QMainWindow):
         status_layout = QVBoxLayout()
         self.status_label = QLabel("Tracking disabled")
         status_layout.addWidget(self.status_label)
+        
+        # Add velocity status label
+        self.velocity_label = QLabel("Velocity: 0.0 px/s")
+        status_layout.addWidget(self.velocity_label)
+        
         status_group.setLayout(status_layout)
         main_layout.addWidget(status_group)
         
@@ -1237,6 +1382,38 @@ class HeadTrackingUI(QMainWindow):
     def update_status(self, status):
         """Update status label"""
         self.status_label.setText(status)
+    
+    def update_velocity(self, vx, vy, magnitude):
+        """Update velocity display"""
+        self.velocity_x = vx
+        self.velocity_y = vy
+        self.velocity_magnitude = magnitude
+        
+        # Calculate direction in degrees (0 = right, 90 = down, 180 = left, 270 = up)
+        direction = math.degrees(math.atan2(vy, vx)) % 360
+        direction_text = ""
+        
+        # Convert to cardinal direction
+        if magnitude > 5.0:  # Only show direction if velocity is significant
+            if 22.5 <= direction < 67.5:
+                direction_text = "↘ SE"
+            elif 67.5 <= direction < 112.5:
+                direction_text = "↓ S"
+            elif 112.5 <= direction < 157.5:
+                direction_text = "↙ SW"
+            elif 157.5 <= direction < 202.5:
+                direction_text = "← W"
+            elif 202.5 <= direction < 247.5:
+                direction_text = "↖ NW"
+            elif 247.5 <= direction < 292.5:
+                direction_text = "↑ N"
+            elif 292.5 <= direction < 337.5:
+                direction_text = "↗ NE"
+            else:
+                direction_text = "→ E"
+        
+        # Update the label
+        self.velocity_label.setText(f"Velocity: {magnitude:.1f} px/s {direction_text}")
     
     def closeEvent(self, event):
         """Handle window close"""
