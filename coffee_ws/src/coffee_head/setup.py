@@ -2,7 +2,7 @@ from setuptools import setup
 import os
 from glob import glob
 
-package_name = 'coffee_camera'
+package_name = 'coffee_head'
 
 setup(
     name=package_name,
@@ -22,9 +22,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'camera_node = coffee_camera.camera_node:main',
-            'head_tracking = coffee_camera.head_tracking:main',
-            'integrated_camera = coffee_camera.integrated_camera_node:main',
+            'camera_node = coffee_head.camera_node:main',
+            'head_tracking = coffee_head.head_tracking:main',
+            'eye_tracking = coffee_head.eye_tracking:main',
         ],
     },
 )

@@ -10,7 +10,7 @@ import json
 import math  # Added for vector calculations
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
-from std_msgs.msg import String
+from std_msgs.msg import String, Float32
 from geometry_msgs.msg import Vector3
 from dynamixel_sdk_custom_interfaces.msg import SetPosition
 from dynamixel_sdk_custom_interfaces.srv import GetPosition
@@ -107,13 +107,13 @@ class HeadTrackingSystem(QObject):
         self.baudrate_options = [9600, 19200, 57600, 115200, 1000000, 2000000, 3000000, 4000000, 4500000]
         
         # Separate pan and tilt thresholds
-        self.pan_threshold = 20  # Horizontal pixel threshold
-        self.tilt_threshold = 80  # Vertical pixel threshold (typically smaller for more sensitive vertical tracking)
+        self.pan_threshold = 40  # Horizontal pixel threshold - match with eye tracking
+        self.tilt_threshold = 25  # Vertical pixel threshold
         self.movement_threshold = 40  # Legacy vector threshold (kept for compatibility)
         
         # Individual deadzone region used for display purposes
-        self.deadzone_x = 60  # Increased deadzone for smoother movement
-        self.deadzone_y = 30  # pixels from center
+        self.deadzone_x = 40  # Match with pan threshold for consistent UI
+        self.deadzone_y = 25  # Match with tilt threshold for consistent UI
         
         # Pan/tilt motor IDs and parameters
         self.pan_motor_id = 1
@@ -142,7 +142,7 @@ class HeadTrackingSystem(QObject):
         # Smoothing for movement
         self.target_pan_angle = self.default_pan_angle
         self.target_tilt_angle = self.default_tilt_angle
-        self.smoothing_factor = 0.7  # Higher = smoother but slower response (between 0-1)
+        self.smoothing_factor = 0.8  # Higher value for smoother head movement
         
         # Add toggle for PID smoothing
         self.use_pid_smoothing = True  # Default on - can be toggled from UI
@@ -177,6 +177,19 @@ class HeadTrackingSystem(QObject):
         self.velocity_publisher = self.node.create_publisher(
             Vector3,
             'face_velocity',
+            10
+        )
+        
+        # Publishers for coordination with eye tracking
+        self.pan_angle_publisher = self.node.create_publisher(
+            Float32,
+            'head_pan_angle',
+            10
+        )
+        
+        self.tilt_angle_publisher = self.node.create_publisher(
+            Float32,
+            'head_tilt_angle',
             10
         )
         
@@ -416,8 +429,19 @@ class HeadTrackingSystem(QObject):
         # Update stored positions
         if motor_id == self.pan_motor_id:
             self.current_pan_position = position
+            # Publish current pan angle for eye tracking coordination
+            angle = (position * self.degrees_per_position) % 360
+            angle_msg = Float32()
+            angle_msg.data = float(angle)
+            self.pan_angle_publisher.publish(angle_msg)
+            
         elif motor_id == self.tilt_motor_id:
             self.current_tilt_position = position
+            # Publish current tilt angle for eye tracking coordination
+            angle = (position * self.degrees_per_position) % 360
+            angle_msg = Float32()
+            angle_msg.data = float(angle)
+            self.tilt_angle_publisher.publish(angle_msg)
     
     def set_pid_smoothing(self, enabled):
         """Enable or disable PID smoothing"""
@@ -455,10 +479,12 @@ class HeadTrackingSystem(QObject):
         vector_magnitude = math.sqrt(error_x**2 + error_y**2)
         
         # Check if movement is needed based on separate thresholds
+        # These thresholds should match the ones in the eye tracking system
         need_pan_movement = abs(error_x) > self.pan_threshold
         need_tilt_movement = abs(error_y) > self.tilt_threshold
         
-        # If neither axis needs movement, don't move
+        # If neither axis needs movement, don't move the head
+        # This is where we ensure exclusive movement - eyes will handle tracking within thresholds
         if not need_pan_movement and not need_tilt_movement:
             return None, None, 0, 0, 0
         
