@@ -14,6 +14,8 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLa
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
 from std_msgs.msg import Float32MultiArray, String  # Added String message for face data
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 
 # Models directory for face detection models
 MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
@@ -24,70 +26,77 @@ class HeadController:
     """Controls head servos based on face position"""
     def __init__(self, node):
         self.node = node
-        # Create publisher for head position commands
-        self.head_pub = node.create_publisher(Float32MultiArray, 'head_position', 10)
-
-        # Current head position (pan, tilt)
-        self.current_position = [0.0, 0.0]  # [pan, tilt] in degrees
         
-        # Target position 
-        self.target_position = [0.0, 0.0]
-        
-        # Movement parameters (increased from original)
-        self.max_speed = 90.0  # degrees per second (increased for faster response)
-        self.min_speed = 5.0   # minimum speed to avoid very slow movements
-        self.acceleration = 60.0  # degrees per second^2 (increased)
-        self.current_speed = [0.0, 0.0]  # Current speed for pan and tilt
-        
-        # Separate parameters for pan/tilt control (axis 0=pan, 1=tilt)
-        # Tilt generally needs slower, more careful control
-        self.max_speed_tilt = 80.0  # degrees per second for tilt (increased for better response)
-        self.damping_distance_tilt = 15.0  # degrees - for tilt
-        self.approach_factor_tilt = 0.6  # Controls how aggressively to approach target (lower = more aggressive)
-        
-        # Enhanced parameters for smoother motion
-        self.damping_distance = [20.0, 15.0]  # [pan, tilt] - tilt has shorter damping distance
-        self.approach_factor = [0.7, 0.6]  # Controls how aggressively to approach target
-        
-        # Improved PID control parameters - separate for pan and tilt
-        # Make tilt more responsive with higher gain
-        self.kp = [0.9, 0.85]  # Proportional gain [pan, tilt] - increased for tilt
-        self.kd = [0.4, 0.4]  # Derivative gain [pan, tilt] - lowered damping for tilt
-        self.ki = [0.05, 0.06]  # Integral gain [pan, tilt] - increased for tilt
-        self.prev_error = [0.0, 0.0]
-        self.integral = [0.0, 0.0]  # Integral term for slow error correction
-        self.max_integral = [10.0, 10.0]  # Limit integral windup [pan, tilt]
-        
-        # Prediction for motion (anticipatory control)
-        self.target_history = [[], []]  # Store recent target positions
-        self.history_size = 5  # Number of past targets to remember
-        self.prev_targets = [[0.0, 0.0], [0.0, 0.0]]  # Last two targets for velocity estimation
-        self.target_velocity = [0.0, 0.0]  # Estimated target velocity
-        
-        # Dead zone (ignore very small movements)
-        self.dead_zone = [0.2, 0.1]  # [pan, tilt] degrees - smaller dead zone for tilt
-        
-        # Update rate
-        self.update_interval = 0.02  # 50Hz update rate
-        self.last_update_time = time.time()
-        
-        # Movement thresholds from Pimoroni implementation - reduce for tilt
-        self.move_threshold = [3.0, 1.0]  # [pan, tilt] - Reduced threshold for tilt
-        
-        # Limits for the head movement
-        self.pan_limits = [-90.0, 90.0]   # Minimum and maximum pan angles
-        self.tilt_limits = [-45.0, 30.0]  # Minimum and maximum tilt angles
-        
-        # Flag to determine if we're using internal control (True) or delegating to head_tracking.py (False)
-        self.use_internal_control = True
-        
-        # Start control thread
-        self.running = True
-        self.control_thread = threading.Thread(target=self._control_loop)
-        self.control_thread.daemon = True
-        self.control_thread.start()
-        
-        self.node.get_logger().info("Enhanced head controller initialized with improved tilt control")
+        try:
+            # Create publisher for head position commands
+            self.head_pub = node.create_publisher(Float32MultiArray, 'head_position', 10)
+    
+            # Current head position (pan, tilt)
+            self.current_position = [0.0, 0.0]  # [pan, tilt] in degrees
+            
+            # Target position 
+            self.target_position = [0.0, 0.0]
+            
+            # Movement parameters (increased from original)
+            self.max_speed = 90.0  # degrees per second (increased for faster response)
+            self.min_speed = 5.0   # minimum speed to avoid very slow movements
+            self.acceleration = 60.0  # degrees per second^2 (increased)
+            self.current_speed = [0.0, 0.0]  # Current speed for pan and tilt
+            
+            # Separate parameters for pan/tilt control (axis 0=pan, 1=tilt)
+            # Tilt generally needs slower, more careful control
+            self.max_speed_tilt = 80.0  # degrees per second for tilt (increased for better response)
+            self.damping_distance_tilt = 15.0  # degrees - for tilt
+            self.approach_factor_tilt = 0.6  # Controls how aggressively to approach target (lower = more aggressive)
+            
+            # Enhanced parameters for smoother motion
+            self.damping_distance = [20.0, 15.0]  # [pan, tilt] - tilt has shorter damping distance
+            self.approach_factor = [0.7, 0.6]  # Controls how aggressively to approach target
+            
+            # Improved PID control parameters - separate for pan and tilt
+            # Make tilt more responsive with higher gain
+            self.kp = [0.9, 0.85]  # Proportional gain [pan, tilt] - increased for tilt
+            self.kd = [0.4, 0.4]  # Derivative gain [pan, tilt] - lowered damping for tilt
+            self.ki = [0.05, 0.06]  # Integral gain [pan, tilt] - increased for tilt
+            self.prev_error = [0.0, 0.0]
+            self.integral = [0.0, 0.0]  # Integral term for slow error correction
+            self.max_integral = [10.0, 10.0]  # Limit integral windup [pan, tilt]
+            
+            # Prediction for motion (anticipatory control)
+            self.target_history = [[], []]  # Store recent target positions
+            self.history_size = 5  # Number of past targets to remember
+            self.prev_targets = [[0.0, 0.0], [0.0, 0.0]]  # Last two targets for velocity estimation
+            self.target_velocity = [0.0, 0.0]  # Estimated target velocity
+            
+            # Dead zone (ignore very small movements)
+            self.dead_zone = [0.2, 0.1]  # [pan, tilt] degrees - smaller dead zone for tilt
+            
+            # Update rate
+            self.update_interval = 0.02  # 50Hz update rate
+            self.last_update_time = time.time()
+            
+            # Movement thresholds from Pimoroni implementation - reduce for tilt
+            self.move_threshold = [3.0, 1.0]  # [pan, tilt] - Reduced threshold for tilt
+            
+            # Limits for the head movement
+            self.pan_limits = [-90.0, 90.0]   # Minimum and maximum pan angles
+            self.tilt_limits = [-45.0, 30.0]  # Minimum and maximum tilt angles
+            
+            # Flag to determine if we're using internal control (True) or delegating to head_tracking.py (False)
+            self.use_internal_control = True
+            
+            # Start control thread
+            self.running = True
+            self.control_thread = threading.Thread(target=self._control_loop)
+            self.control_thread.daemon = True
+            self.control_thread.start()
+            
+            self.node.get_logger().info("Enhanced head controller initialized with improved tilt control")
+            
+        except Exception as e:
+            self.node.get_logger().error(f"Error initializing head controller: {str(e)}")
+            self.running = False
+            raise  # Re-raise so we don't silently fail
     
     def set_target(self, pan, tilt):
         """Set target position for the head with smoother transitions"""
@@ -355,10 +364,10 @@ class FrameGrabber(QObject):
     def stop(self):
         with self.lock:
             self.running = False
+            if self.camera and self.camera.isOpened():
+                self.camera.release()
+                self.camera = None
             if self.capture_thread:
-                if self.camera and self.camera.isOpened():
-                    self.camera.release()
-                    self.camera = None
                 self.capture_thread.join(timeout=1.0)
                 self.capture_thread = None
     
@@ -729,8 +738,22 @@ class CameraViewer(QMainWindow):
         # Create face data publisher for head_tracking.py
         self.face_data_pub = node.create_publisher(String, 'face_detection_data', 10)
         
+        # Create camera frame publisher
+        self.frame_pub = node.create_publisher(Image, 'camera_frame', 10)
+        
+        # Create face image publisher for face recognition
+        self.face_image_pub = node.create_publisher(Image, 'face_images', 10)
+        
+        # Create CV bridge for image conversion
+        self.cv_bridge = CvBridge()
+        
         # Flag to use external head tracking system (head_tracking.py)
         self.use_external_tracking = False  # Default to internal tracking
+        
+        # Additional parameters
+        self.frame_count = 0
+        self.smoothing_factor = 0.7  # Default smoothing for faces
+        self.draw_faces = True  # Draw faces on the frame
         
         self.initUI()
         self.check_video_devices()
@@ -1093,120 +1116,509 @@ class CameraViewer(QMainWindow):
         self.image_label.setText(f"Camera error: {error_msg}\nTry refreshing or check permissions.")
     
     def process_frame(self, frame):
-        """Process and display a camera frame - optimized for speed"""
+        """Process and display a camera frame"""
         if frame is None:
             return
             
-        # Convert colors - BGR to RGB (optimized)
-        rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # Scale image to fit label if needed
-        label_width = self.image_label.width()
-        label_height = self.image_label.height()
-        
-        if label_width > 0 and label_height > 0:
-            h, w = rgb_image.shape[:2]
-            
-            # Calculate scale factor to fit in label while preserving aspect ratio
-            scale_w = label_width / w
-            scale_h = label_height / h
-            scale = min(scale_w, scale_h)
-            
-            # Only scale if necessary (smaller than label)
-            if scale < 1.0:
-                # Use NEAREST for fastest scaling
-                new_size = (int(w * scale), int(h * scale))
-                rgb_image = cv2.resize(rgb_image, new_size, interpolation=cv2.INTER_NEAREST)
-        
-        # Convert to QImage and display (reusing objects when possible)
-        h, w, ch = rgb_image.shape
+        # Convert colors for Qt display
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb_frame.shape
         bytes_per_line = ch * w
-        
-        # Convert to QImage efficiently
-        qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qt_image)
         self.image_label.setPixmap(pixmap)
+        
+        # Increment frame count
+        self.frame_count += 1
+        
+        # Detect faces if enabled
+        if self.face_detection_enabled:
+            faces = self.frame_grabber.detect_faces_dnn(frame)
+            
+            # Apply smoothing
+            if self.smoothing_factor > 0 and faces:
+                faces = self.frame_grabber.smooth_face_detections(faces)
+            
+            # Handle face tracking
+            if faces:
+                # Publish face data for tracking
+                self.publish_face_data(faces)
+                
+                # Extract and publish individual face images for recognition
+                self.publish_face_images(frame, faces)
+                
+                # Draw faces on frame for display
+                if self.draw_faces:
+                    frame = self.frame_grabber.draw_face_circles(frame, faces)
+                    # Add tracking visualization
+                    frame = self.frame_grabber.draw_face_tracking_indicators(frame, faces)
+        
+        # Publish camera frame
+        self.publish_frame(frame)
     
-    def closeEvent(self, event):
-        """Clean up when window is closed"""
-        self.frame_grabber.stop()
-        self.head_controller.stop()
-        event.accept()
-
+    def publish_face_data(self, faces):
+        """Publish face detection data for head tracking and recognition"""
+        if not faces:
+            return
+        
+        # Create JSON with face data
+        face_data = {
+            "timestamp": time.time(),
+            "faces": [
+                {
+                    "x1": face["x1"],
+                    "y1": face["y1"],
+                    "x2": face["x2"],
+                    "y2": face["y2"],
+                    "center_x": face["center_x"],
+                    "center_y": face["center_y"],
+                    "confidence": face["confidence"]
+                }
+                for face in faces
+            ]
+        }
+        
+        # Publish as String message
+        msg = String()
+        msg.data = json.dumps(face_data)
+        self.face_data_pub.publish(msg)
+        
+        # Log occasionally
+        if self.frame_count % 30 == 0:
+            self.node.get_logger().debug(f"Published face data with {len(faces)} faces")
+    
+    def publish_face_images(self, frame, faces):
+        """Extract and publish individual face images for recognition"""
+        try:
+            for i, face in enumerate(faces):
+                # Extract face with margin
+                margin_percentage = 0.2  # 20% margin
+                
+                # Get face dimensions
+                x1, y1 = face['x1'], face['y1']
+                x2, y2 = face['x2'], face['y2']
+                height, width = frame.shape[:2]
+                
+                # Calculate margin
+                margin_x = int((x2 - x1) * margin_percentage)
+                margin_y = int((y2 - y1) * margin_percentage)
+                
+                # Apply margin with bounds checking
+                x1_margin = max(0, x1 - margin_x)
+                y1_margin = max(0, y1 - margin_y)
+                x2_margin = min(width, x2 + margin_x)
+                y2_margin = min(height, y2 + margin_y)
+                
+                # Extract face image
+                face_img = frame[y1_margin:y2_margin, x1_margin:x2_margin]
+                
+                # Skip if face is too small
+                if face_img.size == 0 or face_img.shape[0] < 30 or face_img.shape[1] < 30:
+                    continue
+                
+                # Resize to standard size for consistency
+                standard_size = (150, 150)
+                face_img_resized = cv2.resize(face_img, standard_size)
+                
+                # Convert to ROS Image message
+                face_msg = self.cv_bridge.cv2_to_imgmsg(face_img_resized, encoding="bgr8")
+                
+                # Add metadata as header fields
+                face_msg.header.stamp = self.node.get_clock().now().to_msg()
+                face_msg.header.frame_id = f"face_{i}"
+                
+                # Publish face image
+                self.face_image_pub.publish(face_msg)
+                
+        except Exception as e:
+            self.node.get_logger().error(f'Error publishing face images: {e}')
+    
+    def publish_frame(self, frame):
+        """Publish the camera frame as a ROS Image message"""
+        try:
+            # Convert OpenCV image to ROS Image message
+            frame_msg = self.cv_bridge.cv2_to_imgmsg(frame, encoding="bgr8")
+            
+            # Set timestamp
+            frame_msg.header.stamp = self.node.get_clock().now().to_msg()
+            
+            # Publish
+            self.frame_pub.publish(frame_msg)
+        except Exception as e:
+            self.node.get_logger().error(f'Error publishing camera frame: {e}')
+    
     def toggle_tracking_mode(self, use_external):
         """Toggle between internal and external tracking"""
         self.use_external_tracking = use_external
         self.head_controller.set_use_internal_control(not use_external)
         self.node.get_logger().info(f"Using {'external' if use_external else 'internal'} head tracking")
 
-    def publish_face_data(self, faces):
-        """Publish face data for head_tracking.py to use"""
-        if not faces:
-            return
-            
-        # Create a serializable version of the face data
-        serializable_faces = []
-        for face in faces:
-            # Create a clean dict with only the needed fields
-            face_dict = {
-                'x1': int(face['x1']),
-                'y1': int(face['y1']),
-                'x2': int(face['x2']),
-                'y2': int(face['y2']),
-                'center_x': int(face['center_x']),
-                'center_y': int(face['center_y']),
-                'confidence': float(face['confidence']),
-                'radius': int(face['radius'])
-            }
-            serializable_faces.append(face_dict)
-            
-        # Create message with frame dimensions and faces
-        msg_data = {
-            'frame_width': self.frame_grabber.frame_width,
-            'frame_height': self.frame_grabber.frame_height,
-            'faces': serializable_faces
-        }
-        
-        # Convert to JSON and publish
-        msg = String()
-        msg.data = json.dumps(msg_data)
-        self.face_data_pub.publish(msg)
-        
-        # Log publication occasionally
-        if len(faces) > 0 and time.time() % 5 < 0.1:  # Log roughly every 5 seconds
-            self.node.get_logger().debug(f"Published face data with {len(faces)} faces")
-
 
 class CameraNode(Node):
     def __init__(self):
-        super().__init__('coffee_camera_node')
-        self.get_logger().info('Camera node is starting...')
+        super().__init__('camera_node')
+        self.get_logger().info('Starting camera node')
         
-        # Start the UI
-        app = QApplication(sys.argv)
-        self.ui = CameraViewer(self)
-        self.ui.show()
-        
-        # Start a background thread for ROS spinning
-        self.ros_thread = threading.Thread(target=self.spin_thread)
-        self.ros_thread.daemon = True
-        self.ros_thread.start()
-        
-        # Start Qt event loop
-        sys.exit(app.exec_())
+        try:
+            # Create camera controller - don't pass self as parent since Node is not a QObject
+            self.camera = CameraController(None)
+            self.camera.node = self  # Set node reference directly
+            
+            # Face detection publisher
+            self.face_publisher = self.create_publisher(
+                String,
+                'face_detection_data',
+                10
+            )
+            
+            # Camera frame publisher
+            self.frame_publisher = self.create_publisher(
+                Image,
+                'camera_frame',
+                10
+            )
+            
+            # Face image publisher for face recognition
+            self.face_image_publisher = self.create_publisher(
+                Image,
+                'face_images',
+                10
+            )
+            
+            # Create CV bridge for image conversion
+            self.bridge = CvBridge()
+            
+            # Initialize the camera
+            self.camera.start()
+            
+            self.get_logger().info('Camera node started')
+            
+        except Exception as e:
+            self.get_logger().error(f"Error initializing camera node: {str(e)}")
+            raise  # Re-raise to prevent silent failure
+
+class CameraController(QObject):
+    """Main camera control class"""
     
-    def spin_thread(self):
-        """Background thread for ROS spinning"""
-        rclpy.spin(self)
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.node = None  # Will be set by CameraNode after initialization
+        self.frame_grabber = FrameGrabber()
+        self.frame_grabber.frame_ready.connect(self.process_frame)
+        self.frame_grabber.error.connect(self.handle_camera_error)
+        self.frame_grabber.face_detected.connect(self.on_face_detected)
+        
+        # Initialize parameters
+        self.high_quality = False
+        self.face_detection_enabled = True
+        self.use_external_tracking = False
+        self.draw_faces = True
+        self.frame_count = 0
+        self.smoothing_factor = 0.7
+        
+        # Initialize head controller - we'll set this after node is assigned
+        self.head_controller = None
+    
+    def start(self):
+        """Start the camera and frame grabber"""
+        if self.node is None:
+            print("Error: node reference not set in CameraController")
+            return
+        
+        try:    
+            # Initialize head controller now that we have the node
+            if self.head_controller is None:
+                print("DEBUG: Creating HeadController")
+                self.head_controller = HeadController(self.node)
+                print("DEBUG: HeadController created successfully")
+                
+            self.node.get_logger().info('Starting camera controller')
+            
+            # Debug print before potentially crashing operation
+            print("DEBUG: About to scan cameras - this might crash")
+            
+            self.scan_cameras()
+            
+            # If we reach this, scan cameras succeeded
+            print("DEBUG: Camera scan completed successfully")
+        except Exception as e:
+            self.node.get_logger().error(f'Error starting camera controller: {str(e)}')
+            # Print full error details to be sure we catch them
+            import traceback
+            traceback.print_exc()
+            # Re-raise to prevent silent failures but with better logging
+            raise
+    
+    def scan_cameras(self):
+        """Scan for available cameras and start the first one found"""
+        # Stop current camera if running
+        self.frame_grabber.stop()
+        
+        self.node.get_logger().info("Scanning for cameras...")
+        available_cameras = []
+        
+        # In Linux, we can check directly which devices are video capture devices
+        if os.path.exists('/dev'):
+            for i in range(10):
+                device_path = f"/dev/video{i}"
+                if os.path.exists(device_path) and os.access(device_path, os.R_OK):
+                    try:
+                        # Try to open the camera directly with V4L2
+                        cap = cv2.VideoCapture(i, cv2.CAP_V4L2)
+                        if cap.isOpened():
+                            # It's a valid camera
+                            self.node.get_logger().info(f"Found camera at index {i} ({device_path})")
+                            available_cameras.append(i)
+                            cap.release()
+                        else:
+                            self.node.get_logger().info(f"Device {device_path} exists but couldn't be opened as a camera")
+                    except Exception as e:
+                        self.node.get_logger().warn(f"Error checking {device_path}: {e}")
+        
+        # Fallback to generic scanning
+        if not available_cameras:
+            self.node.get_logger().info("Direct scan failed, trying generic approach...")
+            for i in range(2):  # Only try the first two indices to avoid lengthy timeouts
+                try:
+                    cap = cv2.VideoCapture(i)
+                    if cap.isOpened():
+                        self.node.get_logger().info(f"Found camera at index {i}")
+                        available_cameras.append(i)
+                        cap.release()
+                except Exception as e:
+                    self.node.get_logger().warn(f"Error scanning camera {i}: {e}")
+        
+        if not available_cameras:
+            self.node.get_logger().error("No cameras found!")
+            return
+            
+        # Start the first available camera
+        self.frame_grabber.set_quality(self.high_quality)
+        self.frame_grabber.toggle_face_detection(self.face_detection_enabled)
+        
+        # Try with V4L2 backend specifically on Linux
+        camera_index = available_cameras[0]
+        self.node.get_logger().info(f"Starting camera at index {camera_index}")
+        if os.name == 'posix':
+            self.frame_grabber.start(camera_index, cv2.CAP_V4L2)
+        else:
+            self.frame_grabber.start(camera_index)
+    
+    def handle_camera_error(self, error_msg):
+        """Handle errors from the camera thread"""
+        self.node.get_logger().error(f"Camera error: {error_msg}")
+    
+    def on_face_detected(self, faces):
+        """Handle detected faces by directing head to look at them"""
+        if not faces or self.use_external_tracking:
+            return
+            
+        # Sort faces by confidence and size (prefer largest, most confident face)
+        faces.sort(key=lambda f: f['confidence'] * f['radius'], reverse=True)
+        
+        # Get the best face
+        face = faces[0]
+        
+        # Get camera and frame dimensions
+        frame_width = self.frame_grabber.frame_width
+        frame_height = self.frame_grabber.frame_height
+        
+        # Calculate center of frame
+        center_x = frame_width / 2
+        center_y = frame_height / 2
+        
+        # Calculate offset from center in pixels
+        turn_x = face['center_x'] - center_x
+        turn_y = face['center_y'] - center_y
+        
+        # Convert to normalized offsets (-1 to 1)
+        turn_x /= center_x
+        turn_y /= center_y
+        
+        # Field of view adjustments
+        horizontal_fov = 60.0  # Typical webcam horizontal FOV in degrees
+        vertical_fov = horizontal_fov * (frame_height / frame_width)  # Usually around 40-45 degrees
+        
+        # Convert to angles with gain factors for responsive tracking
+        pan_gain = 3.5
+        pan_angle = turn_x * pan_gain * (horizontal_fov / 2)
+        
+        tilt_gain = 4.5
+        tilt_angle = turn_y * tilt_gain * (vertical_fov / 2)
+        
+        # Apply smoothing based on face size
+        size_factor_pan = min(1.0, face['radius'] / 100)
+        size_factor_tilt = min(1.2, face['radius'] / 70)
+        
+        # Get current head position 
+        current_pan, current_tilt = self.head_controller.current_position
+        
+        # Calculate new target positions
+        target_pan = current_pan - pan_angle * size_factor_pan
+        target_tilt = current_tilt + tilt_angle * size_factor_tilt
+        
+        # Constrain to valid ranges
+        target_pan = max(self.head_controller.pan_limits[0], min(self.head_controller.pan_limits[1], target_pan))
+        target_tilt = max(self.head_controller.tilt_limits[0], min(self.head_controller.tilt_limits[1], target_tilt))
+        
+        # Debug logging
+        self.node.get_logger().debug(
+            f"Face tracking: pos=({face['center_x']:.0f},{face['center_y']:.0f}), " +
+            f"offset=({turn_x:.2f},{turn_y:.2f}), " +
+            f"current=({current_pan:.2f},{current_tilt:.2f}), " +
+            f"target=({target_pan:.2f},{target_tilt:.2f})"
+        )
+        
+        # Send to head controller
+        self.head_controller.set_target(target_pan, target_tilt)
+    
+    def process_frame(self, frame):
+        """Process and display a camera frame"""
+        if frame is None:
+            return
+            
+        # Detect faces if enabled
+        if self.face_detection_enabled:
+            faces = self.frame_grabber.detect_faces_dnn(frame)
+            
+            # Apply smoothing
+            if self.smoothing_factor > 0 and faces:
+                faces = self.frame_grabber.smooth_face_detections(faces)
+            
+            # Draw face indicators
+            if self.draw_faces and faces:
+                self.frame_grabber.draw_face_circles(frame, faces)
+                self.frame_grabber.draw_face_tracking_indicators(frame, faces)
+            
+            # Handle face tracking
+            if faces:
+                # Publish face data for tracking
+                self.publish_face_data(faces)
+                
+                # Extract and publish individual face images for recognition
+                self.publish_face_images(frame, faces)
+                    
+        # Publish camera frame
+        self.publish_frame(frame)
+        
+        # Update frame count
+        self.frame_count += 1
+    
+    def publish_face_data(self, faces):
+        """Publish face detection data for head tracking and recognition"""
+        if not faces:
+            return
+        
+        # Create JSON with face data
+        face_data = {
+            "timestamp": time.time(),
+            "faces": [
+                {
+                    "x1": face["x1"],
+                    "y1": face["y1"],
+                    "x2": face["x2"],
+                    "y2": face["y2"],
+                    "center_x": face["center_x"],
+                    "center_y": face["center_y"],
+                    "confidence": face["confidence"]
+                }
+                for face in faces
+            ]
+        }
+        
+        # Publish as String message
+        msg = String()
+        msg.data = json.dumps(face_data)
+        self.node.face_publisher.publish(msg)
+        
+        # Log occasionally
+        if self.frame_count % 30 == 0:
+            self.node.get_logger().debug(f"Published face data with {len(faces)} faces")
+    
+    def publish_frame(self, frame):
+        """Publish the camera frame as a ROS Image message"""
+        try:
+            # Convert OpenCV image to ROS Image message
+            frame_msg = self.node.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
+            
+            # Set timestamp
+            frame_msg.header.stamp = self.node.get_clock().now().to_msg()
+            
+            # Publish
+            self.node.frame_publisher.publish(frame_msg)
+        except Exception as e:
+            self.node.get_logger().error(f'Error publishing camera frame: {e}')
+    
+    def publish_face_images(self, frame, faces):
+        """Extract and publish individual face images for recognition"""
+        try:
+            for i, face in enumerate(faces):
+                # Extract face with margin
+                margin_percentage = 0.2  # 20% margin
+                
+                # Get face dimensions
+                x1, y1 = face['x1'], face['y1']
+                x2, y2 = face['x2'], face['y2']
+                height, width = frame.shape[:2]
+                
+                # Calculate margin
+                margin_x = int((x2 - x1) * margin_percentage)
+                margin_y = int((y2 - y1) * margin_percentage)
+                
+                # Apply margin with bounds checking
+                x1_margin = max(0, x1 - margin_x)
+                y1_margin = max(0, y1 - margin_y)
+                x2_margin = min(width, x2 + margin_x)
+                y2_margin = min(height, y2 + margin_y)
+                
+                # Extract face image
+                face_img = frame[y1_margin:y2_margin, x1_margin:x2_margin]
+                
+                # Skip if face is too small
+                if face_img.size == 0 or face_img.shape[0] < 30 or face_img.shape[1] < 30:
+                    continue
+                
+                # Resize to standard size for consistency
+                standard_size = (150, 150)
+                face_img_resized = cv2.resize(face_img, standard_size)
+                
+                # Convert to ROS Image message
+                face_msg = self.node.bridge.cv2_to_imgmsg(face_img_resized, encoding="bgr8")
+                
+                # Add metadata as header fields
+                face_msg.header.stamp = self.node.get_clock().now().to_msg()
+                face_msg.header.frame_id = f"face_{i}"
+                
+                # Publish face image
+                self.node.face_image_publisher.publish(face_msg)
+                
+        except Exception as e:
+            self.node.get_logger().error(f'Error publishing face images: {e}')
 
 
 def main(args=None):
     rclpy.init(args=args)
     try:
+        # Initialize Qt application before creating node
+        app = QApplication.instance()
+        if not app:
+            app = QApplication(sys.argv)
+            
         node = CameraNode()
+        
+        # Process Qt events while ROS is running
+        timer = QTimer()
+        timer.timeout.connect(lambda: None)  # Just wake up the event loop
+        timer.start(100)  # Every 100ms
+        
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        print(f"Error in camera node: {e}")
     finally:
+        if 'node' in locals():
+            node.destroy_node()
         rclpy.shutdown()
 
 
