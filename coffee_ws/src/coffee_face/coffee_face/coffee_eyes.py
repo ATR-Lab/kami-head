@@ -23,9 +23,9 @@ class CoffeeEyesNode(Node):
         
         # Create the animated eyes and controller
         self.config = EyeConfig(
-            width=40,
-            height=120,
-            spacing=40,
+            width=120,
+            height=480,
+            spacing=140,
             blink_interval=120,
             blink_speed=0.1,
             blink_close_frames=5,
