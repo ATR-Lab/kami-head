@@ -36,6 +36,8 @@ class CoffeeEyesNode(Node):
         )
         
         self.animated_eyes = AnimatedEyes(1080, 600, self.config)
+        # Set node reference for debug logging
+        self.animated_eyes.node = self
         self.controller = EyeController(self.animated_eyes)
         
         # Set up timer for regular updates (60 Hz)
@@ -52,8 +54,8 @@ class CoffeeEyesNode(Node):
         self.declare_parameter('frame_height', 480)  # Default camera height
         
         # Add parameters for mapping
-        self.declare_parameter('invert_x', False)  # Invert x direction if needed
-        self.declare_parameter('invert_y', False)  # Invert y direction if needed
+        self.declare_parameter('invert_x', False)  # Default FALSE for correct eye movement
+        self.declare_parameter('invert_y', False)  # Default FALSE for correct eye movement
         self.declare_parameter('eye_range', 3.0)   # Max range for eye movement (-3.0 to 3.0)
         
         # Get parameters
@@ -131,6 +133,16 @@ class CoffeeEyesNode(Node):
                     largest_face['center_y']
                 )
                 
+                # Log face position before transformation
+                face_x = self.target_face_position[0]
+                face_y = self.target_face_position[1]
+                center_x = self.frame_width / 2
+                center_y = self.frame_height / 2
+                dx = face_x - center_x
+                dy = face_y - center_y
+                
+                self.get_logger().debug(f"Face detected at ({face_x:.1f}, {face_y:.1f}), offset from center: ({dx:.1f}, {dy:.1f})")
+                
                 # Transform camera coordinates to eye controller coordinates
                 eye_position = self.transform_camera_to_eye_coords(
                     self.target_face_position[0],
@@ -140,8 +152,8 @@ class CoffeeEyesNode(Node):
                 # Call go_to_pos only if we have a valid position
                 if eye_position:
                     self.controller.go_to_pos(eye_position)
-                    self.get_logger().debug(f'Moving eyes to position: {eye_position}')
-        
+                    self.get_logger().info(f'Moving eyes to position: ({eye_position[0]:.2f}, {eye_position[1]:.2f})')
+
         except Exception as e:
             self.get_logger().error(f"Error processing face data: {e}")
     
@@ -158,7 +170,14 @@ class CoffeeEyesNode(Node):
         norm_x = (camera_x - self.frame_width/2) / (self.frame_width/2)
         norm_y = (camera_y - self.frame_height/2) / (self.frame_height/2)
         
+        # Add sensitivity multiplier (like in eye_tracking.py)
+        sensitivity = 1.5  # Higher = more sensitive eye movement
+        norm_x *= sensitivity
+        norm_y *= sensitivity
+        
         # Apply inversions if configured
+        # Note: By default we want norm_x to be positive when face is on right side
+        # So default should have invert_x=False
         if self.invert_x:
             norm_x = -norm_x
         if self.invert_y:
@@ -171,6 +190,9 @@ class CoffeeEyesNode(Node):
         # Clamp values to valid range
         eye_x = max(-self.eye_range, min(self.eye_range, eye_x))
         eye_y = max(-self.eye_range, min(self.eye_range, eye_y))
+        
+        # Debug output for tuning
+        self.get_logger().debug(f'Camera coords: ({camera_x}, {camera_y}) -> Eye coords: ({eye_x}, {eye_y})')
         
         return (eye_x, eye_y)
     

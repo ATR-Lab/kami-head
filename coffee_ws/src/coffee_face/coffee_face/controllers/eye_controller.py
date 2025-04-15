@@ -8,7 +8,7 @@ class EyeController:
         self.movement_queue = []
         self.current_position = (0.0, 0.0)  # Start at center
         self.target_position = None
-        self.move_duration = 1.0  # Time to move between positions in seconds
+        self.move_duration = 0.2  # Time to move between positions in seconds (reduced from 1.0)
         self.move_progress = 0.0
         
     def queue_movement(self, positions: List[Tuple[float, float]]):
@@ -47,6 +47,14 @@ class EyeController:
         # Update eye positions
         self.eyes.set_eye_positions((current_x, current_y))
         
+        # Debug output for tracking movement
+        if hasattr(self.eyes, 'node') and self.eyes.node:
+            self.eyes.node.get_logger().debug(
+                f"Queue length: {len(self.movement_queue)}, "
+                f"Target: ({self.target_position[0]:.2f}, {self.target_position[1]:.2f}), "
+                f"Current: ({current_x:.2f}, {current_y:.2f})"
+            )
+        
         # Check if movement is complete
         if progress >= 1.0:
             self.movement_queue.pop(0)  # Remove completed movement
@@ -72,4 +80,7 @@ class EyeController:
     
     def go_to_pos(self, pos: Tuple[float, float]):
         """Move eyes to a specific position"""
+        # Clear the queue to immediately respond to new position
+        self.movement_queue = []
+        self.target_position = None  # Reset current target
         self.queue_movement([pos])
