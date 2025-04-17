@@ -10,10 +10,10 @@ import os
 import subprocess
 import json
 from rclpy.node import Node
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QHBoxLayout, QCheckBox, QMessageBox, QSlider
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QHBoxLayout, QCheckBox, QMessageBox
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
-from std_msgs.msg import Float32MultiArray, String  # Added String message for face data
+from std_msgs.msg import Float32MultiArray, String
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
@@ -23,7 +23,7 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 
 
 class HeadController:
-    """Controls head servos based on face position"""
+    """Controls head servos based on face position without PyQt5 dependencies"""
     def __init__(self, node):
         self.node = node
         
@@ -125,15 +125,6 @@ class HeadController:
             dt = self.update_interval  # Approximate time between updates
             self.target_velocity[0] = (self.target_history[0][-1] - self.target_history[0][-2]) / dt
             self.target_velocity[1] = (self.target_history[1][-1] - self.target_history[1][-2]) / dt
-    
-    def set_max_speed(self, speed, axis=0):
-        """Set maximum speed for pan or tilt"""
-        if axis == 0:  # Pan
-            self.max_speed = max(5.0, min(120.0, speed))
-            self.node.get_logger().info(f"Head pan max speed set to {self.max_speed} deg/s")
-        else:  # Tilt
-            self.max_speed_tilt = max(5.0, min(90.0, speed))
-            self.node.get_logger().info(f"Head tilt max speed set to {self.max_speed_tilt} deg/s")
     
     def stop(self):
         """Stop the control thread"""
@@ -267,21 +258,16 @@ class HeadController:
             
             # Small sleep to prevent tight loops
             time.sleep(0.001)
-    
-    def set_use_internal_control(self, use_internal):
-        """Set whether to use internal control or delegate to head_tracking.py"""
-        self.use_internal_control = use_internal
-        self.node.get_logger().info(f"Head control mode set to {'internal' if use_internal else 'external'}")
 
 
 class FrameGrabber(QObject):
     """Dedicated thread for frame capture to improve performance"""
     frame_ready = pyqtSignal(np.ndarray)
     error = pyqtSignal(str)
-    face_detected = pyqtSignal(list)  # Signal emitted when face is detected
     
-    def __init__(self):
+    def __init__(self, node=None):
         super().__init__()
+        self.node = node
         self.camera = None
         self.camera_index = 0
         self.running = False
@@ -303,7 +289,214 @@ class FrameGrabber(QObject):
         self.smoothing_factor = 0.7  # Higher value = more smoothing
         self.smoothing_frames = 5    # Number of frames to average
         
+        # ROS publishers for face data and images
+        if self.node:
+            self.face_pub = node.create_publisher(String, 'face_detection_data', 10)
+            self.frame_pub = node.create_publisher(Image, 'camera_frame', 10)
+            self.face_image_pub = node.create_publisher(Image, 'face_images', 10)
+            self.bridge = CvBridge()
+            
+            # Face recognition subscription
+            self.face_recognition_sub = node.create_subscription(
+                String,
+                'face_recognition_data',
+                self.face_recognition_callback,
+                10
+            )
+            
+        # Face recognition data
+        self.face_ids = {}  # Map of face index to recognized face ID
+        self.last_recognition_time = 0
+        self.recognition_timeout = 3.0  # Clear recognition data after 3 seconds
+        
+        # Head tracking
+        self.head_controller = None
+        self.tracking_enabled = False
+        self.target_face_index = 0  # Track the first face by default
+        
         self.init_face_detector()
+    
+    def init_head_controller(self):
+        """Initialize head controller if node is available"""
+        if self.node and self.head_controller is None:
+            try:
+                self.head_controller = HeadController(self.node)
+                self.node.get_logger().info("Head controller initialized successfully")
+            except Exception as e:
+                self.node.get_logger().error(f"Error initializing head controller: {e}")
+                self.tracking_enabled = False
+    
+    def enable_tracking(self, enabled):
+        """Enable or disable face tracking"""
+        self.tracking_enabled = enabled
+        if enabled and self.head_controller is None and self.node:
+            self.init_head_controller()
+    
+    def face_recognition_callback(self, msg):
+        """Process face recognition data from face recognition node"""
+        try:
+            recognition_data = json.loads(msg.data)
+            self.last_recognition_time = time.time()
+            
+            # Clear existing face IDs
+            self.face_ids = {}
+            
+            # Process each recognized face
+            for face in recognition_data.get('faces', []):
+                face_id = face.get('id')
+                position = face.get('position', {})
+                center_x = int(position.get('center_x', 0))
+                center_y = int(position.get('center_y', 0))
+                
+                # Find the corresponding detected face
+                # Match based on position
+                best_match_idx = -1
+                best_match_dist = float('inf')
+                
+                for i, detected_face in enumerate(self.prev_faces[-1] if self.prev_faces else []):
+                    # Calculate distance between centers
+                    dx = float(detected_face.get('center_x', 0)) - center_x
+                    dy = float(detected_face.get('center_y', 0)) - center_y
+                    dist = (dx**2 + dy**2)**0.5
+                    
+                    if dist < best_match_dist and dist < 100:  # Max 100px distance for a match
+                        best_match_dist = dist
+                        best_match_idx = i
+                
+                if best_match_idx >= 0:
+                    # Store the ID with this face index
+                    self.face_ids[best_match_idx] = {
+                        'id': str(face_id),
+                        'confidence': float(face.get('confidence', 0.0)),
+                        'is_new': bool(face.get('is_new', False))
+                    }
+            
+        except Exception as e:
+            if self.node:
+                self.node.get_logger().error(f"Error processing face recognition data: {e}")
+                import traceback
+                traceback.print_exc()
+    
+    def track_face(self, face):
+        """Track a face with the head controller"""
+        if not self.head_controller or not self.tracking_enabled:
+            return
+            
+        try:
+            # Convert face position to pan/tilt angles
+            center_x = float(face['center_x'])
+            center_y = float(face['center_y'])
+            
+            # Calculate normalized coordinates (-1 to 1)
+            norm_x = (center_x / float(self.frame_width)) * 2 - 1
+            norm_y = (center_y / float(self.frame_height)) * 2 - 1
+            
+            # Invert Y-axis (positive down in image, positive up in tilt)
+            norm_y = -norm_y
+            
+            # Scale to head angles
+            max_pan_angle = 80.0
+            max_tilt_angle = 30.0
+            
+            pan_angle = float(norm_x * max_pan_angle)
+            tilt_angle = float(norm_y * max_tilt_angle)
+            
+            # Send to head controller
+            self.head_controller.set_target(pan_angle, tilt_angle)
+            
+        except Exception as e:
+            if self.node:
+                self.node.get_logger().error(f"Error tracking face: {e}")
+                import traceback
+                traceback.print_exc()
+    
+    def publish_face_data(self, faces):
+        """Publish face detection data for other nodes"""
+        if not self.node or not faces:
+            return
+            
+        # Create JSON with face data - convert NumPy types to Python native types
+        face_data = {
+            "timestamp": float(time.time()),
+            "frame_width": int(self.frame_width),
+            "frame_height": int(self.frame_height),
+            "faces": [
+                {
+                    "x1": int(face["x1"]),
+                    "y1": int(face["y1"]),
+                    "x2": int(face["x2"]),
+                    "y2": int(face["y2"]),
+                    "center_x": int(face["center_x"]),
+                    "center_y": int(face["center_y"]),
+                    "confidence": float(face["confidence"]),
+                    "id": str(face.get("id", "Unknown"))
+                }
+                for face in faces
+            ]
+        }
+        
+        # Publish
+        msg = String()
+        msg.data = json.dumps(face_data)
+        self.face_pub.publish(msg)
+    
+    def publish_face_images(self, frame, faces):
+        """Extract and publish individual face images"""
+        if not self.node:
+            return
+            
+        try:
+            for i, face in enumerate(faces):
+                # Extract face with margin
+                margin = 0.2  # 20%
+                
+                # Get dimensions
+                x1, y1 = face['x1'], face['y1']
+                x2, y2 = face['x2'], face['y2']
+                h, w = frame.shape[:2]
+                
+                # Calculate margin
+                margin_x = int((x2 - x1) * margin)
+                margin_y = int((y2 - y1) * margin)
+                
+                # Apply margin
+                x1_margin = max(0, x1 - margin_x)
+                y1_margin = max(0, y1 - margin_y)
+                x2_margin = min(w, x2 + margin_x)
+                y2_margin = min(h, y2 + margin_y)
+                
+                # Extract face
+                face_img = frame[y1_margin:y2_margin, x1_margin:x2_margin]
+                
+                # Skip if too small
+                if face_img.size == 0 or face_img.shape[0] < 30 or face_img.shape[1] < 30:
+                    continue
+                    
+                # Resize
+                face_img = cv2.resize(face_img, (150, 150))
+                
+                # Publish
+                face_msg = self.bridge.cv2_to_imgmsg(face_img, encoding="bgr8")
+                face_msg.header.stamp = self.node.get_clock().now().to_msg()
+                face_msg.header.frame_id = f"face_{i}"
+                self.face_image_pub.publish(face_msg)
+                
+        except Exception as e:
+            if self.node:
+                self.node.get_logger().error(f"Error publishing face images: {e}")
+    
+    def publish_frame(self, frame):
+        """Publish camera frame to ROS topics"""
+        if not self.node:
+            return
+            
+        try:
+            frame_msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
+            frame_msg.header.stamp = self.node.get_clock().now().to_msg()
+            self.frame_pub.publish(frame_msg)
+        except Exception as e:
+            if self.node:
+                self.node.get_logger().error(f"Error publishing frame: {e}")
     
     def init_face_detector(self):
         """Initialize the OpenCV DNN face detector"""
@@ -364,10 +557,10 @@ class FrameGrabber(QObject):
     def stop(self):
         with self.lock:
             self.running = False
-            if self.camera and self.camera.isOpened():
-                self.camera.release()
-                self.camera = None
             if self.capture_thread:
+                if self.camera and self.camera.isOpened():
+                    self.camera.release()
+                    self.camera = None
                 self.capture_thread.join(timeout=1.0)
                 self.capture_thread = None
     
@@ -521,84 +714,65 @@ class FrameGrabber(QObject):
         return new_faces
     
     def draw_face_circles(self, frame, faces):
-        """Draw transparent circles over detected faces"""
+        """Draw transparent circles over detected faces with IDs"""
         if not faces:
             return frame
         
         # Create an overlay for transparency
         overlay = frame.copy()
         
-        # Draw circles on overlay
-        for face in faces:
+        # Draw circles and face data on overlay
+        for i, face in enumerate(faces):
+            # Get face ID if available
+            face_id = face.get('id', 'Unknown')
+            
+            # Choose color based on face ID
+            if face_id != 'Unknown':
+                # Use different color for recognized faces
+                color = (0, 200, 255)  # Orange for recognized faces
+            else:
+                color = (0, 255, 0)  # Green for detected faces
+            
             # Draw circle on overlay
             cv2.circle(overlay, 
                       (face['center_x'], face['center_y']), 
                       face['radius'], 
-                      (0, 255, 0), 
+                      color, 
                       -1)
+            
+            # Draw rectangle around face
+            cv2.rectangle(frame, (face['x1'], face['y1']), (face['x2'], face['y2']), color, 2)
+            
+            # Display face ID and confidence
+            face_conf = face.get('confidence', 0.0)
+            id_text = f"ID: {face_id}" if face_id != 'Unknown' else "Unknown"
+            conf_text = f"Conf: {face_conf:.2f}"
+            
+            cv2.putText(frame, id_text, (face['x1'], face['y1'] - 10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            cv2.putText(frame, conf_text, (face['x1'], face['y1'] + face['height'] if 'height' in face else (face['y2']-face['y1']) + 20),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            
+            # Highlight tracked face
+            if i == self.target_face_index and self.tracking_enabled:
+                # Draw special marker for tracked face
+                cv2.circle(frame, (face['center_x'], face['center_y']), 5, (0, 0, 255), -1)
+                cv2.putText(frame, "TRACKING", (face['center_x'] - 40, face['center_y'] - 20),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
         
         # Blend the overlay with the original frame for transparency
         alpha = 0.3  # Transparency factor
         cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
         
         # Add indicator text if faces detected
-        if len(faces) > 0:
-            cv2.putText(frame, f"Faces: {len(faces)}", (10, 70), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.putText(frame, f"Faces: {len(faces)}", (10, 70), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
-        return frame
-    
-    def draw_face_tracking_indicators(self, frame, faces):
-        """Draw tracking indicators to show how well faces are centered"""
-        if not faces:
-            return frame
-        
-        # Get frame dimensions
-        h, w = frame.shape[:2]
-        center_x = w // 2
-        center_y = h // 2
-        
-        # Draw horizontal and vertical center lines
-        cv2.line(frame, (center_x, 0), (center_x, h), (255, 255, 255), 1)
-        cv2.line(frame, (0, center_y), (w, center_y), (255, 255, 255), 1)
-        
-        # Draw target zones
-        target_zone_size_x = w // 8
-        target_zone_size_y = h // 8
-        cv2.rectangle(frame, 
-                     (center_x - target_zone_size_x, center_y - target_zone_size_y),
-                     (center_x + target_zone_size_x, center_y + target_zone_size_y),
-                     (0, 255, 255), 1)
-        
-        # Draw tracking indicators for each face
-        for face in faces:
-            # Calculate offsets from center
-            x_offset = face['center_x'] - center_x
-            y_offset = face['center_y'] - center_y
-            
-            # Normalize offsets to frame size
-            x_offset_norm = x_offset / (w / 2)
-            y_offset_norm = y_offset / (h / 2)
-            
-            # Calculate color based on how centered the face is
-            # Green when centered, yellow when slightly off, red when way off
-            offset_magnitude = (x_offset_norm**2 + y_offset_norm**2)**0.5
-            if offset_magnitude < 0.1:  # Well centered
-                indicator_color = (0, 255, 0)  # Green
-            elif offset_magnitude < 0.3:  # Slightly off
-                indicator_color = (0, 255, 255)  # Yellow
-            else:  # Way off
-                indicator_color = (0, 0, 255)  # Red
-            
-            # Draw lines from center of face to center of frame
-            cv2.line(frame, (face['center_x'], face['center_y']), (center_x, face['center_y']), indicator_color, 2)
-            cv2.line(frame, (face['center_x'], face['center_y']), (face['center_x'], center_y), indicator_color, 2)
-            
-            # Show offset values
-            cv2.putText(frame, f"X: {x_offset_norm:.2f}", (10, h - 60), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, indicator_color, 2)
-            cv2.putText(frame, f"Y: {y_offset_norm:.2f}", (10, h - 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, indicator_color, 2)
+        # Display number of recognized faces
+        recog_count = len([f for f in faces if f.get('id', 'Unknown') != 'Unknown'])
+        if recog_count > 0:
+            cv2.putText(frame, f"Recognized: {recog_count}/{len(faces)}", (10, 110), 
+                      cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         return frame
     
@@ -668,6 +842,10 @@ class FrameGrabber(QObject):
             frame_index = 0
             last_faces = []
             
+            # Initialize head controller if tracking enabled
+            if self.tracking_enabled and self.node:
+                self.init_head_controller()
+            
             while self.running:
                 ret, frame = self.camera.read()
                 
@@ -684,15 +862,29 @@ class FrameGrabber(QObject):
                         # Smooth the face positions to reduce flickering
                         last_faces = self.smooth_face_detections(faces)
                         
-                        # Emit signal with detected faces for head control
-                        if last_faces:
-                            self.face_detected.emit(last_faces)
+                        # Check if recognition data is stale
+                        if time.time() - self.last_recognition_time > self.recognition_timeout:
+                            self.face_ids = {}  # Clear stale data
+                        
+                        # Add face IDs if available
+                        for i, face in enumerate(last_faces):
+                            if i in self.face_ids:
+                                face['id'] = self.face_ids[i]['id']
+                            else:
+                                face['id'] = 'Unknown'
+                        
+                        # Publish face data for other nodes
+                        if self.node:
+                            self.publish_face_data(last_faces)
+                            self.publish_face_images(frame, last_faces)
+                        
+                        # Update face tracking if enabled
+                        if self.tracking_enabled and self.head_controller and last_faces and len(last_faces) > self.target_face_index:
+                            self.track_face(last_faces[self.target_face_index])
                     
                     # Draw smoothed faces on every frame
                     if last_faces:
                         frame = self.draw_face_circles(frame, last_faces)
-                        # Add tracking visualization
-                        frame = self.draw_face_tracking_indicators(frame, last_faces)
                 
                 # Add FPS text to frame
                 frame_count += 1
@@ -707,7 +899,11 @@ class FrameGrabber(QObject):
                 cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30), 
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                 
-                # Emit the frame signal
+                # Publish frame to ROS topic
+                if self.node:
+                    self.publish_frame(frame)
+                
+                # Emit the frame signal for Qt UI
                 self.frame_ready.emit(frame)
                 
                 # Short sleep to prevent tight loops
@@ -725,36 +921,12 @@ class CameraViewer(QMainWindow):
     def __init__(self, node):
         super().__init__()
         self.node = node
-        self.frame_grabber = FrameGrabber()
+        self.frame_grabber = FrameGrabber(node)
         self.frame_grabber.frame_ready.connect(self.process_frame)
         self.frame_grabber.error.connect(self.handle_camera_error)
-        self.frame_grabber.face_detected.connect(self.on_face_detected)
         self.high_quality = False
         self.face_detection_enabled = True
-        
-        # Initialize head controller
-        self.head_controller = HeadController(node)
-        
-        # Create face data publisher for head_tracking.py
-        self.face_data_pub = node.create_publisher(String, 'face_detection_data', 10)
-        
-        # Create camera frame publisher
-        self.frame_pub = node.create_publisher(Image, 'camera_frame', 10)
-        
-        # Create face image publisher for face recognition
-        self.face_image_pub = node.create_publisher(Image, 'face_images', 10)
-        
-        # Create CV bridge for image conversion
-        self.cv_bridge = CvBridge()
-        
-        # Flag to use external head tracking system (head_tracking.py)
-        self.use_external_tracking = False  # Default to internal tracking
-        
-        # Additional parameters
-        self.frame_count = 0
-        self.smoothing_factor = 0.7  # Default smoothing for faces
-        self.draw_faces = True  # Draw faces on the frame
-        
+        self.tracking_enabled = False
         self.initUI()
         self.check_video_devices()
         self.scan_cameras()
@@ -809,46 +981,13 @@ class CameraViewer(QMainWindow):
         self.face_detection_checkbox.stateChanged.connect(self.toggle_face_detection)
         quality_layout.addWidget(self.face_detection_checkbox)
         
-        # External tracking toggle
-        self.external_tracking_checkbox = QCheckBox("Use External Tracking")
-        self.external_tracking_checkbox.setChecked(self.use_external_tracking)
-        self.external_tracking_checkbox.stateChanged.connect(self.toggle_external_tracking)
-        quality_layout.addWidget(self.external_tracking_checkbox)
+        # Face tracking toggle
+        self.tracking_checkbox = QCheckBox("Face Tracking")
+        self.tracking_checkbox.setChecked(self.tracking_enabled)
+        self.tracking_checkbox.stateChanged.connect(self.toggle_tracking)
+        quality_layout.addWidget(self.tracking_checkbox)
         
         controls_layout.addLayout(quality_layout)
-        
-        # Head control parameters
-        head_control_layout = QVBoxLayout()
-        head_control_label = QLabel("Head Control:")
-        head_control_layout.addWidget(head_control_label)
-        
-        # Pan speed control slider
-        pan_speed_label = QLabel("Pan Speed:")
-        self.pan_speed_slider = QSlider(Qt.Horizontal)
-        self.pan_speed_slider.setMinimum(5)
-        self.pan_speed_slider.setMaximum(120)
-        self.pan_speed_slider.setValue(90)  # Default speed
-        self.pan_speed_slider.setTickPosition(QSlider.TicksBelow)
-        self.pan_speed_slider.setTickInterval(10)
-        self.pan_speed_slider.valueChanged.connect(self.set_pan_speed)
-        
-        head_control_layout.addWidget(pan_speed_label)
-        head_control_layout.addWidget(self.pan_speed_slider)
-        
-        # Tilt speed control slider
-        tilt_speed_label = QLabel("Tilt Speed:")
-        self.tilt_speed_slider = QSlider(Qt.Horizontal)
-        self.tilt_speed_slider.setMinimum(5)
-        self.tilt_speed_slider.setMaximum(90)
-        self.tilt_speed_slider.setValue(70)  # Default speed
-        self.tilt_speed_slider.setTickPosition(QSlider.TicksBelow)
-        self.tilt_speed_slider.setTickInterval(10)
-        self.tilt_speed_slider.valueChanged.connect(self.set_tilt_speed)
-        
-        head_control_layout.addWidget(tilt_speed_label)
-        head_control_layout.addWidget(self.tilt_speed_slider)
-        
-        controls_layout.addLayout(head_control_layout)
         
         # Camera diagnostics button
         self.diagnostics_button = QPushButton("Camera Diagnostics")
@@ -864,102 +1003,29 @@ class CameraViewer(QMainWindow):
         self.qt_image = None
         self.pixmap = None
     
-    def toggle_external_tracking(self, state):
-        """Toggle between internal and external tracking"""
-        self.toggle_tracking_mode(bool(state))
+    def toggle_tracking(self, state):
+        """Toggle face tracking on/off"""
+        self.tracking_enabled = bool(state)
+        self.node.get_logger().info(f"Face tracking {'enabled' if self.tracking_enabled else 'disabled'}")
+        self.frame_grabber.enable_tracking(self.tracking_enabled)
         
-    def set_pan_speed(self, value):
-        """Update the head panning speed"""
-        self.head_controller.set_max_speed(float(value), axis=0)
-    
-    def set_tilt_speed(self, value):
-        """Update the head tilting speed"""
-        self.head_controller.set_max_speed(float(value), axis=1)
-    
-    def on_face_detected(self, faces):
-        """Handle detected faces by directing head to look at them (improved Pimoroni-style tracking)"""
-        if not faces:
-            return
-            
-        # Sort faces by confidence and size (prefer largest, most confident face)
-        faces.sort(key=lambda f: f['confidence'] * f['radius'], reverse=True)
-        
-        # Get the best face
-        face = faces[0]
-        
-        # Publish face data for head_tracking.py
-        self.publish_face_data(faces)
-        
-        # If using external tracking, don't control motors directly
-        if self.use_external_tracking:
-            return
-            
-        # Get camera and frame dimensions
-        frame_width = self.frame_grabber.frame_width
-        frame_height = self.frame_grabber.frame_height
-        
-        # Calculate center of frame
-        center_x = frame_width / 2
-        center_y = frame_height / 2
-        
-        # Calculate offset from center in pixels
-        turn_x = face['center_x'] - center_x
-        turn_y = face['center_y'] - center_y
-        
-        # Convert to normalized offsets (-1 to 1)
-        turn_x /= center_x
-        turn_y /= center_y
-        
-        # Field of view adjustments - most webcams have different horizontal vs vertical FOV
-        horizontal_fov = 60.0  # Typical webcam horizontal FOV in degrees
-        # Vertical FOV is typically narrower due to 16:9 aspect ratio
-        vertical_fov = horizontal_fov * (frame_height / frame_width)  # Usually around 40-45 degrees
-        
-        # Convert to angles with gain factors for responsive tracking
-        # Horizontal tracking (pan)
-        pan_gain = 3.5  # Higher gain for more responsive tracking
-        pan_angle = turn_x * pan_gain * (horizontal_fov / 2)  # Scale by half FOV
-        
-        # Vertical tracking (tilt) - with refined calculations for better accuracy
-        # Increase gain for tilt to make it more responsive
-        tilt_gain = 4.5  # Higher gain for tilt to be more responsive (increased from 3.0)
-        tilt_angle = turn_y * tilt_gain * (vertical_fov / 2)  # Scale by half FOV
-        
-        # Apply smoothing based on face size - larger/closer faces need more precise tracking
-        size_factor_pan = min(1.0, face['radius'] / 100)  # Normalize by expected size
-        size_factor_tilt = min(1.2, face['radius'] / 70)  # Make tilt more responsive with higher factor
-        
-        # Get current head position 
-        current_pan, current_tilt = self.head_controller.current_position
-        
-        # Calculate new target positions using absolute positions
-        # Invert pan direction (negative turn_x means head should turn right/positive)
-        target_pan = current_pan - pan_angle * size_factor_pan
-        
-        # FIXED: For tilt: positive turn_y (face below center) means tilt up (positive angle)
-        # This reverses our previous logic which was incorrect
-        target_tilt = current_tilt + tilt_angle * size_factor_tilt
-        
-        # Constrain to valid ranges
-        target_pan = max(self.head_controller.pan_limits[0], min(self.head_controller.pan_limits[1], target_pan))
-        target_tilt = max(self.head_controller.tilt_limits[0], min(self.head_controller.tilt_limits[1], target_tilt))
-        
-        # Add more detailed debug logging
-        self.node.get_logger().info(
-            f"Face tracking: pos=({face['center_x']:.0f},{face['center_y']:.0f}), " +
-            f"offset=({turn_x:.2f},{turn_y:.2f}), " +
-            f"tilt_angle={tilt_angle:.2f}, factor={size_factor_tilt:.2f}, " +
-            f"current_tilt={current_tilt:.2f}, target_tilt={target_tilt:.2f}"
-        )
-        
-        # Send to head controller
-        self.head_controller.set_target(target_pan, target_tilt)
+        # Make sure face detection is enabled if tracking is enabled
+        if self.tracking_enabled and not self.face_detection_enabled:
+            self.face_detection_enabled = True
+            self.face_detection_checkbox.setChecked(True)
+            self.frame_grabber.toggle_face_detection(True)
     
     def toggle_face_detection(self, state):
         """Toggle face detection on/off"""
         self.face_detection_enabled = bool(state)
         self.node.get_logger().info(f"Face detection {'enabled' if self.face_detection_enabled else 'disabled'}")
         self.frame_grabber.toggle_face_detection(self.face_detection_enabled)
+        
+        # If face detection is turned off, disable tracking too
+        if not self.face_detection_enabled and self.tracking_enabled:
+            self.tracking_enabled = False
+            self.tracking_checkbox.setChecked(False)
+            self.frame_grabber.enable_tracking(False)
     
     def check_video_devices(self):
         """Check what video devices are available in the system"""
@@ -1014,9 +1080,6 @@ class CameraViewer(QMainWindow):
         # Face detection status
         info += f"Face Detection: {'Enabled' if self.face_detection_enabled else 'Disabled'}\n"
         info += f"Using OpenCV DNN-based face detector\n\n"
-        
-        # Head tracking status
-        info += f"Head Tracking Speed: {self.head_controller.max_speed} deg/s\n"
         
         # Check which OpenCV backends are available
         info += "Available OpenCV Backends:\n"
@@ -1116,506 +1179,106 @@ class CameraViewer(QMainWindow):
         self.image_label.setText(f"Camera error: {error_msg}\nTry refreshing or check permissions.")
     
     def process_frame(self, frame):
-        """Process and display a camera frame"""
+        """Process and display a camera frame - optimized for speed"""
         if frame is None:
             return
             
-        # Convert colors for Qt display
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb_frame.shape
+        # Convert colors - BGR to RGB (optimized)
+        rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        # Scale image to fit label if needed
+        label_width = self.image_label.width()
+        label_height = self.image_label.height()
+        
+        if label_width > 0 and label_height > 0:
+            h, w = rgb_image.shape[:2]
+            
+            # Calculate scale factor to fit in label while preserving aspect ratio
+            scale_w = label_width / w
+            scale_h = label_height / h
+            scale = min(scale_w, scale_h)
+            
+            # Only scale if necessary (smaller than label)
+            if scale < 1.0:
+                # Use NEAREST for fastest scaling
+                new_size = (int(w * scale), int(h * scale))
+                rgb_image = cv2.resize(rgb_image, new_size, interpolation=cv2.INTER_NEAREST)
+        
+        # Convert to QImage and display (reusing objects when possible)
+        h, w, ch = rgb_image.shape
         bytes_per_line = ch * w
-        qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        
+        # Convert to QImage efficiently
+        qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qt_image)
         self.image_label.setPixmap(pixmap)
-        
-        # Increment frame count
-        self.frame_count += 1
-        
-        # Detect faces if enabled
-        if self.face_detection_enabled:
-            faces = self.frame_grabber.detect_faces_dnn(frame)
-            
-            # Apply smoothing
-            if self.smoothing_factor > 0 and faces:
-                faces = self.frame_grabber.smooth_face_detections(faces)
-            
-            # Handle face tracking
-            if faces:
-                # Publish face data for tracking
-                self.publish_face_data(faces)
-                
-                # Extract and publish individual face images for recognition
-                self.publish_face_images(frame, faces)
-                
-                # Draw faces on frame for display
-                if self.draw_faces:
-                    frame = self.frame_grabber.draw_face_circles(frame, faces)
-                    # Add tracking visualization
-                    frame = self.frame_grabber.draw_face_tracking_indicators(frame, faces)
-        
-        # Publish camera frame
-        self.publish_frame(frame)
     
-    def publish_face_data(self, faces):
-        """Publish face detection data for head tracking and recognition"""
-        if not faces:
-            return
-        
-        # Create JSON with face data
-        face_data = {
-            "timestamp": time.time(),
-            "faces": [
-                {
-                    "x1": face["x1"],
-                    "y1": face["y1"],
-                    "x2": face["x2"],
-                    "y2": face["y2"],
-                    "center_x": face["center_x"],
-                    "center_y": face["center_y"],
-                    "confidence": face["confidence"]
-                }
-                for face in faces
-            ]
-        }
-        
-        # Publish as String message
-        msg = String()
-        msg.data = json.dumps(face_data)
-        self.face_data_pub.publish(msg)
-        
-        # Log occasionally
-        if self.frame_count % 30 == 0:
-            self.node.get_logger().debug(f"Published face data with {len(faces)} faces")
-    
-    def publish_face_images(self, frame, faces):
-        """Extract and publish individual face images for recognition"""
-        try:
-            for i, face in enumerate(faces):
-                # Extract face with margin
-                margin_percentage = 0.2  # 20% margin
-                
-                # Get face dimensions
-                x1, y1 = face['x1'], face['y1']
-                x2, y2 = face['x2'], face['y2']
-                height, width = frame.shape[:2]
-                
-                # Calculate margin
-                margin_x = int((x2 - x1) * margin_percentage)
-                margin_y = int((y2 - y1) * margin_percentage)
-                
-                # Apply margin with bounds checking
-                x1_margin = max(0, x1 - margin_x)
-                y1_margin = max(0, y1 - margin_y)
-                x2_margin = min(width, x2 + margin_x)
-                y2_margin = min(height, y2 + margin_y)
-                
-                # Extract face image
-                face_img = frame[y1_margin:y2_margin, x1_margin:x2_margin]
-                
-                # Skip if face is too small
-                if face_img.size == 0 or face_img.shape[0] < 30 or face_img.shape[1] < 30:
-                    continue
-                
-                # Resize to standard size for consistency
-                standard_size = (150, 150)
-                face_img_resized = cv2.resize(face_img, standard_size)
-                
-                # Convert to ROS Image message
-                face_msg = self.cv_bridge.cv2_to_imgmsg(face_img_resized, encoding="bgr8")
-                
-                # Add metadata as header fields
-                face_msg.header.stamp = self.node.get_clock().now().to_msg()
-                face_msg.header.frame_id = f"face_{i}"
-                
-                # Publish face image
-                self.face_image_pub.publish(face_msg)
-                
-        except Exception as e:
-            self.node.get_logger().error(f'Error publishing face images: {e}')
-    
-    def publish_frame(self, frame):
-        """Publish the camera frame as a ROS Image message"""
-        try:
-            # Convert OpenCV image to ROS Image message
-            frame_msg = self.cv_bridge.cv2_to_imgmsg(frame, encoding="bgr8")
-            
-            # Set timestamp
-            frame_msg.header.stamp = self.node.get_clock().now().to_msg()
-            
-            # Publish
-            self.frame_pub.publish(frame_msg)
-        except Exception as e:
-            self.node.get_logger().error(f'Error publishing camera frame: {e}')
-    
-    def toggle_tracking_mode(self, use_external):
-        """Toggle between internal and external tracking"""
-        self.use_external_tracking = use_external
-        self.head_controller.set_use_internal_control(not use_external)
-        self.node.get_logger().info(f"Using {'external' if use_external else 'internal'} head tracking")
+    def closeEvent(self, event):
+        """Clean up when window is closed"""
+        self.frame_grabber.stop()
+        event.accept()
 
 
 class CameraNode(Node):
     def __init__(self):
-        super().__init__('camera_node')
-        self.get_logger().info('Starting camera node')
+        super().__init__('coffee_camera_node')
+        self.get_logger().info('Camera node is starting...')
         
-        try:
-            # Create camera controller - don't pass self as parent since Node is not a QObject
-            self.camera = CameraController(None)
-            self.camera.node = self  # Set node reference directly
-            
-            # Face detection publisher
-            self.face_publisher = self.create_publisher(
-                String,
-                'face_detection_data',
-                10
-            )
-            
-            # Camera frame publisher
-            self.frame_publisher = self.create_publisher(
-                Image,
-                'camera_frame',
-                10
-            )
-            
-            # Face image publisher for face recognition
-            self.face_image_publisher = self.create_publisher(
-                Image,
-                'face_images',
-                10
-            )
-            
-            # Create CV bridge for image conversion
-            self.bridge = CvBridge()
-            
-            # Initialize the camera
-            self.camera.start()
-            
-            self.get_logger().info('Camera node started')
-            
-        except Exception as e:
-            self.get_logger().error(f"Error initializing camera node: {str(e)}")
-            raise  # Re-raise to prevent silent failure
-
-class CameraController(QObject):
-    """Main camera control class"""
+        # Start the UI
+        app = QApplication(sys.argv)
+        self.ui = CameraViewer(self)
+        self.ui.show()
+        
+        # Start a background thread for ROS spinning
+        self.spinning = True
+        self.ros_thread = threading.Thread(target=self.spin_thread)
+        self.ros_thread.daemon = True
+        self.ros_thread.start()
+        
+        # Start Qt event loop
+        sys.exit(app.exec_())
     
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.node = None  # Will be set by CameraNode after initialization
-        self.frame_grabber = FrameGrabber()
-        self.frame_grabber.frame_ready.connect(self.process_frame)
-        self.frame_grabber.error.connect(self.handle_camera_error)
-        self.frame_grabber.face_detected.connect(self.on_face_detected)
-        
-        # Initialize parameters
-        self.high_quality = False
-        self.face_detection_enabled = True
-        self.use_external_tracking = False
-        self.draw_faces = True
-        self.frame_count = 0
-        self.smoothing_factor = 0.7
-        
-        # Initialize head controller - we'll set this after node is assigned
-        self.head_controller = None
+    def spin_thread(self):
+        """Background thread for ROS spinning"""
+        while self.spinning:
+            rclpy.spin_once(self, timeout_sec=0.1)
     
-    def start(self):
-        """Start the camera and frame grabber"""
-        if self.node is None:
-            print("Error: node reference not set in CameraController")
-            return
+    def destroy_node(self):
+        """Clean shutdown"""
+        self.get_logger().info('Shutting down camera node')
+        self.spinning = False
         
-        try:    
-            # Initialize head controller now that we have the node
-            if self.head_controller is None:
-                print("DEBUG: Creating HeadController")
-                self.head_controller = HeadController(self.node)
-                print("DEBUG: HeadController created successfully")
-                
-            self.node.get_logger().info('Starting camera controller')
-            
-            # Debug print before potentially crashing operation
-            print("DEBUG: About to scan cameras - this might crash")
-            
-            self.scan_cameras()
-            
-            # If we reach this, scan cameras succeeded
-            print("DEBUG: Camera scan completed successfully")
-        except Exception as e:
-            self.node.get_logger().error(f'Error starting camera controller: {str(e)}')
-            # Print full error details to be sure we catch them
-            import traceback
-            traceback.print_exc()
-            # Re-raise to prevent silent failures but with better logging
-            raise
-    
-    def scan_cameras(self):
-        """Scan for available cameras and start the first one found"""
-        # Stop current camera if running
-        self.frame_grabber.stop()
-        
-        self.node.get_logger().info("Scanning for cameras...")
-        available_cameras = []
-        
-        # In Linux, we can check directly which devices are video capture devices
-        if os.path.exists('/dev'):
-            for i in range(10):
-                device_path = f"/dev/video{i}"
-                if os.path.exists(device_path) and os.access(device_path, os.R_OK):
-                    try:
-                        # Try to open the camera directly with V4L2
-                        cap = cv2.VideoCapture(i, cv2.CAP_V4L2)
-                        if cap.isOpened():
-                            # It's a valid camera
-                            self.node.get_logger().info(f"Found camera at index {i} ({device_path})")
-                            available_cameras.append(i)
-                            cap.release()
-                        else:
-                            self.node.get_logger().info(f"Device {device_path} exists but couldn't be opened as a camera")
-                    except Exception as e:
-                        self.node.get_logger().warn(f"Error checking {device_path}: {e}")
-        
-        # Fallback to generic scanning
-        if not available_cameras:
-            self.node.get_logger().info("Direct scan failed, trying generic approach...")
-            for i in range(2):  # Only try the first two indices to avoid lengthy timeouts
+        # Stop the frame grabber
+        if hasattr(self, 'ui') and hasattr(self.ui, 'frame_grabber'):
+            # Stop head controller if it exists
+            if self.ui.frame_grabber.head_controller:
                 try:
-                    cap = cv2.VideoCapture(i)
-                    if cap.isOpened():
-                        self.node.get_logger().info(f"Found camera at index {i}")
-                        available_cameras.append(i)
-                        cap.release()
+                    self.ui.frame_grabber.head_controller.stop()
+                    self.get_logger().info('Head controller stopped')
                 except Exception as e:
-                    self.node.get_logger().warn(f"Error scanning camera {i}: {e}")
-        
-        if not available_cameras:
-            self.node.get_logger().error("No cameras found!")
-            return
+                    self.get_logger().error(f'Error stopping head controller: {e}')
             
-        # Start the first available camera
-        self.frame_grabber.set_quality(self.high_quality)
-        self.frame_grabber.toggle_face_detection(self.face_detection_enabled)
+            # Stop frame grabber
+            try:
+                self.ui.frame_grabber.stop()
+                self.get_logger().info('Frame grabber stopped')
+            except Exception as e:
+                self.get_logger().error(f'Error stopping frame grabber: {e}')
         
-        # Try with V4L2 backend specifically on Linux
-        camera_index = available_cameras[0]
-        self.node.get_logger().info(f"Starting camera at index {camera_index}")
-        if os.name == 'posix':
-            self.frame_grabber.start(camera_index, cv2.CAP_V4L2)
-        else:
-            self.frame_grabber.start(camera_index)
-    
-    def handle_camera_error(self, error_msg):
-        """Handle errors from the camera thread"""
-        self.node.get_logger().error(f"Camera error: {error_msg}")
-    
-    def on_face_detected(self, faces):
-        """Handle detected faces by directing head to look at them"""
-        if not faces or self.use_external_tracking:
-            return
-            
-        # Sort faces by confidence and size (prefer largest, most confident face)
-        faces.sort(key=lambda f: f['confidence'] * f['radius'], reverse=True)
-        
-        # Get the best face
-        face = faces[0]
-        
-        # Get camera and frame dimensions
-        frame_width = self.frame_grabber.frame_width
-        frame_height = self.frame_grabber.frame_height
-        
-        # Calculate center of frame
-        center_x = frame_width / 2
-        center_y = frame_height / 2
-        
-        # Calculate offset from center in pixels
-        turn_x = face['center_x'] - center_x
-        turn_y = face['center_y'] - center_y
-        
-        # Convert to normalized offsets (-1 to 1)
-        turn_x /= center_x
-        turn_y /= center_y
-        
-        # Field of view adjustments
-        horizontal_fov = 60.0  # Typical webcam horizontal FOV in degrees
-        vertical_fov = horizontal_fov * (frame_height / frame_width)  # Usually around 40-45 degrees
-        
-        # Convert to angles with gain factors for responsive tracking
-        pan_gain = 3.5
-        pan_angle = turn_x * pan_gain * (horizontal_fov / 2)
-        
-        tilt_gain = 4.5
-        tilt_angle = turn_y * tilt_gain * (vertical_fov / 2)
-        
-        # Apply smoothing based on face size
-        size_factor_pan = min(1.0, face['radius'] / 100)
-        size_factor_tilt = min(1.2, face['radius'] / 70)
-        
-        # Get current head position 
-        current_pan, current_tilt = self.head_controller.current_position
-        
-        # Calculate new target positions
-        target_pan = current_pan - pan_angle * size_factor_pan
-        target_tilt = current_tilt + tilt_angle * size_factor_tilt
-        
-        # Constrain to valid ranges
-        target_pan = max(self.head_controller.pan_limits[0], min(self.head_controller.pan_limits[1], target_pan))
-        target_tilt = max(self.head_controller.tilt_limits[0], min(self.head_controller.tilt_limits[1], target_tilt))
-        
-        # Debug logging
-        self.node.get_logger().debug(
-            f"Face tracking: pos=({face['center_x']:.0f},{face['center_y']:.0f}), " +
-            f"offset=({turn_x:.2f},{turn_y:.2f}), " +
-            f"current=({current_pan:.2f},{current_tilt:.2f}), " +
-            f"target=({target_pan:.2f},{target_tilt:.2f})"
-        )
-        
-        # Send to head controller
-        self.head_controller.set_target(target_pan, target_tilt)
-    
-    def process_frame(self, frame):
-        """Process and display a camera frame"""
-        if frame is None:
-            return
-            
-        # Detect faces if enabled
-        if self.face_detection_enabled:
-            faces = self.frame_grabber.detect_faces_dnn(frame)
-            
-            # Apply smoothing
-            if self.smoothing_factor > 0 and faces:
-                faces = self.frame_grabber.smooth_face_detections(faces)
-            
-            # Draw face indicators
-            if self.draw_faces and faces:
-                self.frame_grabber.draw_face_circles(frame, faces)
-                self.frame_grabber.draw_face_tracking_indicators(frame, faces)
-            
-            # Handle face tracking
-            if faces:
-                # Publish face data for tracking
-                self.publish_face_data(faces)
-                
-                # Extract and publish individual face images for recognition
-                self.publish_face_images(frame, faces)
-                    
-        # Publish camera frame
-        self.publish_frame(frame)
-        
-        # Update frame count
-        self.frame_count += 1
-    
-    def publish_face_data(self, faces):
-        """Publish face detection data for head tracking and recognition"""
-        if not faces:
-            return
-        
-        # Create JSON with face data
-        face_data = {
-            "timestamp": time.time(),
-            "faces": [
-                {
-                    "x1": face["x1"],
-                    "y1": face["y1"],
-                    "x2": face["x2"],
-                    "y2": face["y2"],
-                    "center_x": face["center_x"],
-                    "center_y": face["center_y"],
-                    "confidence": face["confidence"]
-                }
-                for face in faces
-            ]
-        }
-        
-        # Publish as String message
-        msg = String()
-        msg.data = json.dumps(face_data)
-        self.node.face_publisher.publish(msg)
-        
-        # Log occasionally
-        if self.frame_count % 30 == 0:
-            self.node.get_logger().debug(f"Published face data with {len(faces)} faces")
-    
-    def publish_frame(self, frame):
-        """Publish the camera frame as a ROS Image message"""
-        try:
-            # Convert OpenCV image to ROS Image message
-            frame_msg = self.node.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
-            
-            # Set timestamp
-            frame_msg.header.stamp = self.node.get_clock().now().to_msg()
-            
-            # Publish
-            self.node.frame_publisher.publish(frame_msg)
-        except Exception as e:
-            self.node.get_logger().error(f'Error publishing camera frame: {e}')
-    
-    def publish_face_images(self, frame, faces):
-        """Extract and publish individual face images for recognition"""
-        try:
-            for i, face in enumerate(faces):
-                # Extract face with margin
-                margin_percentage = 0.2  # 20% margin
-                
-                # Get face dimensions
-                x1, y1 = face['x1'], face['y1']
-                x2, y2 = face['x2'], face['y2']
-                height, width = frame.shape[:2]
-                
-                # Calculate margin
-                margin_x = int((x2 - x1) * margin_percentage)
-                margin_y = int((y2 - y1) * margin_percentage)
-                
-                # Apply margin with bounds checking
-                x1_margin = max(0, x1 - margin_x)
-                y1_margin = max(0, y1 - margin_y)
-                x2_margin = min(width, x2 + margin_x)
-                y2_margin = min(height, y2 + margin_y)
-                
-                # Extract face image
-                face_img = frame[y1_margin:y2_margin, x1_margin:x2_margin]
-                
-                # Skip if face is too small
-                if face_img.size == 0 or face_img.shape[0] < 30 or face_img.shape[1] < 30:
-                    continue
-                
-                # Resize to standard size for consistency
-                standard_size = (150, 150)
-                face_img_resized = cv2.resize(face_img, standard_size)
-                
-                # Convert to ROS Image message
-                face_msg = self.node.bridge.cv2_to_imgmsg(face_img_resized, encoding="bgr8")
-                
-                # Add metadata as header fields
-                face_msg.header.stamp = self.node.get_clock().now().to_msg()
-                face_msg.header.frame_id = f"face_{i}"
-                
-                # Publish face image
-                self.node.face_image_publisher.publish(face_msg)
-                
-        except Exception as e:
-            self.node.get_logger().error(f'Error publishing face images: {e}')
+        # Clean up ROS resources
+        super().destroy_node()
 
 
 def main(args=None):
     rclpy.init(args=args)
     try:
-        # Initialize Qt application before creating node
-        app = QApplication.instance()
-        if not app:
-            app = QApplication(sys.argv)
-            
         node = CameraNode()
-        
-        # Process Qt events while ROS is running
-        timer = QTimer()
-        timer.timeout.connect(lambda: None)  # Just wake up the event loop
-        timer.start(100)  # Every 100ms
-        
-        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     except Exception as e:
         print(f"Error in camera node: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         if 'node' in locals():
             node.destroy_node()

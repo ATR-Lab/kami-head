@@ -21,7 +21,7 @@ def generate_launch_description():
     # Camera node
     camera_node = Node(
         package='coffee_head',
-        executable='camera_node_simple',
+        executable='camera_node',
         name='camera_node',
         output='screen'
     )
