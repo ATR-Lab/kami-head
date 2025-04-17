@@ -1,0 +1,23 @@
+# Image Processing
+opencv-contrib-python==4.11.0.86
+numpy==1.26.4
+dlib==19.24.6
+imutils==0.5.4
+mediapipe==0.10.21
+
+# UI Libraries
+pygame==2.6.1
+PyQt5==5.15.10
+pyqtgraph==0.12.0
+
+# Utility Libraries
+PyYAML==6.0.1
+psutil==5.9.8
+matplotlib==3.6.3
+
+# Serial Communication
+pyserial==3.5
+
+# For testing
+pytest==7.4.4
+pytest-cov==4.1.0 
