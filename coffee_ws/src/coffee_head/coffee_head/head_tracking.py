@@ -16,7 +16,7 @@ from dynamixel_sdk_custom_interfaces.msg import SetPosition
 from dynamixel_sdk_custom_interfaces.srv import GetPosition
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                             QLabel, QPushButton, QCheckBox, QSlider, QComboBox, QGroupBox,
-                            QDoubleSpinBox)
+                            QDoubleSpinBox, QScrollArea)
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer
 
@@ -959,9 +959,14 @@ class HeadTrackingUI(QMainWindow):
         self.setWindowTitle('Head Tracking Control')
         self.setGeometry(100, 100, 500, 600)  # Increased height for additional controls
         
+        # Create a scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        self.setCentralWidget(scroll_area)
+        
         # Main widget and layout
         main_widget = QWidget()
-        self.setCentralWidget(main_widget)
+        scroll_area.setWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
         
         # Status display
