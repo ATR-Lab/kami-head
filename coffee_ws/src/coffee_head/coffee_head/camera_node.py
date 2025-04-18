@@ -22,244 +22,6 @@ MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 os.makedirs(MODELS_DIR, exist_ok=True)
 
 
-class HeadController:
-    """Controls head servos based on face position without PyQt5 dependencies"""
-    def __init__(self, node):
-        self.node = node
-        
-        try:
-            # Create publisher for head position commands
-            self.head_pub = node.create_publisher(Float32MultiArray, 'head_position', 10)
-    
-            # Current head position (pan, tilt)
-            self.current_position = [0.0, 0.0]  # [pan, tilt] in degrees
-            
-            # Target position 
-            self.target_position = [0.0, 0.0]
-            
-            # Movement parameters (increased from original)
-            self.max_speed = 90.0  # degrees per second (increased for faster response)
-            self.min_speed = 5.0   # minimum speed to avoid very slow movements
-            self.acceleration = 60.0  # degrees per second^2 (increased)
-            self.current_speed = [0.0, 0.0]  # Current speed for pan and tilt
-            
-            # Separate parameters for pan/tilt control (axis 0=pan, 1=tilt)
-            # Tilt generally needs slower, more careful control
-            self.max_speed_tilt = 80.0  # degrees per second for tilt (increased for better response)
-            self.damping_distance_tilt = 15.0  # degrees - for tilt
-            self.approach_factor_tilt = 0.6  # Controls how aggressively to approach target (lower = more aggressive)
-            
-            # Enhanced parameters for smoother motion
-            self.damping_distance = [20.0, 15.0]  # [pan, tilt] - tilt has shorter damping distance
-            self.approach_factor = [0.7, 0.6]  # Controls how aggressively to approach target
-            
-            # Improved PID control parameters - separate for pan and tilt
-            # Make tilt more responsive with higher gain
-            self.kp = [0.9, 0.85]  # Proportional gain [pan, tilt] - increased for tilt
-            self.kd = [0.4, 0.4]  # Derivative gain [pan, tilt] - lowered damping for tilt
-            self.ki = [0.05, 0.06]  # Integral gain [pan, tilt] - increased for tilt
-            self.prev_error = [0.0, 0.0]
-            self.integral = [0.0, 0.0]  # Integral term for slow error correction
-            self.max_integral = [10.0, 10.0]  # Limit integral windup [pan, tilt]
-            
-            # Prediction for motion (anticipatory control)
-            self.target_history = [[], []]  # Store recent target positions
-            self.history_size = 5  # Number of past targets to remember
-            self.prev_targets = [[0.0, 0.0], [0.0, 0.0]]  # Last two targets for velocity estimation
-            self.target_velocity = [0.0, 0.0]  # Estimated target velocity
-            
-            # Dead zone (ignore very small movements)
-            self.dead_zone = [0.2, 0.1]  # [pan, tilt] degrees - smaller dead zone for tilt
-            
-            # Update rate
-            self.update_interval = 0.02  # 50Hz update rate
-            self.last_update_time = time.time()
-            
-            # Movement thresholds from Pimoroni implementation - reduce for tilt
-            self.move_threshold = [3.0, 1.0]  # [pan, tilt] - Reduced threshold for tilt
-            
-            # Limits for the head movement
-            self.pan_limits = [-90.0, 90.0]   # Minimum and maximum pan angles
-            self.tilt_limits = [-45.0, 30.0]  # Minimum and maximum tilt angles
-            
-            # Flag to determine if we're using internal control (True) or delegating to head_tracking.py (False)
-            self.use_internal_control = True
-            
-            # Start control thread
-            self.running = True
-            self.control_thread = threading.Thread(target=self._control_loop)
-            self.control_thread.daemon = True
-            self.control_thread.start()
-            
-            self.node.get_logger().info("Enhanced head controller initialized with improved tilt control")
-            
-        except Exception as e:
-            self.node.get_logger().error(f"Error initializing head controller: {str(e)}")
-            self.running = False
-            raise  # Re-raise so we don't silently fail
-    
-    def set_target(self, pan, tilt):
-        """Set target position for the head with smoother transitions"""
-        # Constrain to valid range 
-        pan = max(self.pan_limits[0], min(self.pan_limits[1], pan))
-        tilt = max(self.tilt_limits[0], min(self.tilt_limits[1], tilt))
-        
-        # Store previous target for velocity calculation
-        self.prev_targets[1] = self.prev_targets[0]
-        self.prev_targets[0] = self.target_position.copy()
-        
-        # Update target position
-        self.target_position = [pan, tilt]
-        
-        # Add to history for prediction
-        self.target_history[0].append(pan)
-        self.target_history[1].append(tilt)
-        
-        # Keep history at fixed size
-        if len(self.target_history[0]) > self.history_size:
-            self.target_history[0].pop(0)
-            self.target_history[1].pop(0)
-        
-        # Calculate target velocity for predictive control
-        if len(self.target_history[0]) >= 2:
-            dt = self.update_interval  # Approximate time between updates
-            self.target_velocity[0] = (self.target_history[0][-1] - self.target_history[0][-2]) / dt
-            self.target_velocity[1] = (self.target_history[1][-1] - self.target_history[1][-2]) / dt
-    
-    def stop(self):
-        """Stop the control thread"""
-        self.running = False
-        if self.control_thread.is_alive():
-            self.control_thread.join(timeout=1.0)
-    
-    def _predict_target_position(self, axis, lookahead_time):
-        """Predict where the target will be in the near future based on recent movement"""
-        # Simple linear prediction based on current velocity
-        predicted_pos = self.target_position[axis] + self.target_velocity[axis] * lookahead_time
-        
-        # Constrain prediction to valid ranges
-        if axis == 0:  # pan
-            return max(self.pan_limits[0], min(self.pan_limits[1], predicted_pos))
-        else:  # tilt
-            return max(self.tilt_limits[0], min(self.tilt_limits[1], predicted_pos))
-    
-    def _calculate_adaptive_speed(self, error, axis, dt):
-        """Calculate appropriate speed based on distance to target with enhanced PID control"""
-        # Skip tiny movements (dead zone)
-        if abs(error) < self.dead_zone[axis]:
-            self.integral[axis] = 0  # Reset integral when in dead zone
-            return 0.0
-        
-        # Calculate PID terms
-        p_term = self.kp[axis] * error
-        
-        # Integral term with anti-windup
-        self.integral[axis] += error * dt
-        self.integral[axis] = max(-self.max_integral[axis], min(self.max_integral[axis], self.integral[axis]))
-        i_term = self.ki[axis] * self.integral[axis]
-        
-        # Derivative term (damping)
-        d_term = self.kd[axis] * (error - self.prev_error[axis]) / dt if dt > 0 else 0
-        self.prev_error[axis] = error
-        
-        # Calculate raw speed from PID controller
-        raw_speed = p_term + i_term + d_term
-        
-        # Distance-based speed limiting to prevent overshooting
-        distance = abs(error)
-        
-        # Apply stronger damping when getting close to target
-        if distance < self.damping_distance[axis]:
-            # Progressive speed reduction - slower as we get closer (non-linear)
-            speed_factor = (distance / self.damping_distance[axis]) ** self.approach_factor[axis]
-            raw_speed *= speed_factor
-        
-        # Apply predictive control for moving targets
-        # Add a component to compensate for target movement
-        if abs(self.target_velocity[axis]) > 1.0:  # Only if target is moving significantly
-            # Add a component that tends to match target velocity
-            velocity_match = self.target_velocity[axis] * 0.8  # 80% of target velocity
-            raw_speed += velocity_match
-        
-        # Apply speed limits - different for pan vs tilt
-        max_speed = self.max_speed if axis == 0 else self.max_speed_tilt
-        
-        if abs(raw_speed) < self.min_speed and abs(error) > 1.0:
-            # Ensure we move at least at min_speed if not very close to target
-            raw_speed = self.min_speed if raw_speed > 0 else -self.min_speed
-        elif abs(raw_speed) > max_speed:
-            # Cap at max_speed
-            raw_speed = max_speed if raw_speed > 0 else -max_speed
-        
-        return raw_speed
-    
-    def _control_loop(self):
-        """Main control loop for head movement"""
-        while self.running:
-            current_time = time.time()
-            dt = current_time - self.last_update_time
-            
-            if dt < self.update_interval:
-                # Wait until update interval has passed
-                time.sleep(0.001)
-                continue
-            
-            # Only process if we're using internal control
-            if self.use_internal_control:
-                # Calculate errors from predicted target positions (look ahead by a small amount)
-                lookahead_time = 0.1  # 100ms prediction
-                predicted_pan = self._predict_target_position(0, lookahead_time)
-                predicted_tilt = self._predict_target_position(1, lookahead_time)
-                
-                pan_error = predicted_pan - self.current_position[0]
-                tilt_error = predicted_tilt - self.current_position[1]
-                
-                # Log significant tilt errors for debugging
-                if abs(tilt_error) > 5.0:
-                    self.node.get_logger().debug(
-                        f"Tilt: target={predicted_tilt:.2f}, current={self.current_position[1]:.2f}, " + 
-                        f"error={tilt_error:.2f}"
-                    )
-                
-                # Only move if error exceeds threshold (reduces jitter)
-                if abs(pan_error) < self.move_threshold[0]:
-                    pan_error = 0
-                    self.integral[0] = 0  # Reset integral term
-                
-                if abs(tilt_error) < self.move_threshold[1]:
-                    tilt_error = 0
-                    self.integral[1] = 0  # Reset integral term
-                    
-                # Calculate adaptive speeds with time-aware calculation
-                self.current_speed[0] = self._calculate_adaptive_speed(pan_error, 0, dt)
-                self.current_speed[1] = self._calculate_adaptive_speed(tilt_error, 1, dt)
-                
-                # Update positions based on calculated speeds
-                self.current_position[0] += self.current_speed[0] * dt
-                self.current_position[1] += self.current_speed[1] * dt
-                
-                # Ensure positions stay within limits
-                self.current_position[0] = max(self.pan_limits[0], min(self.pan_limits[1], self.current_position[0]))
-                self.current_position[1] = max(self.tilt_limits[0], min(self.tilt_limits[1], self.current_position[1]))
-                
-                # Publish head position
-                msg = Float32MultiArray()
-                msg.data = self.current_position
-                self.head_pub.publish(msg)
-                
-                # Add debugging for tilt publishing
-                if abs(self.current_speed[1]) > 0.1:  # Only log when actually moving
-                    self.node.get_logger().debug(
-                        f"Publishing tilt: pos={self.current_position[1]:.2f}, speed={self.current_speed[1]:.2f}"
-                    )
-            
-            # Update last update time
-            self.last_update_time = current_time
-            
-            # Small sleep to prevent tight loops
-            time.sleep(0.001)
-
-
 class FrameGrabber(QObject):
     """Dedicated thread for frame capture to improve performance"""
     frame_ready = pyqtSignal(np.ndarray)
@@ -286,7 +48,7 @@ class FrameGrabber(QObject):
         
         # Smoothing for face detection
         self.prev_faces = []
-        self.smoothing_factor = 0.7  # Higher value = more smoothing
+        self.smoothing_factor = 0.4  # Higher value = more smoothing
         self.smoothing_frames = 5    # Number of frames to average
         
         # ROS publishers for face data and images
@@ -309,28 +71,7 @@ class FrameGrabber(QObject):
         self.last_recognition_time = 0
         self.recognition_timeout = 3.0  # Clear recognition data after 3 seconds
         
-        # Head tracking
-        self.head_controller = None
-        self.tracking_enabled = False
-        self.target_face_index = 0  # Track the first face by default
-        
         self.init_face_detector()
-    
-    def init_head_controller(self):
-        """Initialize head controller if node is available"""
-        if self.node and self.head_controller is None:
-            try:
-                self.head_controller = HeadController(self.node)
-                self.node.get_logger().info("Head controller initialized successfully")
-            except Exception as e:
-                self.node.get_logger().error(f"Error initializing head controller: {e}")
-                self.tracking_enabled = False
-    
-    def enable_tracking(self, enabled):
-        """Enable or disable face tracking"""
-        self.tracking_enabled = enabled
-        if enabled and self.head_controller is None and self.node:
-            self.init_head_controller()
     
     def face_recognition_callback(self, msg):
         """Process face recognition data from face recognition node"""
@@ -374,39 +115,6 @@ class FrameGrabber(QObject):
         except Exception as e:
             if self.node:
                 self.node.get_logger().error(f"Error processing face recognition data: {e}")
-                import traceback
-                traceback.print_exc()
-    
-    def track_face(self, face):
-        """Track a face with the head controller"""
-        if not self.head_controller or not self.tracking_enabled:
-            return
-            
-        try:
-            # Convert face position to pan/tilt angles
-            center_x = float(face['center_x'])
-            center_y = float(face['center_y'])
-            
-            # Calculate normalized coordinates (-1 to 1)
-            norm_x = (center_x / float(self.frame_width)) * 2 - 1
-            norm_y = (center_y / float(self.frame_height)) * 2 - 1
-            
-            # Invert Y-axis (positive down in image, positive up in tilt)
-            norm_y = -norm_y
-            
-            # Scale to head angles
-            max_pan_angle = 80.0
-            max_tilt_angle = 30.0
-            
-            pan_angle = float(norm_x * max_pan_angle)
-            tilt_angle = float(norm_y * max_tilt_angle)
-            
-            # Send to head controller
-            self.head_controller.set_target(pan_angle, tilt_angle)
-            
-        except Exception as e:
-            if self.node:
-                self.node.get_logger().error(f"Error tracking face: {e}")
                 import traceback
                 traceback.print_exc()
     
@@ -752,13 +460,6 @@ class FrameGrabber(QObject):
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             cv2.putText(frame, conf_text, (face['x1'], face['y1'] + face['height'] if 'height' in face else (face['y2']-face['y1']) + 20),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            
-            # Highlight tracked face
-            if i == self.target_face_index and self.tracking_enabled:
-                # Draw special marker for tracked face
-                cv2.circle(frame, (face['center_x'], face['center_y']), 5, (0, 0, 255), -1)
-                cv2.putText(frame, "TRACKING", (face['center_x'] - 40, face['center_y'] - 20),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
         
         # Blend the overlay with the original frame for transparency
         alpha = 0.3  # Transparency factor
@@ -842,10 +543,6 @@ class FrameGrabber(QObject):
             frame_index = 0
             last_faces = []
             
-            # Initialize head controller if tracking enabled
-            if self.tracking_enabled and self.node:
-                self.init_head_controller()
-            
             while self.running:
                 ret, frame = self.camera.read()
                 
@@ -877,10 +574,6 @@ class FrameGrabber(QObject):
                         if self.node:
                             self.publish_face_data(last_faces)
                             self.publish_face_images(frame, last_faces)
-                        
-                        # Update face tracking if enabled
-                        if self.tracking_enabled and self.head_controller and last_faces and len(last_faces) > self.target_face_index:
-                            self.track_face(last_faces[self.target_face_index])
                     
                     # Draw smoothed faces on every frame
                     if last_faces:
@@ -926,7 +619,6 @@ class CameraViewer(QMainWindow):
         self.frame_grabber.error.connect(self.handle_camera_error)
         self.high_quality = False
         self.face_detection_enabled = True
-        self.tracking_enabled = False
         self.initUI()
         self.check_video_devices()
         self.scan_cameras()
@@ -981,12 +673,6 @@ class CameraViewer(QMainWindow):
         self.face_detection_checkbox.stateChanged.connect(self.toggle_face_detection)
         quality_layout.addWidget(self.face_detection_checkbox)
         
-        # Face tracking toggle
-        self.tracking_checkbox = QCheckBox("Face Tracking")
-        self.tracking_checkbox.setChecked(self.tracking_enabled)
-        self.tracking_checkbox.stateChanged.connect(self.toggle_tracking)
-        quality_layout.addWidget(self.tracking_checkbox)
-        
         controls_layout.addLayout(quality_layout)
         
         # Camera diagnostics button
@@ -1003,29 +689,11 @@ class CameraViewer(QMainWindow):
         self.qt_image = None
         self.pixmap = None
     
-    def toggle_tracking(self, state):
-        """Toggle face tracking on/off"""
-        self.tracking_enabled = bool(state)
-        self.node.get_logger().info(f"Face tracking {'enabled' if self.tracking_enabled else 'disabled'}")
-        self.frame_grabber.enable_tracking(self.tracking_enabled)
-        
-        # Make sure face detection is enabled if tracking is enabled
-        if self.tracking_enabled and not self.face_detection_enabled:
-            self.face_detection_enabled = True
-            self.face_detection_checkbox.setChecked(True)
-            self.frame_grabber.toggle_face_detection(True)
-    
     def toggle_face_detection(self, state):
         """Toggle face detection on/off"""
         self.face_detection_enabled = bool(state)
         self.node.get_logger().info(f"Face detection {'enabled' if self.face_detection_enabled else 'disabled'}")
         self.frame_grabber.toggle_face_detection(self.face_detection_enabled)
-        
-        # If face detection is turned off, disable tracking too
-        if not self.face_detection_enabled and self.tracking_enabled:
-            self.tracking_enabled = False
-            self.tracking_checkbox.setChecked(False)
-            self.frame_grabber.enable_tracking(False)
     
     def check_video_devices(self):
         """Check what video devices are available in the system"""
@@ -1250,14 +918,6 @@ class CameraNode(Node):
         
         # Stop the frame grabber
         if hasattr(self, 'ui') and hasattr(self.ui, 'frame_grabber'):
-            # Stop head controller if it exists
-            if self.ui.frame_grabber.head_controller:
-                try:
-                    self.ui.frame_grabber.head_controller.stop()
-                    self.get_logger().info('Head controller stopped')
-                except Exception as e:
-                    self.get_logger().error(f'Error stopping head controller: {e}')
-            
             # Stop frame grabber
             try:
                 self.ui.frame_grabber.stop()
