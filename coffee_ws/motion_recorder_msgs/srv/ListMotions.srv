@@ -1,0 +1,5 @@
+# Empty request
+---
+bool success         # Whether the operation was successful
+string message       # Success/error message
+string[] motion_list # List of available motion names 
