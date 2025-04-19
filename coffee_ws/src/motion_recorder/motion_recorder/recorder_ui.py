@@ -324,7 +324,11 @@ class MotionRecorderUI(QMainWindow):
         self.torque_btn.setText("Enable Torque" if not self.is_recording and not self.is_playing else "Disable Torque")
         
         # Update save controls
-        self.name_edit.setText(self.motion_name)
+        # Only update the name_edit when it's empty or when initially loading a motion
+        # This prevents overwriting user input when they're trying to edit the name
+        if not self.name_edit.hasFocus() and (self.name_edit.text() == "" or self.name_edit.text() == "unnamed_motion"):
+            self.name_edit.setText(self.motion_name)
+            
         self.save_btn.setEnabled(self.frame_count > 0 and not self.is_recording and not self.is_playing)
         
         # Update timeline
@@ -648,16 +652,26 @@ class MotionRecorderUI(QMainWindow):
             
             if response and response.success:
                 self.node.get_logger().info(f"Loaded motion: {response.message}")
-                # Switch to recorder tab
+                # Switch to recorder tab and update motion name directly
                 QTimer.singleShot(0, lambda: self.tabs.setCurrentIndex(0))
-                # Update motion name
-                QTimer.singleShot(0, lambda: self.name_edit.setText(motion_name))
+                # Update motion name directly and in the model
+                QTimer.singleShot(0, lambda: self._update_loaded_motion_name(motion_name))
             else:
                 error_msg = response.message if response else "Timeout"
                 self.node.get_logger().error(f"Failed to load motion: {error_msg}")
                 QTimer.singleShot(0, lambda: QMessageBox.warning(self, "Error", f"Failed to load motion: {error_msg}"))
         except Exception as e:
             self.node.get_logger().error(f"Error in load motion: {e}")
+    
+    def _update_loaded_motion_name(self, motion_name):
+        """Helper method to update the motion name when loading a motion"""
+        # Update the internal motion name (this will be used by status updates)
+        self.motion_name = motion_name
+        # Force update the text field regardless of focus state
+        self.name_edit.setText(motion_name)
+        # Give brief visual feedback
+        self.name_edit.setStyleSheet("background-color: #e6ffe6;")
+        QTimer.singleShot(1000, lambda: self.name_edit.setStyleSheet(""))
     
     def delete_selected_motion(self):
         """Delete the selected motion from the list"""
