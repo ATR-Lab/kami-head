@@ -9,13 +9,11 @@ import threading
 import os
 import subprocess
 import json
-import mediapipe as mp
-import math
 from rclpy.node import Node
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QHBoxLayout, QCheckBox, QMessageBox
 from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtCore import Qt, pyqtSignal, QObject
-from std_msgs.msg import String
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
+from std_msgs.msg import Float32MultiArray, String
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
@@ -23,32 +21,6 @@ from cv_bridge import CvBridge
 MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 os.makedirs(MODELS_DIR, exist_ok=True)
 
-# 3D model points for head pose estimation
-# Standard 3D facial model coordinates
-MODEL_POINTS = np.array([
-    (0.0, 0.0, 0.0),             # Nose tip
-    (0.0, -330.0, -65.0),        # Chin
-    (-225.0, 170.0, -135.0),     # Left eye left corner
-    (225.0, 170.0, -135.0),      # Right eye right corner
-    (-150.0, -150.0, -125.0),    # Left mouth corner
-    (150.0, -150.0, -125.0)      # Right mouth corner
-], dtype=np.float64)
-
-# MediaPipe indices for key facial landmarks corresponding to MODEL_POINTS
-# (these indices are specific to MediaPipe Face Mesh)
-FACE_LANDMARK_INDICES = [
-    1,    # Nose tip
-    152,  # Chin
-    33,   # Left eye left corner
-    263,  # Right eye right corner
-    61,   # Left mouth corner
-    291   # Right mouth corner
-]
-
-# MediaPipe face mesh initialization
-mp_face_mesh = mp.solutions.face_mesh
-mp_drawing = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
 
 class FrameGrabber(QObject):
     """Dedicated thread for frame capture to improve performance"""
@@ -79,21 +51,6 @@ class FrameGrabber(QObject):
         self.smoothing_factor = 0.4  # Higher value = more smoothing
         self.smoothing_frames = 5    # Number of frames to average
         
-        # Face mesh detection for landmarks and head pose
-        self.enable_head_pose = True
-        self.face_mesh = None
-        self.face_mesh_confidence = 0.5
-        self.landmark_detection_interval = 3  # Process landmarks every N frames
-        
-        # Camera intrinsic parameters (will be updated based on frame size)
-        self.camera_matrix = None
-        self.dist_coeffs = None
-        
-        # Pose visualization settings
-        self.show_landmarks = False
-        self.show_axes = True
-        self.axis_length = 100.0
-        
         # ROS publishers for face data and images
         if self.node:
             self.face_pub = node.create_publisher(String, 'face_detection_data', 10)
@@ -115,8 +72,6 @@ class FrameGrabber(QObject):
         self.recognition_timeout = 3.0  # Clear recognition data after 3 seconds
         
         self.init_face_detector()
-        self.init_face_mesh()
-        self.update_camera_matrix()
     
     def face_recognition_callback(self, msg):
         """Process face recognition data from face recognition node"""
@@ -182,9 +137,7 @@ class FrameGrabber(QObject):
                     "center_x": int(face["center_x"]),
                     "center_y": int(face["center_y"]),
                     "confidence": float(face["confidence"]),
-                    "id": str(face.get("id", "Unknown")),
-                    # Include pose data if available
-                    "pose": face.get("pose", None)
+                    "id": str(face.get("id", "Unknown"))
                 }
                 for face in faces
             ]
@@ -331,9 +284,6 @@ class FrameGrabber(QObject):
                 self.frame_height = 720
             self.high_quality = high_quality
             
-            # Update camera matrix for new resolution
-            self.update_camera_matrix()
-            
             # Re-initialize the camera with the new settings
             if self.camera and self.camera.isOpened():
                 self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.frame_width)
@@ -348,23 +298,6 @@ class FrameGrabber(QObject):
             
             # Reset face tracking when toggling
             self.prev_faces = []
-    
-    def toggle_head_pose(self, enable):
-        """Enable or disable head pose estimation"""
-        with self.lock:
-            self.enable_head_pose = enable
-            
-            # Reinitialize face mesh if needed
-            if enable and self.face_mesh is None:
-                self.init_face_mesh()
-    
-    def toggle_landmarks(self, show):
-        """Toggle landmark visualization"""
-        self.show_landmarks = show
-    
-    def toggle_axes(self, show):
-        """Toggle axes visualization"""
-        self.show_axes = show
     
     def detect_faces_dnn(self, frame):
         """Detect faces using OpenCV's DNN-based face detector"""
@@ -489,7 +422,7 @@ class FrameGrabber(QObject):
         return new_faces
     
     def draw_face_circles(self, frame, faces):
-        """Draw transparent circles over detected faces with IDs and pose information"""
+        """Draw transparent circles over detected faces with IDs"""
         if not faces:
             return frame
         
@@ -527,10 +460,6 @@ class FrameGrabber(QObject):
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             cv2.putText(frame, conf_text, (face['x1'], face['y1'] + face['height'] if 'height' in face else (face['y2']-face['y1']) + 20),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            
-            # Draw head pose annotations if available
-            if 'pose' in face and 'landmarks' in face:
-                frame = self.draw_pose_annotations(frame, face, face['landmarks'], face['pose'])
         
         # Blend the overlay with the original frame for transparency
         alpha = 0.3  # Transparency factor
@@ -547,270 +476,6 @@ class FrameGrabber(QObject):
                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         return frame
-    
-    def init_face_mesh(self):
-        """Initialize MediaPipe face mesh for landmark detection"""
-        try:
-            self.face_mesh = mp_face_mesh.FaceMesh(
-                static_image_mode=False,
-                max_num_faces=3,  # Limit to 3 faces for performance
-                refine_landmarks=True,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5
-            )
-            
-            if self.node:
-                self.node.get_logger().info("MediaPipe Face Mesh initialized successfully")
-        except Exception as e:
-            if self.node:
-                self.node.get_logger().error(f"Error initializing MediaPipe Face Mesh: {e}")
-            else:
-                print(f"Error initializing MediaPipe Face Mesh: {e}")
-            self.face_mesh = None
-    
-    def update_camera_matrix(self):
-        """Update camera intrinsic parameters based on frame size"""
-        # Approximate camera matrix based on frame size
-        focal_length = self.frame_width
-        center = (self.frame_width / 2, self.frame_height / 2)
-        self.camera_matrix = np.array(
-            [[focal_length, 0, center[0]],
-             [0, focal_length, center[1]],
-             [0, 0, 1]], dtype=np.float64
-        )
-        
-        # Assume no lens distortion
-        self.dist_coeffs = np.zeros((4, 1))
-        
-        if self.node:
-            self.node.get_logger().debug(f"Camera matrix updated for size {self.frame_width}x{self.frame_height}")
-    
-    def extract_face_mesh_landmarks(self, frame, face_rect):
-        """Extract face mesh landmarks for a detected face"""
-        if self.face_mesh is None:
-            return None
-        
-        try:
-            # Extract face ROI with margin
-            x1, y1, x2, y2 = face_rect['x1'], face_rect['y1'], face_rect['x2'], face_rect['y2']
-            
-            # Add margin
-            margin_x = int((x2 - x1) * 0.2)
-            margin_y = int((y2 - y1) * 0.2)
-            
-            # Ensure coordinates are within frame
-            h, w = frame.shape[:2]
-            x1_m = max(0, x1 - margin_x)
-            y1_m = max(0, y1 - margin_y)
-            x2_m = min(w - 1, x2 + margin_x)
-            y2_m = min(h - 1, y2 + margin_y)
-            
-            # Skip if ROI is too small
-            if x2_m <= x1_m or y2_m <= y1_m:
-                return None
-            
-            # Extract ROI
-            face_roi = frame[y1_m:y2_m, x1_m:x2_m]
-            
-            # Process with MediaPipe
-            # Convert to RGB for MediaPipe
-            rgb_roi = cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB)
-            
-            # Process ROI with MediaPipe
-            results = self.face_mesh.process(rgb_roi)
-            
-            if not results.multi_face_landmarks or len(results.multi_face_landmarks) == 0:
-                return None
-            
-            # Get first face landmarks
-            face_landmarks = results.multi_face_landmarks[0]
-            
-            # Convert landmarks to image coordinates
-            roi_h, roi_w = face_roi.shape[:2]
-            landmarks = []
-            
-            for idx, landmark in enumerate(face_landmarks.landmark):
-                # Convert from normalized coordinates to pixel coordinates in ROI
-                x = int(landmark.x * roi_w)
-                y = int(landmark.y * roi_h)
-                z = landmark.z
-                
-                # Adjust coordinates to original frame
-                x_frame = x + x1_m
-                y_frame = y + y1_m
-                
-                landmarks.append((idx, x_frame, y_frame, z))
-            
-            return landmarks
-            
-        except Exception as e:
-            if self.node:
-                self.node.get_logger().error(f"Error extracting face mesh landmarks: {e}")
-            return None
-    
-    def calculate_head_pose(self, landmarks):
-        """Calculate head pose using solvePnP from 2D landmarks"""
-        if not landmarks or len(landmarks) < max(FACE_LANDMARK_INDICES) + 1:
-            return None
-        
-        # Get 2D points for the 6 landmarks we need
-        image_points = []
-        for idx in FACE_LANDMARK_INDICES:
-            for lm in landmarks:
-                if lm[0] == idx:
-                    image_points.append((lm[1], lm[2]))
-                    break
-        
-        # Make sure we found all required landmarks
-        if len(image_points) != len(FACE_LANDMARK_INDICES):
-            return None
-        
-        image_points = np.array(image_points, dtype=np.float64)
-        
-        # Solve PnP problem
-        success, rotation_vector, translation_vector = cv2.solvePnP(
-            MODEL_POINTS, image_points, self.camera_matrix, self.dist_coeffs, flags=cv2.SOLVEPNP_ITERATIVE
-        )
-        
-        if not success:
-            return None
-        
-        # Calculate Euler angles
-        rotation_matrix, _ = cv2.Rodrigues(rotation_vector)
-        pose_matrix = cv2.hconcat([rotation_matrix, translation_vector])
-        _, _, _, _, _, _, euler_angles = cv2.decomposeProjectionMatrix(pose_matrix)
-        
-        # Convert angles to degrees
-        pitch, yaw, roll = [float(angle) for angle in euler_angles]
-        
-        # Calculate lookAt vector (head direction)
-        # The third column of the rotation matrix is the Z-axis
-        z_axis = rotation_matrix[:, 2]
-        look_at = {
-            "x": float(z_axis[0]),
-            "y": float(z_axis[1]),
-            "z": float(z_axis[2])
-        }
-        
-        # Return pose information
-        return {
-            "euler_angles": {
-                "pitch": pitch,
-                "yaw": yaw,
-                "roll": roll
-            },
-            "rotation_vector": [float(v) for v in rotation_vector.flatten()],
-            "translation_vector": [float(v) for v in translation_vector.flatten()],
-            "look_at": look_at
-        }
-    
-    def draw_pose_annotations(self, frame, face, landmarks, pose):
-        """Draw head pose annotations on the frame"""
-        if face is None or pose is None:
-            return frame
-        
-        try:
-            # Get face center
-            center_x = face['center_x']
-            center_y = face['center_y']
-            
-            # Draw landmarks if enabled
-            if self.show_landmarks and landmarks:
-                # Draw each landmark as a small circle
-                for _, x, y, _ in landmarks:
-                    cv2.circle(frame, (x, y), 1, (0, 255, 255), -1)
-                
-                # Draw connections for key landmarks used in pose estimation
-                for i in range(len(FACE_LANDMARK_INDICES)):
-                    idx = FACE_LANDMARK_INDICES[i]
-                    for lm in landmarks:
-                        if lm[0] == idx:
-                            cv2.circle(frame, (lm[1], lm[2]), 3, (0, 0, 255), -1)
-                            break
-            
-            # Draw axes if enabled
-            if self.show_axes and pose:
-                rotation_vector = np.array(pose['rotation_vector'], dtype=np.float64).reshape(3, 1)
-                translation_vector = np.array(pose['translation_vector'], dtype=np.float64).reshape(3, 1)
-                
-                # Project axis points
-                axis_points = self.axis_length * np.array([
-                    [1, 0, 0],  # X-axis
-                    [0, 1, 0],  # Y-axis
-                    [0, 0, 1]   # Z-axis
-                ], dtype=np.float64)
-                
-                # Convert to world coordinates
-                axis_points_world = axis_points + np.array([0, 0, 0])
-                
-                # Project 3D axis points to image
-                axis_points_2d, _ = cv2.projectPoints(
-                    axis_points_world, rotation_vector, translation_vector,
-                    self.camera_matrix, self.dist_coeffs
-                )
-                
-                # Origin point (nose tip)
-                origin = (center_x, center_y)
-                
-                # Draw each axis
-                axis_colors = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]  # Red=X, Green=Y, Blue=Z
-                
-                for i, (point, color) in enumerate(zip(axis_points_2d, axis_colors)):
-                    p = (int(point[0][0]), int(point[0][1]))
-                    cv2.line(frame, origin, p, color, 2)
-                
-                # Add angle text
-                euler_angles = pose['euler_angles']
-                angle_text = f"Pitch: {euler_angles['pitch']:.1f}, Yaw: {euler_angles['yaw']:.1f}, Roll: {euler_angles['roll']:.1f}"
-                cv2.putText(frame, angle_text, (face['x1'], face['y2'] + 20),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
-                
-                # Draw look-at vector
-                look_at = pose['look_at']
-                lx, ly, lz = look_at['x'], look_at['y'], look_at['z']
-                length = math.sqrt(lx*lx + ly*ly + lz*lz)
-                if length > 0:
-                    # Normalize and scale
-                    scale = 50.0  # Length of the arrow
-                    lx = lx / length * scale
-                    ly = ly / length * scale
-                    lz = lz / length * scale
-                    
-                    # Project look-at point
-                    look_point = np.array([[0, 0, scale]], dtype=np.float64)
-                    look_point_2d, _ = cv2.projectPoints(
-                        look_point, rotation_vector, translation_vector,
-                        self.camera_matrix, self.dist_coeffs
-                    )
-                    
-                    look_p = (int(look_point_2d[0][0][0]), int(look_point_2d[0][0][1]))
-                    cv2.arrowedLine(frame, origin, look_p, (0, 255, 255), 2)
-                
-        except Exception as e:
-            if self.node:
-                self.node.get_logger().error(f"Error drawing pose annotations: {e}")
-        
-        return frame
-    
-    def process_face_with_landmarks(self, frame, face, frame_index):
-        """Process a face to extract landmarks and estimate head pose"""
-        # Only process landmarks every N frames for performance
-        if frame_index % self.landmark_detection_interval != 0:
-            return face
-        
-        # Extract landmarks
-        landmarks = self.extract_face_mesh_landmarks(frame, face)
-        
-        # If landmarks found, calculate head pose
-        if landmarks:
-            pose = self.calculate_head_pose(landmarks)
-            
-            # Add pose to face data if calculated
-            if pose:
-                face['landmarks'] = landmarks
-                face['pose'] = pose
-        
-        return face
     
     def _capture_loop(self):
         try:
@@ -905,11 +570,6 @@ class FrameGrabber(QObject):
                             else:
                                 face['id'] = 'Unknown'
                         
-                        # Process landmarks and head pose for each face if enabled
-                        if self.enable_head_pose and self.face_mesh:
-                            for i, face in enumerate(last_faces):
-                                last_faces[i] = self.process_face_with_landmarks(frame, face, frame_index)
-                        
                         # Publish face data for other nodes
                         if self.node:
                             self.publish_face_data(last_faces)
@@ -959,9 +619,6 @@ class CameraViewer(QMainWindow):
         self.frame_grabber.error.connect(self.handle_camera_error)
         self.high_quality = False
         self.face_detection_enabled = True
-        self.head_pose_enabled = True
-        self.show_landmarks = False
-        self.show_axes = True
         self.initUI()
         self.check_video_devices()
         self.scan_cameras()
@@ -1016,24 +673,6 @@ class CameraViewer(QMainWindow):
         self.face_detection_checkbox.stateChanged.connect(self.toggle_face_detection)
         quality_layout.addWidget(self.face_detection_checkbox)
         
-        # Head pose estimation toggle
-        self.head_pose_checkbox = QCheckBox("Head Pose Estimation")
-        self.head_pose_checkbox.setChecked(self.head_pose_enabled)
-        self.head_pose_checkbox.stateChanged.connect(self.toggle_head_pose)
-        quality_layout.addWidget(self.head_pose_checkbox)
-        
-        # Show landmarks toggle
-        self.landmarks_checkbox = QCheckBox("Show Landmarks")
-        self.landmarks_checkbox.setChecked(self.show_landmarks)
-        self.landmarks_checkbox.stateChanged.connect(self.toggle_landmarks)
-        quality_layout.addWidget(self.landmarks_checkbox)
-        
-        # Show axes toggle
-        self.axes_checkbox = QCheckBox("Show Pose Axes")
-        self.axes_checkbox.setChecked(self.show_axes)
-        self.axes_checkbox.stateChanged.connect(self.toggle_axes)
-        quality_layout.addWidget(self.axes_checkbox)
-        
         controls_layout.addLayout(quality_layout)
         
         # Camera diagnostics button
@@ -1055,36 +694,6 @@ class CameraViewer(QMainWindow):
         self.face_detection_enabled = bool(state)
         self.node.get_logger().info(f"Face detection {'enabled' if self.face_detection_enabled else 'disabled'}")
         self.frame_grabber.toggle_face_detection(self.face_detection_enabled)
-        
-        # Disable head pose if face detection is disabled
-        if not self.face_detection_enabled and self.head_pose_enabled:
-            self.head_pose_enabled = False
-            self.head_pose_checkbox.setChecked(False)
-            self.frame_grabber.toggle_head_pose(False)
-    
-    def toggle_head_pose(self, state):
-        """Toggle head pose estimation on/off"""
-        self.head_pose_enabled = bool(state)
-        self.node.get_logger().info(f"Head pose estimation {'enabled' if self.head_pose_enabled else 'disabled'}")
-        self.frame_grabber.toggle_head_pose(self.head_pose_enabled)
-        
-        # Make sure face detection is enabled if head pose is enabled
-        if self.head_pose_enabled and not self.face_detection_enabled:
-            self.face_detection_enabled = True
-            self.face_detection_checkbox.setChecked(True)
-            self.frame_grabber.toggle_face_detection(True)
-    
-    def toggle_landmarks(self, state):
-        """Toggle landmark visualization"""
-        self.show_landmarks = bool(state)
-        self.node.get_logger().info(f"Landmark visualization {'enabled' if self.show_landmarks else 'disabled'}")
-        self.frame_grabber.toggle_landmarks(self.show_landmarks)
-    
-    def toggle_axes(self, state):
-        """Toggle axes visualization"""
-        self.show_axes = bool(state)
-        self.node.get_logger().info(f"Pose axes visualization {'enabled' if self.show_axes else 'disabled'}")
-        self.frame_grabber.toggle_axes(self.show_axes)
     
     def check_video_devices(self):
         """Check what video devices are available in the system"""
@@ -1220,9 +829,6 @@ class CameraViewer(QMainWindow):
             self.frame_grabber.stop()
             self.frame_grabber.set_quality(self.high_quality)
             self.frame_grabber.toggle_face_detection(self.face_detection_enabled)
-            self.frame_grabber.toggle_head_pose(self.head_pose_enabled)
-            self.frame_grabber.toggle_landmarks(self.show_landmarks)
-            self.frame_grabber.toggle_axes(self.show_axes)
             # Try with V4L2 backend specifically on Linux
             if os.name == 'posix':
                 self.frame_grabber.start(camera_index, cv2.CAP_V4L2)
@@ -1291,9 +897,6 @@ class CameraNode(Node):
         self.ui = CameraViewer(self)
         self.ui.show()
         
-        # Register node parameters
-        self.initialize_node_parameters()
-        
         # Start a background thread for ROS spinning
         self.spinning = True
         self.ros_thread = threading.Thread(target=self.spin_thread)
@@ -1302,25 +905,6 @@ class CameraNode(Node):
         
         # Start Qt event loop
         sys.exit(app.exec_())
-    
-    def initialize_node_parameters(self):
-        """Declare configurable parameters for this node"""
-        # Camera parameters
-        self.declare_parameter('camera_index', 0)
-        self.declare_parameter('high_quality', False)
-        self.declare_parameter('frame_width', 1280)
-        self.declare_parameter('frame_height', 720)
-        
-        # Detection parameters
-        self.declare_parameter('enable_face_detection', True)
-        self.declare_parameter('enable_head_pose', True)
-        self.declare_parameter('face_confidence_threshold', 0.5)
-        self.declare_parameter('landmark_detection_interval', 3)
-        
-        # Visualization parameters
-        self.declare_parameter('show_landmarks', False)
-        self.declare_parameter('show_axes', True)
-        self.declare_parameter('axis_length', 100.0)
     
     def spin_thread(self):
         """Background thread for ROS spinning"""
@@ -1336,13 +920,6 @@ class CameraNode(Node):
         if hasattr(self, 'ui') and hasattr(self.ui, 'frame_grabber'):
             # Stop frame grabber
             try:
-                # Release MediaPipe resources if initialized
-                if self.ui.frame_grabber.face_mesh:
-                    try:
-                        self.ui.frame_grabber.face_mesh.close()
-                    except:
-                        pass
-                
                 self.ui.frame_grabber.stop()
                 self.get_logger().info('Frame grabber stopped')
             except Exception as e:
