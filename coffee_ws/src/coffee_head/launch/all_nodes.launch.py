@@ -35,28 +35,28 @@ def generate_launch_description():
         emulate_tty=True
     )
     
-    # Eye tracking node
-    eye_tracking_node = Node(
-        package='coffee_head',
-        executable='eye_tracking',
-        name='eye_tracking_node',
-        output='screen',
-        emulate_tty=True
-    )
+    # # Eye tracking node
+    # eye_tracking_node = Node(
+    #     package='coffee_head',
+    #     executable='eye_tracking',
+    #     name='eye_tracking_node',
+    #     output='screen',
+    #     emulate_tty=True
+    # )
     
-    # Face recognition node
-    face_recognition_node = Node(
-        package='coffee_head',
-        executable='face_recognition',
-        name='face_recognition_node',
-        output='screen',
-        emulate_tty=True,
-        parameters=[
-            {
-                'data_dir': '~/.coffee_head/face_recognition'
-            }
-        ]
-    )
+    # # Face recognition node
+    # face_recognition_node = Node(
+    #     package='coffee_head',
+    #     executable='face_recognition',
+    #     name='face_recognition_node',
+    #     output='screen',
+    #     emulate_tty=True,
+    #     parameters=[
+    #         {
+    #             'data_dir': '~/.coffee_head/face_recognition'
+    #         }
+    #     ]
+    # )
     
     # Return launch description
     return LaunchDescription([
