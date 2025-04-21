@@ -550,6 +550,9 @@ class FrameGrabber(QObject):
                     time.sleep(0.01)  # Short sleep to prevent CPU overuse
                     continue
                 
+                # Flip the frame horizontally to correct mirror effect
+                frame = cv2.flip(frame, 1)  # 1 means horizontal flip
+                
                 # Process face detection (only on some frames to maintain performance)
                 frame_index += 1
                 if self.enable_face_detection:
