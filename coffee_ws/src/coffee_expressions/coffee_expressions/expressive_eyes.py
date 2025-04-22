@@ -4,7 +4,7 @@ from rclpy.node import Node
 import pygame
 import math
 from geometry_msgs.msg import Point
-from coffee_expressions.msg import AffectiveState
+from coffee_expressions_msgs.msg import AffectiveState
 
 class BezierCurve:
     @staticmethod
