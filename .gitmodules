@@ -1,0 +1,3 @@
+[submodule "coffee_ws/src/coffee_expressions/coffee_expressions/plaipin"]
+	path = coffee_ws/src/coffee_expressions/coffee_expressions/plaipin
+	url = https://github.com/OpenDive/plaipin.git
