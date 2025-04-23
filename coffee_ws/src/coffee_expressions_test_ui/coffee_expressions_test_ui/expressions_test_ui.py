@@ -19,6 +19,8 @@ class GazePreviewWidget(QFrame):
         self.x = 0.0
         self.y = 0.0
         self._main_window = None
+        self._dragging = False
+        self.setMouseTracking(True)  # Enable mouse tracking for hover effects
         
     def setMainWindow(self, window):
         self._main_window = window
@@ -28,7 +30,7 @@ class GazePreviewWidget(QFrame):
         self.y = y
         self.update()
         
-    def mousePressEvent(self, event):
+    def updatePositionFromEvent(self, event):
         size = min(self.width(), self.height())
         x = (event.x() - self.width()/2) / (size/2)
         y = -(event.y() - self.height()/2) / (size/2)  # Invert Y for Qt coordinates
@@ -37,6 +39,22 @@ class GazePreviewWidget(QFrame):
         self.update()
         if self._main_window:
             self._main_window.updateSliders(self.x, self.y)
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            self.updatePositionFromEvent(event)
+            
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = False
+            
+    def mouseMoveEvent(self, event):
+        if self._dragging:
+            self.updatePositionFromEvent(event)
+            self.setCursor(Qt.ClosedHandCursor)
+        else:
+            self.setCursor(Qt.PointingHandCursor)
             
     def paintEvent(self, event):
         super().paintEvent(event)
