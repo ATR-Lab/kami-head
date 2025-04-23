@@ -48,13 +48,21 @@ class PlaipinExpressiveEyes(Node):
             base_screen_height=400  # Match our display
         )
         
-        # Initialize Plaipin application and controller
-        self.app = Application(self.screen_width, self.screen_height, config)
+        # Get package share directory path
+        from ament_index_python.packages import get_package_share_directory
+        package_share_dir = get_package_share_directory('coffee_expressions')
+        
+        # Get absolute path to expressions.json in the package share directory
+        expressions_path = os.path.join(package_share_dir, 'plaipin', 'display_pi', 'src', 'expressions.json')
+
+        # Initialize Plaipin application and controller with expressions file path
+        self.app = Application(self.screen_width, self.screen_height, config, expressions_file=expressions_path)
         self.eye_controller = VizEyeController(self.app)
         
         # Initialize state
-        self.current_expression = "neutral"
-        self.last_update = self.get_clock().now()
+        self.current_expression = "base_blob"  # Default neutral expression
+        self.eye_controller.set_expression(self.current_expression)
+        self.running = True
         
         # Create subscription
         self.subscription = self.create_subscription(
@@ -62,29 +70,26 @@ class PlaipinExpressiveEyes(Node):
             'affective_state',
             self.affective_state_callback,
             10)
-        
-        # Create timer for animation updates
-        self.create_timer(0.016, self.update_animation)  # ~60 FPS
-        
+    
     def affective_state_callback(self, msg: AffectiveState):
         """Handle incoming affective state messages."""
-        # Map ROS expression to plaipin expression
+        # Map ROS2 expressions to plaipin expressions
         expression = msg.expression.lower()
         if expression == "happy":
             plaipin_expression = "joy1"
-        elif expression == "curious":
-            plaipin_expression = "curious"
         elif expression == "angry":
             plaipin_expression = "ang"
         elif expression == "sad":
-            plaipin_expression = "sad_tired"
+            plaipin_expression = "sad_1"
         elif expression == "loving":
-            plaipin_expression = "leftheart"
+            plaipin_expression = "base_waitingforyoutobuy"
         else:
-            plaipin_expression = "neutral"
-            
-        # Set the expression
-        self.eye_controller.set_expression(plaipin_expression)
+            plaipin_expression = "base_blob"
+        
+        # Only update if expression changed
+        if plaipin_expression != self.current_expression:
+            self.current_expression = plaipin_expression
+            self.eye_controller.set_expression(plaipin_expression)
         
         # Update gaze target if not idle
         if not msg.is_idle:
@@ -97,58 +102,64 @@ class PlaipinExpressiveEyes(Node):
             # Return to center when idle
             self.eye_controller.set_eye_positions((0.0, 0.0))
     
-    def update_animation(self):
-        """Update the animation state"""
-        # Handle events
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                self.destroy_node()
-                return
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    self.destroy_node()
-                    return
+    def run(self):
+        """Main animation loop"""
+        clock = pygame.time.Clock()
+        
+        while self.running and rclpy.ok():
+            # Handle events
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.running = False
+                    break
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        self.running = False
+                        break
+                
+                # Let the application handle other events
+                self.app.input_handler.handle_keyboard(event)
+                
+                # Handle UI events
+                ui_result = self.app.ui_manager.handle_event(event)
+                if ui_result:
+                    if ui_result == "control_points_changed":
+                        self.app.animated_eyes.update_control_points()
+                    elif ui_result == "config_changed":
+                        self.app.animated_eyes.update_eye_positions()
             
-            # Let the application handle other events
-            self.app.input_handler.handle_keyboard(event)
+            # Update the eye controller
+            self.eye_controller.update()
             
-            # Handle UI events
-            ui_result = self.app.ui_manager.handle_event(event)
-            if ui_result:
-                if ui_result == "control_points_changed":
-                    self.app.animated_eyes.update_control_points()
-                elif ui_result == "config_changed":
-                    self.app.animated_eyes.update_eye_positions()
-        
-        # Update the eye controller
-        self.eye_controller.update()
-        
-        # Update animated eyes
-        self.app.animated_eyes.update()
-        
-        # Drawing
-        self.app.screen.fill(self.app.config.background_color)
-        self.app.ui_manager.draw_grid()
-        self.app.animated_eyes.draw()
-        
-        # Update display
-        pygame.display.flip()
+            # Update animated eyes
+            self.app.animated_eyes.update()
+            
+            # Drawing
+            self.app.screen.fill(self.app.config.background_color)
+            self.app.ui_manager.draw_grid()
+            self.app.animated_eyes.draw()
+            
+            # Update display
+            pygame.display.flip()
+            
+            # Maintain frame rate and process ROS callbacks
+            clock.tick(60)
+            rclpy.spin_once(self, timeout_sec=0)
     
     def destroy_node(self):
         """Clean up resources."""
+        self.running = False
         pygame.quit()
         super().destroy_node()
 
 def main(args=None):
     rclpy.init(args=args)
+    
     node = PlaipinExpressiveEyes()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    node.run()
+    
+    node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
