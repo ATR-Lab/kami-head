@@ -43,10 +43,12 @@ class FrameGrabber(QObject):
         self.high_quality = False
         self.backend = cv2.CAP_ANY  # Default backend
         
-        # Frame queue for processing pipeline
-        self.frame_queue = collections.deque(maxlen=4)  # Max 4 frames in queue
-        self.processed_frame_queue = collections.deque(maxlen=2)  # Max 2 processed frames
-        self.queue_lock = threading.Lock()
+        # Initialize shared frame buffer
+        self.current_frame = None
+        self.processed_frame = None
+        self.current_faces = []
+        self.frame_lock = threading.Lock()
+        self.frame_timestamp = 0  # Track frame freshness
         
         # Publishing rate control
         self.last_publish_time = 0
@@ -288,26 +290,27 @@ class FrameGrabber(QObject):
                 self.publish_thread.start()
     
     def stop(self):
-        with self.lock:
+        """Stop the frame grabber threads"""
+        with self.frame_lock:
             self.running = False
+            self.current_frame = None
+            self.processed_frame = None
+            self.current_faces = []
+        
+        # Wait for threads to finish
+        if self.capture_thread and self.capture_thread.is_alive():
+            self.capture_thread.join()
+        
+        if self.process_thread and self.process_thread.is_alive():
+            self.process_thread.join()
             
-            # Stop all threads
-            for thread in [self.capture_thread, self.process_thread, self.publish_thread]:
-                if thread:
-                    thread.join(timeout=1.0)
-            
-            if self.camera and self.camera.isOpened():
-                self.camera.release()
-                self.camera = None
-            
-            self.capture_thread = None
-            self.process_thread = None
-            self.publish_thread = None
-            
-            # Clear queues
-            with self.queue_lock:
-                self.frame_queue.clear()
-                self.processed_frame_queue.clear()
+        if self.publish_thread and self.publish_thread.is_alive():
+            self.publish_thread.join()
+        
+        # Release camera if it's open
+        if self.camera and self.camera.isOpened():
+            self.camera.release()
+            self.camera = None
     
     def set_quality(self, high_quality):
         """Toggle between low resolution and high resolution"""
@@ -575,10 +578,10 @@ class FrameGrabber(QObject):
                 # Flip frame horizontally
                 frame = cv2.flip(frame, 1)
                 
-                # Add to queue if not full
-                with self.queue_lock:
-                    if len(self.frame_queue) < self.frame_queue.maxlen:
-                        self.frame_queue.append(frame)
+                # Update shared frame buffer
+                with self.frame_lock:
+                    self.current_frame = frame
+                    self.frame_timestamp = time.time()
                         
         except Exception as e:
             self.error.emit(f"Error in capture thread: {str(e)}")
@@ -593,45 +596,48 @@ class FrameGrabber(QObject):
             frame_count = 0
             start_time = time.time()
             fps = 0
-            face_detection_interval = 2  # Process every N frames
+            face_detection_interval = 3  # Reduced face detection frequency
             frame_index = 0
-            last_faces = []
             
             while self.running:
-                # Get frame from queue
-                frame = None
-                with self.queue_lock:
-                    if self.frame_queue:
-                        frame = self.frame_queue.popleft()
+                # Get latest frame
+                with self.frame_lock:
+                    frame = self.current_frame
+                    frame_time = self.frame_timestamp
+                    if frame is None:
+                        continue
+                    
+                    # Make a copy to avoid holding the lock
+                    frame = frame.copy()
                 
-                if frame is None:
+                # Skip if frame is too old (> 100ms)
+                if time.time() - frame_time > 0.1:
                     continue
                 
-                # Process face detection
+                # Process face detection less frequently
                 frame_index += 1
-                if self.enable_face_detection:
-                    if frame_index % face_detection_interval == 0:
-                        faces = self.detect_faces_dnn(frame)
-                        last_faces = self.smooth_face_detections(faces)
-                        
-                        # Check if recognition data is stale
-                        if time.time() - self.last_recognition_time > self.recognition_timeout:
-                            self.face_ids = {}
-                        
-                        # Add face IDs
-                        for i, face in enumerate(last_faces):
-                            if i in self.face_ids:
-                                face['id'] = self.face_ids[i]['id']
-                            else:
-                                face['id'] = 'Unknown'
+                if self.enable_face_detection and frame_index % face_detection_interval == 0:
+                    faces = self.detect_faces_dnn(frame)
+                    self.current_faces = faces  # No smoothing for now
                     
-                    # Draw faces on every frame
-                    if last_faces:
-                        frame = self.draw_face_circles(frame, last_faces)
+                    # Check if recognition data is stale
+                    if time.time() - self.last_recognition_time > self.recognition_timeout:
+                        self.face_ids = {}
+                    
+                    # Add face IDs
+                    for i, face in enumerate(faces):
+                        if i in self.face_ids:
+                            face['id'] = self.face_ids[i]['id']
+                        else:
+                            face['id'] = 'Unknown'
                 
-                # Update FPS
+                # Draw faces if available
+                if self.current_faces:
+                    frame = self.draw_face_circles(frame, self.current_faces)
+                
+                # Update FPS counter
                 frame_count += 1
-                if frame_count >= 10:
+                if frame_count >= 30:  # Increased sample size for smoother FPS
                     current_time = time.time()
                     elapsed = current_time - start_time
                     fps = frame_count / elapsed if elapsed > 0 else 0
@@ -640,11 +646,11 @@ class FrameGrabber(QObject):
                 
                 # Draw FPS
                 cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                 
-                # Add processed frame to queue
-                with self.queue_lock:
-                    self.processed_frame_queue.append((frame, last_faces))
+                # Update processed frame
+                with self.frame_lock:
+                    self.processed_frame = frame
                 
                 # Emit frame for UI
                 self.frame_ready.emit(frame)
@@ -660,17 +666,18 @@ class FrameGrabber(QObject):
                 # Check if enough time has passed since last publish
                 if current_time - self.last_publish_time >= self.min_publish_interval:
                     # Get latest processed frame
-                    with self.queue_lock:
-                        if self.processed_frame_queue:
-                            frame, faces = self.processed_frame_queue.popleft()
-                            
-                            # Publish frame and face data
-                            self.publish_frame(frame)
-                            if faces:
-                                self.publish_face_data(faces)
-                                self.publish_face_images(frame, faces)
-                            
-                            self.last_publish_time = current_time
+                    with self.frame_lock:
+                        frame = self.processed_frame
+                        faces = self.current_faces[:] if self.current_faces else []
+                    
+                    if frame is not None:
+                        # Publish frame and face data
+                        self.publish_frame(frame)
+                        if faces:
+                            self.publish_face_data(faces)
+                            self.publish_face_images(frame, faces)
+                        
+                        self.last_publish_time = current_time
         except Exception as e:
             self.error.emit(f"Error in publish thread: {str(e)}")
 
