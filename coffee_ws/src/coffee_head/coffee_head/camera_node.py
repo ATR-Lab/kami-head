@@ -207,24 +207,16 @@ class FrameGrabber(QObject):
         """Process incoming face detection data"""
 
         try:
-            # # Parse the JSON data
-            # data = json.loads(msg.data)
-            
-            # # Update frame dimensions if provided
-            # if 'frame_width' in data and 'frame_height' in data:
-            #     self.frame_width = data['frame_width']
-            #     self.frame_height = data['frame_height']
-            
-            # # Update face positions
-            # self.face_positions = data.get('faces', [])
-            # self.last_face_update = time.time()
-            
-            # # If no faces detected, just return
-            # if not self.face_positions:
-            #     self.target_face_position = None
-            #     return
-            
-            # # Select target face (largest/closest)
+            # If no faces detected or all faces have very low confidence, publish zero position
+            if not faces:
+                self.target_face_position = Point()
+                self.target_face_position.x = 0.0
+                self.target_face_position.y = 0.0
+                self.target_face_position.z = 0.0
+                self.face_position_pub.publish(self.target_face_position)
+                return
+
+            # Select target face (largest/closest)
             largest_area = 0
             largest_face = None
             
@@ -876,9 +868,12 @@ class FrameGrabber(QObject):
                     if frame is not None:
                         # Publish frame and face data
                         self.publish_frame(frame)
+                        # Always publish face position, even when no faces are detected
+                        # This is used so that we can re-center the eyes -- zero them in.
+                        self.publish_face_position(faces)
+                        # Only publish other face data if faces are detected
                         if faces:
                             self.publish_face_data(faces)
-                            self.publish_face_position(faces)
                             self.publish_face_images(frame, faces)
                         
                         self.last_publish_time = current_time
