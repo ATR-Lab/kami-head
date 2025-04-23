@@ -46,10 +46,10 @@ class FrameGrabber(QObject):
             cv2.CAP_PROP_FRAME_HEIGHT: self.frame_height,
             cv2.CAP_PROP_FPS: self.target_fps,
             cv2.CAP_PROP_BUFFERSIZE: 1,  # Minimal latency
-            cv2.CAP_PROP_AUTOFOCUS: 0,  # Disable autofocus
-            cv2.CAP_PROP_AUTO_EXPOSURE: 1,  # Enable auto exposure
-            cv2.CAP_PROP_AUTO_WB: 1,  # Enable auto white balance
-            cv2.CAP_PROP_EXPOSURE: self.target_exposure,
+            # cv2.CAP_PROP_AUTOFOCUS: 0,  # Disable autofocus
+            # cv2.CAP_PROP_AUTO_EXPOSURE: 1,  # Enable auto exposure
+            # cv2.CAP_PROP_AUTO_WB: 1,  # Enable auto white balance
+            # cv2.CAP_PROP_EXPOSURE: self.target_exposure,
         }
         self.running = False
         self.lock = threading.Lock()
