@@ -26,6 +26,7 @@ ros2 run coffee_head eye_tracking
 ros2 run coffee_expressions plaipin_expressive_eyes
 ros2 run coffee_face coffee_eyes
 ros2 run coffee_expressions_test_ui expressions_test_ui
+ros2 launch coffee_expressions_state_manager state_manager.launch.py
 ```
 
 **NOTE:** We define the location of `expressions.json` in the `setup.py` file inside `coffee_expressions` directory.
