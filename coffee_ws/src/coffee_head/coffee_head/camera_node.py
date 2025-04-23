@@ -16,6 +16,7 @@ from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
 from std_msgs.msg import Float32MultiArray, String
 from sensor_msgs.msg import Image
+from geometry_msgs.msg import Point
 from cv_bridge import CvBridge
 
 # Models directory for face detection models
@@ -90,10 +91,21 @@ class FrameGrabber(QObject):
         self.prev_faces = []
         self.smoothing_factor = 0.4  # Higher value = more smoothing
         self.smoothing_frames = 5    # Number of frames to average
+
+        # # Get parameters
+        # self.invert_x = self.get_parameter('invert_x').value
+        # self.invert_y = self.get_parameter('invert_y').value
+        # self.eye_range = self.get_parameter('eye_range').value
         
+        # TODO: Added this hot fix
+        self.invert_x = False
+        self.invert_y = False
+        self.eye_range = 3.0
+
         # ROS publishers for face data and images
         if self.node:
             self.face_pub = node.create_publisher(String, 'face_detection_data', 10)
+            self.face_position_pub = node.create_publisher(Point, '/vision/face_position', 10)
             self.frame_pub = node.create_publisher(Image, 'camera_frame', 10)
             self.face_image_pub = node.create_publisher(Image, 'face_images', 10)
             self.bridge = CvBridge()
@@ -187,7 +199,76 @@ class FrameGrabber(QObject):
         msg = String()
         msg.data = json.dumps(face_data)
         self.face_pub.publish(msg)
-    
+
+    def publish_face_position(self, faces):
+        """Process incoming face detection data"""
+
+        try:
+            # # Parse the JSON data
+            # data = json.loads(msg.data)
+            
+            # # Update frame dimensions if provided
+            # if 'frame_width' in data and 'frame_height' in data:
+            #     self.frame_width = data['frame_width']
+            #     self.frame_height = data['frame_height']
+            
+            # # Update face positions
+            # self.face_positions = data.get('faces', [])
+            # self.last_face_update = time.time()
+            
+            # # If no faces detected, just return
+            # if not self.face_positions:
+            #     self.target_face_position = None
+            #     return
+            
+            # # Select target face (largest/closest)
+            largest_area = 0
+            largest_face = None
+            
+            for face in faces:
+                width = face['x2'] - face['x1']
+                height = face['y2'] - face['y1']
+                area = width * height
+                
+                if area > largest_area:
+                    largest_area = area
+                    largest_face = face
+            
+            if largest_face:
+                self.target_face_position = (
+                    largest_face['center_x'], 
+                    largest_face['center_y']
+                )
+                
+                # Log face position before transformation
+                face_x = self.target_face_position[0]
+                face_y = self.target_face_position[1]
+                center_x = self.frame_width / 2
+                center_y = self.frame_height / 2
+                dx = face_x - center_x
+                dy = face_y - center_y
+                
+                self.node.get_logger().debug(f"Face detected at ({face_x:.1f}, {face_y:.1f}), offset from center: ({dx:.1f}, {dy:.1f})")
+                
+                # Transform camera coordinates to eye controller coordinates
+                eye_position = self.transform_camera_to_eye_coords(
+                    self.target_face_position[0],
+                    self.target_face_position[1]
+                )
+                
+                # Call go_to_pos only if we have a valid position
+                if eye_position:
+                    # self.controller.go_to_pos(eye_position)
+                    self.node.get_logger().info(f'Moving eyes to position: ({eye_position[0]:.2f}, {eye_position[1]:.2f})')
+                    point_msg = Point()
+                    point_msg.x = eye_position[0]
+                    point_msg.y = eye_position[1]
+                    point_msg.z = 0.0
+                    self.face_position_pub.publish(point_msg)
+
+        except Exception as e:
+            self.node.get_logger().error(f"Error processing face position data: {e}")
+
     def publish_face_images(self, frame, faces):
         """Extract and publish individual face images"""
         if not self.node:
@@ -232,7 +313,42 @@ class FrameGrabber(QObject):
         except Exception as e:
             if self.node:
                 self.node.get_logger().error(f"Error publishing face images: {e}")
-    
+
+    def transform_camera_to_eye_coords(self, camera_x, camera_y):
+        """Transform camera coordinates to eye controller coordinates (-3.0 to 3.0 range)"""
+        # Normalize to -1.0 to 1.0
+        # Note: We invert the coordinates to ensure proper eye direction
+        # (When face is on right side, eyes should look right)
+        norm_x = (camera_x - self.frame_width/2) / (self.frame_width/2)
+        norm_y = (camera_y - self.frame_height/2) / (self.frame_height/2)
+        
+        # Add sensitivity multiplier (like in eye_tracking.py)
+        sensitivity = 1.5  # Higher = more sensitive eye movement
+        norm_x *= sensitivity
+        norm_y *= sensitivity
+        
+        # Apply inversions if configured
+        # Note: By default we want norm_x to be positive when face is on right side
+        # So default should have invert_x=False
+        # TODO: Fix / look into
+        if self.invert_x:
+            norm_x = -norm_x
+        if self.invert_y:
+            norm_y = -norm_y
+        
+        # Scale to eye controller range (-3.0 to 3.0)
+        eye_x = norm_x * self.eye_range
+        eye_y = norm_y * self.eye_range
+        
+        # Clamp values to valid range
+        eye_x = max(-self.eye_range, min(self.eye_range, eye_x))
+        eye_y = max(-self.eye_range, min(self.eye_range, eye_y))
+        
+        # Debug output for tuning
+        self.node.get_logger().debug(f'Camera coords: ({camera_x}, {camera_y}) -> Eye coords: ({eye_x}, {eye_y})')
+        
+        return (eye_x, eye_y)
+
     def publish_frame(self, frame):
         """Publish camera frame to ROS topics"""
         if not self.node:
@@ -759,6 +875,7 @@ class FrameGrabber(QObject):
                         self.publish_frame(frame)
                         if faces:
                             self.publish_face_data(faces)
+                            self.publish_face_position(faces)
                             self.publish_face_images(frame, faces)
                         
                         self.last_publish_time = current_time
@@ -1064,6 +1181,20 @@ class CameraNode(Node):
         self.ros_thread.daemon = True
         self.ros_thread.start()
         
+        # # Add parameters for mapping
+        # self.declare_parameter('invert_x', False)  # Default FALSE for correct eye movement
+        # self.declare_parameter('invert_y', False)  # Default FALSE for correct eye movement
+        # self.declare_parameter('eye_range', 3.0)   # Max range for eye movement (-3.0 to 3.0)
+
+        # # Get parameters
+        # self.invert_x = self.get_parameter('invert_x').value
+        # self.invert_y = self.get_parameter('invert_y').value
+        # self.eye_range = self.get_parameter('eye_range').value
+
+        self.invert_x = False
+        self.invert_y = False
+        self.eye_range = 3.0
+
         try:
             # Start Qt event loop
             app.exec_()
