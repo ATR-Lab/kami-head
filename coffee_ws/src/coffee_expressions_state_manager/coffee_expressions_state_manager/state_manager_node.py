@@ -39,7 +39,8 @@ class StateManagerNode(Node):
 
         # Load parameters with default values
         self.declare_parameter('idle_timeout', 5.0)
-        self.declare_parameter('publish_rate', 0.1)  # 10Hz
+        # self.declare_parameter('publish_rate', 0.1)  # 10Hz
+        self.declare_parameter('publish_rate', 0.01)  # 10Hz
         self.declare_parameter('default_expression', 'Neutral')
 
         # Internal state
