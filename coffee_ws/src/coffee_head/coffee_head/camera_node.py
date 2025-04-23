@@ -100,7 +100,8 @@ class FrameGrabber(QObject):
         # TODO: Added this hot fix
         self.invert_x = False
         self.invert_y = False
-        self.eye_range = 3.0
+        # self.eye_range = 3.0
+        self.eye_range = 1.0 # The constraint for the values of the eye movement in the UI
 
         # ROS publishers for face data and images
         if self.node:
@@ -110,6 +111,7 @@ class FrameGrabber(QObject):
             self.face_image_pub = node.create_publisher(Image, 'face_images', 10)
             self.bridge = CvBridge()
             
+            # TODO: REMOVE
             # Face recognition subscription
             self.face_recognition_sub = node.create_subscription(
                 String,
@@ -125,6 +127,7 @@ class FrameGrabber(QObject):
         
         self.init_face_detector()
     
+    # TODO: REMOVE
     def face_recognition_callback(self, msg):
         """Process face recognition data from face recognition node"""
         try:
@@ -1193,7 +1196,8 @@ class CameraNode(Node):
 
         self.invert_x = False
         self.invert_y = False
-        self.eye_range = 3.0
+        # self.eye_range = 3.0
+        self.eye_range = 1.0 # The constraint for the values of the eye movement in the UI
 
         try:
             # Start Qt event loop
