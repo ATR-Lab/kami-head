@@ -31,17 +31,32 @@ class FrameGrabber(QObject):
     def __init__(self, node=None):
         super().__init__()
         self.node = node
+        # Camera properties
         self.camera = None
         self.camera_index = 0
+        self.frame_width = 640
+        self.frame_height = 480
+        self.backend = cv2.CAP_ANY
+        
+        # Camera optimization settings
+        self.target_fps = 30
+        self.target_exposure = 100  # Auto exposure target (0-255)
+        self.camera_props = {
+            cv2.CAP_PROP_FRAME_WIDTH: self.frame_width,
+            cv2.CAP_PROP_FRAME_HEIGHT: self.frame_height,
+            cv2.CAP_PROP_FPS: self.target_fps,
+            cv2.CAP_PROP_BUFFERSIZE: 1,  # Minimal latency
+            cv2.CAP_PROP_AUTOFOCUS: 0,  # Disable autofocus
+            cv2.CAP_PROP_AUTO_EXPOSURE: 1,  # Enable auto exposure
+            cv2.CAP_PROP_AUTO_WB: 1,  # Enable auto white balance
+            cv2.CAP_PROP_EXPOSURE: self.target_exposure,
+        }
         self.running = False
         self.lock = threading.Lock()
         self.capture_thread = None
         self.process_thread = None
         self.publish_thread = None
-        self.frame_width = 1280  # Default to 720p (16:9)
-        self.frame_height = 720
         self.high_quality = False
-        self.backend = cv2.CAP_ANY  # Default backend
         
         # Initialize shared frame buffer
         self.current_frame = None
@@ -324,21 +339,40 @@ class FrameGrabber(QObject):
             self.camera = None
     
     def set_quality(self, high_quality):
-        """Toggle between low resolution and high resolution"""
-        with self.lock:
-            if high_quality:
-                self.frame_width = 1920
-                self.frame_height = 1080
-            else:
-                # Keep these values low to reduce latency
-                self.frame_width = 1280
-                self.frame_height = 720
-            self.high_quality = high_quality
+        """Toggle between low resolution and high resolution with optimal settings"""
+        if high_quality:
+            self.frame_width = 1280
+            self.frame_height = 720
+            self.target_fps = 24  # Lower FPS for higher resolution
+        else:
+            self.frame_width = 640
+            self.frame_height = 480
+            self.target_fps = 30  # Higher FPS for lower resolution
+        
+        # Update camera properties
+        self.camera_props.update({
+            cv2.CAP_PROP_FRAME_WIDTH: self.frame_width,
+            cv2.CAP_PROP_FRAME_HEIGHT: self.frame_height,
+            cv2.CAP_PROP_FPS: self.target_fps
+        })
+        
+        if self.camera and self.camera.isOpened():
+            # Apply new settings
+            for prop, value in self.camera_props.items():
+                try:
+                    self.camera.set(prop, value)
+                except:
+                    pass
             
-            # Re-initialize the camera with the new settings
-            if self.camera and self.camera.isOpened():
-                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.frame_width)
-                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.frame_height)
+            # Verify new settings
+            actual_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            actual_fps = self.camera.get(cv2.CAP_PROP_FPS)
+            
+            print(f"Quality changed to: {actual_width}x{actual_height} @ {actual_fps:.1f} FPS")
+            
+            # Update UI with blank frame of new size
+            self.frame_ready.emit(np.zeros((self.frame_height, self.frame_width, 3), dtype=np.uint8))
     
     def toggle_face_detection(self, enable):
         """Enable or disable face detection"""
@@ -568,17 +602,32 @@ class FrameGrabber(QObject):
                 self.error.emit(f"Failed to open camera: {error_msg}")
                 return
             
-            # Configure camera
-            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.frame_width)
-            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.frame_height)
-            self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimal latency
+            # Configure camera with optimal settings
+            for prop, value in self.camera_props.items():
+                try:
+                    self.camera.set(prop, value)
+                except:
+                    pass  # Skip unsupported properties
             
-            # Optional camera properties
-            try:
-                self.camera.set(cv2.CAP_PROP_AUTOFOCUS, 0)  # Disable autofocus
-                self.camera.set(cv2.CAP_PROP_FPS, 30)       # Request 30 FPS
-            except:
-                pass  # Some cameras don't support these
+            # Verify and adjust settings
+            actual_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            actual_fps = self.camera.get(cv2.CAP_PROP_FPS)
+            
+            print(f"Camera configured with: {actual_width}x{actual_height} @ {actual_fps:.1f} FPS")
+            
+            # Warm up the camera
+            for _ in range(5):
+                self.camera.read()
+            
+            # Read a test frame to check actual size
+            ret, frame = self.camera.read()
+            if ret:
+                frame_h, frame_w = frame.shape[:2]
+                if frame_w != actual_width or frame_h != actual_height:
+                    print(f"Warning: Actual frame size ({frame_w}x{frame_h}) differs from requested ({actual_width}x{actual_height})")
+                    self.frame_width = frame_w
+                    self.frame_height = frame_h
             
             # Main capture loop
             while self.running:
