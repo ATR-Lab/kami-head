@@ -18,6 +18,10 @@ class GazePreviewWidget(QFrame):
         self.setFrameStyle(QFrame.Box | QFrame.Plain)
         self.x = 0.0
         self.y = 0.0
+        self._main_window = None
+        
+    def setMainWindow(self, window):
+        self._main_window = window
         
     def setPosition(self, x: float, y: float):
         self.x = x
@@ -31,28 +35,31 @@ class GazePreviewWidget(QFrame):
         self.x = max(-1.0, min(1.0, x))
         self.y = max(-1.0, min(1.0, y))
         self.update()
-        if self.parent():
-            self.parent().updateSliders(self.x, self.y)
+        if self._main_window:
+            self._main_window.updateSliders(self.x, self.y)
             
     def paintEvent(self, event):
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        # Draw coordinate system
-        painter.translate(self.width()/2, self.height()/2)
-        size = min(self.width(), self.height())
-        
-        # Draw axes
-        painter.setPen(QPen(QColor(200, 200, 200), 1))
-        painter.drawLine(-size/2, 0, size/2, 0)
-        painter.drawLine(0, -size/2, 0, size/2)
-        
-        # Draw gaze target point
-        painter.setPen(QPen(Qt.red, 3))
-        x_pos = self.x * size/2
-        y_pos = -self.y * size/2  # Invert Y for Qt coordinates
-        painter.drawPoint(x_pos, y_pos)
+        try:
+            # Draw coordinate system
+            painter.translate(self.width()/2, self.height()/2)
+            size = min(self.width(), self.height())
+            
+            # Draw axes
+            painter.setPen(QPen(QColor(200, 200, 200), 1))
+            painter.drawLine(int(-size/2), 0, int(size/2), 0)
+            painter.drawLine(0, int(-size/2), 0, int(size/2))
+            
+            # Draw gaze target point
+            painter.setPen(QPen(Qt.red, 3))
+            x_pos = int(self.x * size/2)
+            y_pos = int(-self.y * size/2)  # Invert Y for Qt coordinates
+            painter.drawPoint(x_pos, y_pos)
+        finally:
+            painter.end()
         
 class ExpressionsTestUI(QMainWindow):
     def __init__(self):
@@ -77,7 +84,7 @@ class ExpressionsTestUI(QMainWindow):
         self.expression_layout = QHBoxLayout()
         self.expression_label = QLabel('Expression:')
         self.expression_combo = QComboBox()
-        self.expression_combo.addItems(['Happy', 'Curious', 'Neutral', 'Sad', 'Surprised'])
+        self.expression_combo.addItems(['Happy', 'Angry', 'Loving', 'Sad', 'Surprised'])
         self.expression_layout.addWidget(self.expression_label)
         self.expression_layout.addWidget(self.expression_combo)
         self.layout.addLayout(self.expression_layout)
@@ -99,6 +106,7 @@ class ExpressionsTestUI(QMainWindow):
         
         # Gaze preview
         self.preview = GazePreviewWidget(self)
+        self.preview.setMainWindow(self)
         self.layout.addWidget(self.preview)
         
         # X and Y sliders
