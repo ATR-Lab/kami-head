@@ -90,12 +90,12 @@ class PlaipinExpressiveEyes(Node):
         if not msg.is_idle:
             # Convert ROS Point to normalized coordinates for plaipin
             # Assuming gaze_target is in the range [-1, 1] for x and y
-            self.eye_controller.set_target_position(
+            self.eye_controller.set_eye_positions(
                 (msg.gaze_target.x, msg.gaze_target.y)
             )
         else:
             # Return to center when idle
-            self.eye_controller.set_target_position((0.0, 0.0))
+            self.eye_controller.set_eye_positions((0.0, 0.0))
     
     def update_animation(self):
         """Update the animation state"""
