@@ -104,13 +104,34 @@ class PlaipinExpressiveEyes(Node):
             if event.type == pygame.QUIT:
                 self.destroy_node()
                 return
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    self.destroy_node()
+                    return
+            
+            # Let the application handle other events
+            self.app.input_handler.handle_keyboard(event)
+            
+            # Handle UI events
+            ui_result = self.app.ui_manager.handle_event(event)
+            if ui_result:
+                if ui_result == "control_points_changed":
+                    self.app.animated_eyes.update_control_points()
+                elif ui_result == "config_changed":
+                    self.app.animated_eyes.update_eye_positions()
         
-        # Update plaipin animation
-        self.app.update()
+        # Update the eye controller
+        self.eye_controller.update()
         
-        # Render
-        self.screen.fill((0, 0, 0))  # Clear screen
-        self.app.render()
+        # Update animated eyes
+        self.app.animated_eyes.update()
+        
+        # Drawing
+        self.app.screen.fill(self.app.config.background_color)
+        self.app.ui_manager.draw_grid()
+        self.app.animated_eyes.draw()
+        
+        # Update display
         pygame.display.flip()
     
     def destroy_node(self):
