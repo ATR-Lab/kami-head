@@ -32,8 +32,24 @@ class PlaipinExpressiveEyes(Node):
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
         pygame.display.set_caption("Coffee Buddy - Plaipin Eyes")
         
+        # Create custom eye configuration
+        config = EyeConfig(
+            width=60,  # Scaled down for 800x400 display
+            height=240,  # Scaled down for 800x400 display
+            spacing=70,  # Scaled down for 800x400 display
+            blink_interval=120,
+            blink_speed=0.1,
+            blink_close_frames=5,
+            outline_color=(255, 255, 255),
+            fill_color=(255, 255, 255),
+            outline_width=2,
+            background_color=(0, 0, 0),
+            base_screen_width=800,  # Match our display
+            base_screen_height=400  # Match our display
+        )
+        
         # Initialize Plaipin application and controller
-        self.app = Application(self.screen, self.screen_height)
+        self.app = Application(self.screen_width, self.screen_height, config)
         self.eye_controller = VizEyeController(self.app)
         
         # Initialize state
@@ -82,13 +98,11 @@ class PlaipinExpressiveEyes(Node):
             self.eye_controller.set_target_position((0.0, 0.0))
     
     def update_animation(self):
-        """Update the animation state and render."""
-        # Handle Pygame events
+        """Update the animation state"""
+        # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.destroy_node()
-                pygame.quit()
-                rclpy.shutdown()
                 return
         
         # Update plaipin animation
