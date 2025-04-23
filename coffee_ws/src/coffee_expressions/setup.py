@@ -13,6 +13,8 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'msg'), glob('msg/*.msg')),
+        (os.path.join('share', package_name, 'plaipin', 'display_pi', 'src'),
+            ['coffee_expressions/plaipin/display_pi/src/expressions.json']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
