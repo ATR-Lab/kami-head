@@ -31,3 +31,18 @@ ros2 run coffee_face coffee_eyes
 
 Running the animator
 - Animations are saved in `~/.ros/motion_files` as `.json` files.
+
+
+# Sample Command
+
+```
+src $ ros2 pkg create --build-type ament_python coffee_expressions_test_ui --dependencies rclpy coffee_expressions_msgs python3-pyqt5
+```
+
+```
+colcon build --packages-select coffee_expressions_test_ui
+```
+
+```
+source install/setup.bash && ros2 run coffee_expressions_test_ui expressions_test_ui
+```
