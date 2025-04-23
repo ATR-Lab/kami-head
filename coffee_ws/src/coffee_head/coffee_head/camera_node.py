@@ -9,6 +9,7 @@ import threading
 import os
 import subprocess
 import json
+import collections
 from rclpy.node import Node
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QHBoxLayout, QCheckBox, QMessageBox
 from PyQt5.QtGui import QImage, QPixmap
@@ -35,10 +36,21 @@ class FrameGrabber(QObject):
         self.running = False
         self.lock = threading.Lock()
         self.capture_thread = None
+        self.process_thread = None
+        self.publish_thread = None
         self.frame_width = 1280  # Default to 720p (16:9)
         self.frame_height = 720
         self.high_quality = False
         self.backend = cv2.CAP_ANY  # Default backend
+        
+        # Frame queue for processing pipeline
+        self.frame_queue = collections.deque(maxlen=4)  # Max 4 frames in queue
+        self.processed_frame_queue = collections.deque(maxlen=2)  # Max 2 processed frames
+        self.queue_lock = threading.Lock()
+        
+        # Publishing rate control
+        self.last_publish_time = 0
+        self.min_publish_interval = 1.0 / 30.0  # Max 30 fps for publishing
         
         # Face detection
         self.enable_face_detection = True
@@ -258,19 +270,44 @@ class FrameGrabber(QObject):
             self.camera_index = camera_index
             self.backend = backend
             self.running = True
+            
+            # Start capture thread
             self.capture_thread = threading.Thread(target=self._capture_loop)
             self.capture_thread.daemon = True
             self.capture_thread.start()
+            
+            # Start processing thread
+            self.process_thread = threading.Thread(target=self._process_loop)
+            self.process_thread.daemon = True
+            self.process_thread.start()
+            
+            # Start publishing thread if ROS node exists
+            if self.node:
+                self.publish_thread = threading.Thread(target=self._publish_loop)
+                self.publish_thread.daemon = True
+                self.publish_thread.start()
     
     def stop(self):
         with self.lock:
             self.running = False
-            if self.capture_thread:
-                if self.camera and self.camera.isOpened():
-                    self.camera.release()
-                    self.camera = None
-                self.capture_thread.join(timeout=1.0)
-                self.capture_thread = None
+            
+            # Stop all threads
+            for thread in [self.capture_thread, self.process_thread, self.publish_thread]:
+                if thread:
+                    thread.join(timeout=1.0)
+            
+            if self.camera and self.camera.isOpened():
+                self.camera.release()
+                self.camera = None
+            
+            self.capture_thread = None
+            self.process_thread = None
+            self.publish_thread = None
+            
+            # Clear queues
+            with self.queue_lock:
+                self.frame_queue.clear()
+                self.processed_frame_queue.clear()
     
     def set_quality(self, high_quality):
         """Toggle between low resolution and high resolution"""
@@ -478,6 +515,7 @@ class FrameGrabber(QObject):
         return frame
     
     def _capture_loop(self):
+        """Main capture loop for camera frames"""
         try:
             # Try different backends if the default doesn't work
             backends_to_try = [
@@ -493,9 +531,9 @@ class FrameGrabber(QObject):
             success = False
             error_msg = ""
             
+            # Try each backend until one works
             for backend, backend_name in backends_to_try:
                 try:
-                    # Try to open with this backend
                     if backend == cv2.CAP_ANY:
                         self.camera = cv2.VideoCapture(self.camera_index)
                     else:
@@ -505,11 +543,9 @@ class FrameGrabber(QObject):
                         error_msg = f"Could not open camera {self.camera_index} with {backend_name} backend"
                         continue
                     
-                    # If we got here, the camera opened successfully
                     success = True
                     print(f"Successfully opened camera with {backend_name} backend")
                     break
-                    
                 except Exception as e:
                     error_msg = f"Error opening camera with {backend_name} backend: {str(e)}"
                     continue
@@ -518,99 +554,125 @@ class FrameGrabber(QObject):
                 self.error.emit(f"Failed to open camera: {error_msg}")
                 return
             
-            # Set camera properties - prefer speed over resolution
+            # Configure camera
             self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.frame_width)
             self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.frame_height)
+            self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimal latency
             
-            # Set camera buffer size to 1 for minimal latency
-            self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            
-            # Try to set camera properties for better performance
+            # Optional camera properties
             try:
                 self.camera.set(cv2.CAP_PROP_AUTOFOCUS, 0)  # Disable autofocus
                 self.camera.set(cv2.CAP_PROP_FPS, 30)       # Request 30 FPS
             except:
-                # Some cameras don't support these properties
-                pass
+                pass  # Some cameras don't support these
             
-            # FPS tracking
-            frame_count = 0
-            start_time = time.time()
-            fps = 0
-            
-            # Face detection timing
-            face_detection_interval = 2  # Process every N frames
-            frame_index = 0
-            last_faces = []
-            
+            # Main capture loop
             while self.running:
                 ret, frame = self.camera.read()
-                
                 if not ret:
-                    time.sleep(0.01)  # Short sleep to prevent CPU overuse
                     continue
                 
-                # Flip the frame horizontally to correct mirror effect
-                frame = cv2.flip(frame, 1)  # 1 means horizontal flip
+                # Flip frame horizontally
+                frame = cv2.flip(frame, 1)
                 
-                # Process face detection (only on some frames to maintain performance)
-                frame_index += 1
-                if self.enable_face_detection:
-                    if frame_index % face_detection_interval == 0:
-                        # Only run detection periodically
-                        faces = self.detect_faces_dnn(frame)
-                        # Smooth the face positions to reduce flickering
-                        last_faces = self.smooth_face_detections(faces)
+                # Add to queue if not full
+                with self.queue_lock:
+                    if len(self.frame_queue) < self.frame_queue.maxlen:
+                        self.frame_queue.append(frame)
                         
-                        # Check if recognition data is stale
-                        if time.time() - self.last_recognition_time > self.recognition_timeout:
-                            self.face_ids = {}  # Clear stale data
-                        
-                        # Add face IDs if available
-                        for i, face in enumerate(last_faces):
-                            if i in self.face_ids:
-                                face['id'] = self.face_ids[i]['id']
-                            else:
-                                face['id'] = 'Unknown'
-                        
-                        # Publish face data for other nodes
-                        if self.node:
-                            self.publish_face_data(last_faces)
-                            self.publish_face_images(frame, last_faces)
-                    
-                    # Draw smoothed faces on every frame
-                    if last_faces:
-                        frame = self.draw_face_circles(frame, last_faces)
-                
-                # Add FPS text to frame
-                frame_count += 1
-                if frame_count >= 10:  # Update FPS every 10 frames
-                    current_time = time.time()
-                    elapsed = current_time - start_time
-                    fps = frame_count / elapsed if elapsed > 0 else 0
-                    frame_count = 0
-                    start_time = current_time
-                
-                # Draw FPS on the frame
-                cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                
-                # Publish frame to ROS topic
-                if self.node:
-                    self.publish_frame(frame)
-                
-                # Emit the frame signal for Qt UI
-                self.frame_ready.emit(frame)
-                
-                # Short sleep to prevent tight loops
-                time.sleep(0.001)
-                
         except Exception as e:
             self.error.emit(f"Error in capture thread: {str(e)}")
         finally:
             if self.camera and self.camera.isOpened():
                 self.camera.release()
                 self.camera = None
+    
+    def _process_loop(self):
+        """Process frames from the queue"""
+        try:
+            frame_count = 0
+            start_time = time.time()
+            fps = 0
+            face_detection_interval = 2  # Process every N frames
+            frame_index = 0
+            last_faces = []
+            
+            while self.running:
+                # Get frame from queue
+                frame = None
+                with self.queue_lock:
+                    if self.frame_queue:
+                        frame = self.frame_queue.popleft()
+                
+                if frame is None:
+                    continue
+                
+                # Process face detection
+                frame_index += 1
+                if self.enable_face_detection:
+                    if frame_index % face_detection_interval == 0:
+                        faces = self.detect_faces_dnn(frame)
+                        last_faces = self.smooth_face_detections(faces)
+                        
+                        # Check if recognition data is stale
+                        if time.time() - self.last_recognition_time > self.recognition_timeout:
+                            self.face_ids = {}
+                        
+                        # Add face IDs
+                        for i, face in enumerate(last_faces):
+                            if i in self.face_ids:
+                                face['id'] = self.face_ids[i]['id']
+                            else:
+                                face['id'] = 'Unknown'
+                    
+                    # Draw faces on every frame
+                    if last_faces:
+                        frame = self.draw_face_circles(frame, last_faces)
+                
+                # Update FPS
+                frame_count += 1
+                if frame_count >= 10:
+                    current_time = time.time()
+                    elapsed = current_time - start_time
+                    fps = frame_count / elapsed if elapsed > 0 else 0
+                    frame_count = 0
+                    start_time = current_time
+                
+                # Draw FPS
+                cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                
+                # Add processed frame to queue
+                with self.queue_lock:
+                    self.processed_frame_queue.append((frame, last_faces))
+                
+                # Emit frame for UI
+                self.frame_ready.emit(frame)
+        except Exception as e:
+            self.error.emit(f"Error in process thread: {str(e)}")
+    
+    def _publish_loop(self):
+        """Handle ROS publishing at controlled rate"""
+        try:
+            while self.running:
+                current_time = time.time()
+                
+                # Check if enough time has passed since last publish
+                if current_time - self.last_publish_time >= self.min_publish_interval:
+                    # Get latest processed frame
+                    with self.queue_lock:
+                        if self.processed_frame_queue:
+                            frame, faces = self.processed_frame_queue.popleft()
+                            
+                            # Publish frame and face data
+                            self.publish_frame(frame)
+                            if faces:
+                                self.publish_face_data(faces)
+                                self.publish_face_images(frame, faces)
+                            
+                            self.last_publish_time = current_time
+        except Exception as e:
+            self.error.emit(f"Error in publish thread: {str(e)}")
 
 
 class CameraViewer(QMainWindow):
