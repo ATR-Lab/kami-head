@@ -50,6 +50,10 @@ class FrameGrabber(QObject):
         self.frame_lock = threading.Lock()
         self.frame_timestamp = 0  # Track frame freshness
         
+        # UI frame rate control
+        self.last_ui_update = 0
+        self.min_ui_interval = 1.0 / 30  # Target 30 FPS for UI
+        
         # Publishing rate control
         self.last_publish_time = 0
         self.min_publish_interval = 1.0 / 30.0  # Max 30 fps for publishing
@@ -652,8 +656,11 @@ class FrameGrabber(QObject):
                 with self.frame_lock:
                     self.processed_frame = frame
                 
-                # Emit frame for UI
-                self.frame_ready.emit(frame)
+                # Emit frame for UI with rate limiting
+                current_time = time.time()
+                if current_time - self.last_ui_update >= self.min_ui_interval:
+                    self.frame_ready.emit(frame)
+                    self.last_ui_update = current_time
         except Exception as e:
             self.error.emit(f"Error in process thread: {str(e)}")
     
@@ -960,9 +967,14 @@ class CameraViewer(QMainWindow):
 
 
 class CameraNode(Node):
-    def __init__(self):
+    def __init__(self, executor):
+        # Initialize node
         super().__init__('coffee_camera_node')
         self.get_logger().info('Camera node is starting...')
+        
+        # Store executor
+        self.executor = executor
+        self.executor.add_node(self)
         
         # Start the UI
         app = QApplication(sys.argv)
@@ -975,13 +987,18 @@ class CameraNode(Node):
         self.ros_thread.daemon = True
         self.ros_thread.start()
         
-        # Start Qt event loop
-        sys.exit(app.exec_())
+        try:
+            # Start Qt event loop
+            app.exec_()
+        except KeyboardInterrupt:
+            self.spinning = False
+            self.destroy_node()
     
     def spin_thread(self):
         """Background thread for ROS spinning"""
         while self.spinning:
-            rclpy.spin_once(self, timeout_sec=0.1)
+            self.executor.spin_once(timeout_sec=0.1)
+        self.destroy_node()
     
     def destroy_node(self):
         """Clean shutdown"""
@@ -1002,20 +1019,25 @@ class CameraNode(Node):
 
 
 def main(args=None):
-    rclpy.init(args=args)
     try:
-        node = CameraNode()
-    except KeyboardInterrupt:
-        pass
+        # Initialize ROS2
+        rclpy.init(args=args)
+        
+        # Create executor first
+        executor = rclpy.executors.SingleThreadedExecutor()
+        
+        # Create and run the node
+        node = CameraNode(executor)
     except Exception as e:
-        print(f"Error in camera node: {e}")
+        print(f"Error in camera node: {str(e)}")
         import traceback
         traceback.print_exc()
     finally:
-        if 'node' in locals():
-            node.destroy_node()
-        rclpy.shutdown()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
 
 if __name__ == '__main__':
-    main() 
+    main()
