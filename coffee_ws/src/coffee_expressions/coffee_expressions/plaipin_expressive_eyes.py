@@ -67,7 +67,7 @@ class PlaipinExpressiveEyes(Node):
         # Create subscription
         self.subscription = self.create_subscription(
             AffectiveState,
-            'affective_state',
+            '/robot/affective_state',
             self.affective_state_callback,
             10)
     

@@ -88,7 +88,7 @@ class ExpressionsTestUI(QMainWindow):
         self.node = Node('expressions_test_ui')
         self.publisher = self.node.create_publisher(
             AffectiveState,
-            'affective_state',
+            '/robot/affective_state',
             10
         )
         

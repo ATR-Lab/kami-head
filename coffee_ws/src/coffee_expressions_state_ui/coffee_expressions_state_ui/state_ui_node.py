@@ -160,10 +160,10 @@ class StateUINode(Node):
 
     def state_callback(self, msg):
         self.current_expression = msg.expression
-        self.override_active = msg.is_override
-        if self.override_active:
-            self.override_expression = msg.expression
-            self.override_end_time = time.time() + msg.override_duration
+        # self.override_active = msg.is_override
+        # if self.override_active:
+        #     self.override_expression = msg.expression
+        #     self.override_end_time = time.time() + msg.override_duration
 
     def diagnostics_callback(self, msg):
         self.last_diagnostic = msg.data
