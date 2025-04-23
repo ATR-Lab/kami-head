@@ -24,6 +24,7 @@ setup(
     entry_points={
         'console_scripts': [
             'expressive_eyes = coffee_expressions.expressive_eyes:main',
+            'plaipin_expressive_eyes = coffee_expressions.plaipin_expressive_eyes:main',
         ],
     },
 )
