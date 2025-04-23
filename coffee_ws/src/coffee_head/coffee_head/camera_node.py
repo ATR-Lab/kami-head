@@ -54,6 +54,13 @@ class FrameGrabber(QObject):
         self.last_ui_update = 0
         self.min_ui_interval = 1.0 / 30  # Target 30 FPS for UI
         
+        # Face detection control
+        self.last_detection_time = 0
+        self.min_detection_interval = 1.0 / 6  # Max 6 face detections per second
+        self.max_detection_time = 0.1  # Maximum 100ms for face detection
+        self.detection_skip_frames = 5  # Process every 5th frame
+        self.detection_frame_counter = 0
+        
         # Publishing rate control
         self.last_publish_time = 0
         self.min_publish_interval = 1.0 / 30.0  # Max 30 fps for publishing
@@ -618,14 +625,35 @@ class FrameGrabber(QObject):
                 if time.time() - frame_time > 0.1:
                     continue
                 
-                # Process face detection less frequently
-                frame_index += 1
-                if self.enable_face_detection and frame_index % face_detection_interval == 0:
+                # Adaptive face detection with time budgeting
+                self.detection_frame_counter += 1
+                current_time = time.time()
+                
+                # Check if we should attempt face detection
+                should_detect = (
+                    self.enable_face_detection and
+                    self.detection_frame_counter >= self.detection_skip_frames and
+                    current_time - self.last_detection_time >= self.min_detection_interval
+                )
+                
+                if should_detect:
+                    detection_start = time.time()
                     faces = self.detect_faces_dnn(frame)
-                    self.current_faces = faces  # No smoothing for now
+                    detection_time = time.time() - detection_start
+                    
+                    # If detection took too long, increase skip frames
+                    if detection_time > self.max_detection_time:
+                        self.detection_skip_frames = min(10, self.detection_skip_frames + 1)
+                    else:
+                        # If detection was fast, gradually decrease skip frames
+                        self.detection_skip_frames = max(3, self.detection_skip_frames - 1)
+                    
+                    self.current_faces = faces  # No smoothing for better latency
+                    self.last_detection_time = current_time
+                    self.detection_frame_counter = 0
                     
                     # Check if recognition data is stale
-                    if time.time() - self.last_recognition_time > self.recognition_timeout:
+                    if current_time - self.last_recognition_time > self.recognition_timeout:
                         self.face_ids = {}
                     
                     # Add face IDs
