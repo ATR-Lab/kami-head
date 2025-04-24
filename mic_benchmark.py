@@ -5,13 +5,106 @@ import os
 import numpy as np
 import wave
 import tempfile
+import threading
+import traceback
+from typing import Union, Optional, Callable
+import tqdm
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                            QHBoxLayout, QComboBox, QPushButton, QLabel, 
-                           QStackedWidget, QProgressBar, QMessageBox, QFileDialog)
+                           QStackedWidget, QProgressBar, QMessageBox, QFileDialog,
+                           QTextEdit)
 from PyQt5.QtCore import Qt, pyqtSignal, QThread
 import pyaudio
 import torch
 import torchmetrics.audio as tm_audio
+import whisper
+
+# Enable more detailed logging
+import logging
+logging.basicConfig(level=logging.DEBUG, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Setup global exception hook to print full traceback
+def global_exception_hook(exctype, value, tb):
+    tb_text = ''.join(traceback.format_exception(exctype, value, tb))
+    print(f"UNHANDLED EXCEPTION:\n{tb_text}")
+    sys.__excepthook__(exctype, value, tb)
+    
+sys.excepthook = global_exception_hook
+
+class ProgressListener:
+    """Interface for progress listeners"""
+    def on_progress(self, current: Union[int, float], total: Union[int, float]):
+        pass
+    
+    def on_finished(self):
+        pass
+
+
+class _CustomProgressBar(tqdm.tqdm):
+    """Custom progress bar that reports to registered listeners"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._current = self.n
+
+    def update(self, n):
+        super().update(n)
+        self._current += n
+
+        # Inform listeners
+        listeners = _get_thread_local_listeners()
+        for listener in listeners:
+            listener.on_progress(self._current, self.total)
+            
+        # Force the UI to update by processing events
+        QApplication.processEvents()
+
+
+_thread_local = threading.local()
+_hooked = False
+
+
+def _get_thread_local_listeners():
+    """Get thread-local progress listeners"""
+    if not hasattr(_thread_local, 'listeners'):
+        _thread_local.listeners = []
+    return _thread_local.listeners
+
+
+def init_progress_hook():
+    """Initialize the progress hook for Whisper"""
+    global _hooked
+    if _hooked:
+        return
+
+    # Inject into tqdm.tqdm of Whisper
+    import whisper.transcribe
+    transcribe_module = sys.modules['whisper.transcribe']
+    transcribe_module.tqdm.tqdm = _CustomProgressBar
+    _hooked = True
+
+
+class ProgressListenerHandle:
+    """Context manager for progress listeners"""
+    def __init__(self, listener: ProgressListener):
+        self.listener = listener
+    
+    def __enter__(self):
+        # Register the progress listener
+        init_progress_hook()
+        listeners = _get_thread_local_listeners()
+        listeners.append(self.listener)
+        return self.listener
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Unregister the progress listener
+        listeners = _get_thread_local_listeners()
+        if self.listener in listeners:
+            listeners.remove(self.listener)
+        
+        if exc_type is None:
+            self.listener.on_finished()
 
 
 class AudioRecorder(QThread):
@@ -162,21 +255,227 @@ class MetricsCalculator:
             }
 
 
+class WhisperTranscriber(QThread):
+    """Thread for Whisper model download and transcription"""
+    download_progress = pyqtSignal(int)
+    transcription_progress = pyqtSignal(int)
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+    
+    def __init__(self, audio_file, model_name="base"):
+        super().__init__()
+        self.audio_file = audio_file
+        self.model_name = model_name
+        self.model = None
+        self.cuda_available = torch.cuda.is_available()
+        logger.info(f"Initializing WhisperTranscriber with model: {model_name}, CUDA available: {self.cuda_available}")
+        logger.info(f"Audio file: {audio_file}, exists: {os.path.exists(audio_file)}")
+        
+    def run(self):
+        try:
+            # First, check if model exists and download if needed
+            logger.info(f"Checking if model {self.model_name} exists")
+            if not self._check_model_exists():
+                logger.info(f"Model {self.model_name} not found, downloading...")
+                self._download_model()
+            else:
+                logger.info(f"Model {self.model_name} already exists")
+            
+            # Load the model
+            logger.info(f"Loading model {self.model_name}")
+            self._load_model()
+            
+            # Transcribe the audio
+            logger.info(f"Transcribing audio from {self.audio_file}")
+            transcription = self._transcribe_audio()
+            
+            # Emit the transcription result
+            logger.info(f"Transcription completed: {transcription[:50]}...")
+            self.finished.emit(transcription)
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            logger.error(f"Error in WhisperTranscriber.run: {str(e)}\n{error_traceback}")
+            self.error.emit(f"{str(e)}\n\nFull traceback:\n{error_traceback}")
+    
+    def _check_model_exists(self):
+        # Check if the model is already downloaded
+        model_path = os.path.expanduser(f"~/.cache/whisper/{self.model_name}.pt")
+        exists = os.path.exists(model_path)
+        logger.debug(f"Model file check: {model_path}, exists: {exists}")
+        return exists
+    
+    def _download_model(self):
+        """Download the Whisper model with progress tracking"""
+        class DownloadProgressListener(ProgressListener):
+            def __init__(self, signal_fn):
+                self.signal_fn = signal_fn
+                
+            def on_progress(self, current, total):
+                progress = int((current / total) * 100) if total > 0 else 0
+                self.signal_fn.emit(progress)
+                
+            def on_finished(self):
+                self.signal_fn.emit(100)
+        
+        try:
+            # This will trigger the download if the model doesn't exist
+            with ProgressListenerHandle(DownloadProgressListener(self.download_progress)):
+                # This forces download without loading the model yet
+                logger.info(f"Starting model download: {self.model_name}")
+                whisper._download(self.model_name, whisper._MODELS, False)
+                logger.info(f"Model download completed")
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            logger.error(f"Error downloading model: {str(e)}\n{error_traceback}")
+            raise
+    
+    def _load_model(self):
+        """Load the Whisper model using CUDA if available"""
+        try:
+            fp16 = self.cuda_available  # Use FP16 if CUDA is available
+            logger.info(f"Loading model: {self.model_name}, device: {'cuda' if self.cuda_available else 'cpu'}, fp16: {fp16}")
+            self.model = whisper.load_model(self.model_name, device="cuda" if self.cuda_available else "cpu", fp16=fp16)
+            logger.info(f"Model loaded successfully")
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            logger.error(f"Error loading model: {str(e)}\n{error_traceback}")
+            raise
+    
+    def _transcribe_audio(self):
+        """Transcribe the audio file with progress tracking"""
+        class TranscriptionProgressListener(ProgressListener):
+            def __init__(self, signal_fn):
+                self.signal_fn = signal_fn
+                
+            def on_progress(self, current, total):
+                progress = int((current / total) * 100) if total > 0 else 0
+                self.signal_fn.emit(progress)
+                
+            def on_finished(self):
+                self.signal_fn.emit(100)
+        
+        try:
+            with ProgressListenerHandle(TranscriptionProgressListener(self.transcription_progress)):
+                logger.info(f"Starting transcription of {self.audio_file}")
+                
+                # Verify the audio file exists
+                if not os.path.exists(self.audio_file):
+                    error_msg = f"Audio file does not exist: {self.audio_file}"
+                    logger.error(error_msg)
+                    raise FileNotFoundError(error_msg)
+                
+                # Print audio file info
+                try:
+                    with wave.open(self.audio_file, 'rb') as wf:
+                        logger.info(f"Audio file info: channels={wf.getnchannels()}, width={wf.getsampwidth()}, " 
+                                   f"rate={wf.getframerate()}, frames={wf.getnframes()}")
+                except Exception as e:
+                    logger.warning(f"Could not read wave file info: {str(e)}")
+                
+                # Try using the high-level API first
+                try:
+                    logger.info("Attempting transcription with high-level API")
+                    result = self.model.transcribe(
+                        self.audio_file, 
+                        fp16=self.cuda_available,
+                        verbose=None
+                    )
+                    logger.info("High-level API transcription successful")
+                    return result["text"]
+                except Exception as e:
+                    logger.warning(f"High-level API failed: {str(e)}, trying low-level API")
+                
+                # If that fails, use the low-level API
+                # Load audio file
+                logger.info("Loading audio with low-level API")
+                audio = whisper.load_audio(self.audio_file)
+                logger.info(f"Audio loaded, shape: {audio.shape}")
+                
+                # Make log-Mel spectrogram
+                logger.info("Creating mel spectrogram")
+                mel = whisper.log_mel_spectrogram(audio).to(self.model.device)
+                logger.info(f"Mel spectrogram created, shape: {mel.shape}")
+                
+                # Detect language
+                logger.info("Detecting language")
+                _, probs = self.model.detect_language(mel)
+                detected_language = max(probs, key=probs.get)
+                logger.info(f"Detected language: {detected_language}")
+                
+                # Decode the audio
+                logger.info("Decoding audio")
+                options = whisper.DecodingOptions(fp16=self.cuda_available)
+                result = whisper.decode(self.model, mel, options)
+                logger.info("Decoding completed")
+                
+                # Return the transcribed text
+                return result.text
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            logger.error(f"Error in transcription: {str(e)}\n{error_traceback}")
+            raise
+
+
+class LoadingScreen(QWidget):
+    """Loading screen with progress bar"""
+    def __init__(self):
+        super().__init__()
+        self.layout = QVBoxLayout()
+        
+        # Label
+        self.label = QLabel("Loading...")
+        self.label.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(self.label)
+        
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.layout.addWidget(self.progress_bar)
+        
+        # Set layout
+        self.setLayout(self.layout)
+    
+    def set_label(self, text):
+        self.label.setText(text)
+    
+    def set_progress(self, value):
+        self.progress_bar.setValue(value)
+
+
 class MicrophoneSelector(QWidget):
     """First screen: Microphone selection"""
     def __init__(self):
         super().__init__()
         self.layout = QVBoxLayout()
         
-        # Label
-        self.label = QLabel("Select a microphone:")
-        self.layout.addWidget(self.label)
+        # Microphone selection
+        self.mic_label = QLabel("Select a microphone:")
+        self.layout.addWidget(self.mic_label)
         
         # Combobox for microphone selection
         self.mic_combo = QComboBox()
         self.layout.addWidget(self.mic_combo)
         
-        # Populate the combobox with available microphones
+        # Whisper model selection
+        self.model_label = QLabel("Select Whisper model:")
+        self.layout.addWidget(self.model_label)
+        
+        # Combobox for Whisper model selection
+        self.model_combo = QComboBox()
+        # Add available Whisper models
+        for model in ["tiny", "base", "small", "medium", "large"]:
+            self.model_combo.addItem(model)
+        # Set default to base
+        self.model_combo.setCurrentText("base")
+        self.layout.addWidget(self.model_combo)
+        
+        # Add CUDA status label
+        self.cuda_label = QLabel()
+        self.update_cuda_status()
+        self.layout.addWidget(self.cuda_label)
+        
+        # Populate the microphone combobox
         self.populate_microphones()
         
         # Next button
@@ -185,6 +484,15 @@ class MicrophoneSelector(QWidget):
         
         # Set layout
         self.setLayout(self.layout)
+    
+    def update_cuda_status(self):
+        """Update the CUDA status label"""
+        if torch.cuda.is_available():
+            self.cuda_label.setText(f"CUDA Available: Yes (Device: {torch.cuda.get_device_name(0)})")
+            self.cuda_label.setStyleSheet("color: green;")
+        else:
+            self.cuda_label.setText("CUDA Available: No (CPU will be used)")
+            self.cuda_label.setStyleSheet("color: red;")
         
     def populate_microphones(self):
         p = pyaudio.PyAudio()
@@ -207,6 +515,9 @@ class MicrophoneSelector(QWidget):
         
     def get_selected_microphone(self):
         return self.mic_combo.currentData()
+    
+    def get_selected_model(self):
+        return self.model_combo.currentText()
 
 
 class RecordingScreen(QWidget):
@@ -299,6 +610,16 @@ class ResultsScreen(QWidget):
         
         self.layout.addLayout(self.metrics_layout)
         
+        # Transcription result section
+        self.transcription_label = QLabel("Transcription:")
+        self.layout.addWidget(self.transcription_label)
+        
+        # Text area for transcription
+        self.transcription_text = QTextEdit()
+        self.transcription_text.setReadOnly(True)
+        self.transcription_text.setMinimumHeight(100)
+        self.layout.addWidget(self.transcription_text)
+        
         # Button layout
         self.button_layout = QHBoxLayout()
         
@@ -324,6 +645,10 @@ class ResultsScreen(QWidget):
     def set_audio_file(self, file_path):
         self.audio_file = file_path
         self.calculate_metrics()
+    
+    def set_transcription(self, text):
+        """Set the transcription text"""
+        self.transcription_text.setText(text)
         
     def calculate_metrics(self):
         if self.audio_file:
@@ -390,13 +715,15 @@ class MicrophoneBenchmark(QMainWindow):
         # Create stacked widget for different screens
         self.stacked_widget = QStackedWidget()
         
-        # Create the three screens
+        # Create the screens
         self.microphone_selector = MicrophoneSelector()
         self.recording_screen = RecordingScreen()
+        self.loading_screen = LoadingScreen()
         self.results_screen = ResultsScreen()
         
         # Add screens to stacked widget
         self.stacked_widget.addWidget(self.microphone_selector)
+        self.stacked_widget.addWidget(self.loading_screen)
         self.stacked_widget.addWidget(self.recording_screen)
         self.stacked_widget.addWidget(self.results_screen)
         
@@ -404,43 +731,347 @@ class MicrophoneBenchmark(QMainWindow):
         self.main_layout.addWidget(self.stacked_widget)
         
         # Connect signals
-        self.microphone_selector.next_button.clicked.connect(self.go_to_recording)
+        self.microphone_selector.next_button.clicked.connect(self.prepare_model_and_go_to_recording)
         self.recording_screen.back_button.clicked.connect(self.go_to_microphone_selector)
         self.recording_screen.recording_completed.connect(self.on_recording_completed)
         self.results_screen.back_button.clicked.connect(self.go_to_microphone_selector)
         
+        # Store the selected Whisper model and device
+        self.selected_model = "base"
+        self.selected_device_index = None
+        self.model = None  # Store the loaded model
+        
         # Show the first screen by default
         self.stacked_widget.setCurrentIndex(0)
+        
+        logger.info("MicrophoneBenchmark initialized")
     
-    def go_to_recording(self):
-        device_index = self.microphone_selector.get_selected_microphone()
-        if device_index is not None:
-            self.recording_screen.set_device_index(device_index)
-            self.stacked_widget.setCurrentIndex(1)
-        else:
-            QMessageBox.warning(self, "Error", "No microphone selected")
+    def prepare_model_and_go_to_recording(self):
+        try:
+            self.selected_device_index = self.microphone_selector.get_selected_microphone()
+            self.selected_model = self.microphone_selector.get_selected_model()
+            
+            if self.selected_device_index is None:
+                logger.warning("No microphone selected")
+                QMessageBox.warning(self, "Error", "No microphone selected")
+                return
+            
+            logger.info(f"Preparing model {self.selected_model} before recording")
+            
+            # Show loading screen
+            self.loading_screen.set_label(f"Preparing Whisper model: {self.selected_model}")
+            self.loading_screen.set_progress(0)
+            self.stacked_widget.setCurrentIndex(1)  # Loading screen is now index 1
+            
+            # Create a model preparer to check/download the model
+            self.model_preparer = WhisperModelPreparer(self.selected_model)
+            self.model_preparer.download_progress.connect(self.on_download_progress)
+            self.model_preparer.finished.connect(self.on_model_prepared)
+            self.model_preparer.error.connect(self.on_model_error)
+            self.model_preparer.start()
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            logger.error(f"Error preparing model: {str(e)}\n{error_traceback}")
+            QMessageBox.critical(self, "Error", f"Error preparing model: {str(e)}\n\nSee console for details.")
+            self.go_to_microphone_selector()
+    
+    def on_model_prepared(self, model):
+        logger.info(f"Model {self.selected_model} prepared successfully")
+        self.model = model  # Store the model for later use
+        
+        # Now we can proceed to the recording screen
+        self.recording_screen.set_device_index(self.selected_device_index)
+        self.stacked_widget.setCurrentIndex(2)  # Recording screen is now index 2
+    
+    def on_model_error(self, error_message):
+        logger.error(f"Model preparation error: {error_message}")
+        QMessageBox.critical(self, "Model Preparation Error", f"Error preparing Whisper model: {error_message}")
+        self.go_to_microphone_selector()
     
     def go_to_microphone_selector(self):
+        logger.info("Going back to microphone selector")
         self.stacked_widget.setCurrentIndex(0)
     
+    def on_download_progress(self, progress):
+        logger.debug(f"Download progress: {progress}%")
+        self.loading_screen.set_label(f"Downloading Whisper model: {progress}%")
+        self.loading_screen.set_progress(progress)
+    
     def on_recording_completed(self, file_path):
-        # Set the audio file for the results screen
-        self.results_screen.set_audio_file(file_path)
+        try:
+            logger.info(f"Recording completed: {file_path}")
+            # Set the audio file for the results screen
+            self.results_screen.set_audio_file(file_path)
+            
+            # Show loading screen for transcription
+            self.loading_screen.set_label("Transcribing audio...")
+            self.loading_screen.set_progress(0)
+            self.stacked_widget.setCurrentIndex(1)  # Loading screen is index 1
+            
+            # Start the transcription process with our pre-loaded model
+            logger.info(f"Starting transcription with model {self.selected_model}")
+            self.transcriber = AudioTranscriber(file_path, self.model)
+            self.transcriber.transcription_progress.connect(self.on_transcription_progress)
+            self.transcriber.finished.connect(self.on_transcription_completed)
+            self.transcriber.error.connect(self.on_transcription_error)
+            self.transcriber.start()
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            logger.error(f"Error in on_recording_completed: {str(e)}\n{error_traceback}")
+            QMessageBox.critical(self, "Error", f"Error processing recording: {str(e)}\n\nSee console for details.")
+    
+    def on_transcription_progress(self, progress):
+        logger.debug(f"Transcription progress: {progress}%")
+        self.loading_screen.set_label(f"Transcribing audio: {progress}%")
+        self.loading_screen.set_progress(progress)
+    
+    def on_transcription_completed(self, text):
+        logger.info(f"Transcription completed: {text[:50]}...")
+        # Set the transcription result
+        self.results_screen.set_transcription(text)
         
         # Switch to the results screen
-        self.stacked_widget.setCurrentIndex(2)
+        self.stacked_widget.setCurrentIndex(3)  # Results screen is index 3
+    
+    def on_transcription_error(self, error_message):
+        logger.error(f"Transcription error: {error_message}")
+        QMessageBox.critical(self, "Transcription Error", f"Error during transcription: {error_message}")
+        
+        # Still show results screen but without transcription
+        self.results_screen.set_transcription("Transcription failed. See console for details.")
+        self.stacked_widget.setCurrentIndex(3)  # Results screen is index 3
+
+
+class WhisperModelPreparer(QThread):
+    """Thread for Whisper model download and preparation"""
+    download_progress = pyqtSignal(int)
+    finished = pyqtSignal(object)  # Will emit the loaded model
+    error = pyqtSignal(str)
+    
+    def __init__(self, model_name="base"):
+        super().__init__()
+        self.model_name = model_name
+        self.cuda_available = torch.cuda.is_available()
+        logger.info(f"Initializing WhisperModelPreparer with model: {model_name}, CUDA available: {self.cuda_available}")
+        
+    def run(self):
+        try:
+            # Check if model exists and download if needed
+            logger.info(f"Checking if model {self.model_name} exists")
+            if not self._check_model_exists():
+                logger.info(f"Model {self.model_name} not found, downloading...")
+                self._download_model()
+            else:
+                logger.info(f"Model {self.model_name} already exists")
+            
+            # Load the model
+            logger.info(f"Loading model {self.model_name}")
+            model = self._load_model()
+            
+            # Emit the loaded model
+            self.finished.emit(model)
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            logger.error(f"Error in WhisperModelPreparer.run: {str(e)}\n{error_traceback}")
+            self.error.emit(f"{str(e)}\n\nFull traceback:\n{error_traceback}")
+    
+    def _check_model_exists(self):
+        # Check if the model is already downloaded
+        model_path = os.path.expanduser(f"~/.cache/whisper/{self.model_name}.pt")
+        exists = os.path.exists(model_path)
+        logger.debug(f"Model file check: {model_path}, exists: {exists}")
+        return exists
+    
+    def _download_model(self):
+        """Download the Whisper model with progress tracking"""
+        class DownloadProgressListener(ProgressListener):
+            def __init__(self, signal_fn):
+                self.signal_fn = signal_fn
+                
+            def on_progress(self, current, total):
+                progress = int((current / total) * 100) if total > 0 else 0
+                logger.debug(f"Download progress update: {progress}% ({current}/{total})")
+                self.signal_fn.emit(progress)
+                
+            def on_finished(self):
+                self.signal_fn.emit(100)
+        
+        try:
+            # This will trigger the download if the model doesn't exist
+            with ProgressListenerHandle(DownloadProgressListener(self.download_progress)):
+                # This forces download without loading the model yet
+                logger.info(f"Starting model download: {self.model_name}")
+                
+                # Use the correct download approach by using the higher-level API
+                # with download_root parameter to specify where to save
+                download_root = os.path.expanduser("~/.cache/whisper")
+                os.makedirs(download_root, exist_ok=True)
+                
+                # Use the public load_model function to download
+                logger.info(f"Downloading model to {download_root}")
+                
+                # Create a custom progress callback that emits signals
+                def progress_callback(progress):
+                    self.download_progress.emit(int(progress * 100))
+                    QApplication.processEvents()  # Force UI update
+                
+                # Download the model using the public API
+                whisper.load_model(
+                    self.model_name,  
+                    device="cpu",     # Use CPU for download only
+                    download_root=download_root,
+                    in_memory=False   # Don't keep in memory, save to disk
+                )
+                
+                logger.info(f"Model download completed")
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            logger.error(f"Error downloading model: {str(e)}\n{error_traceback}")
+            raise
+    
+    def _load_model(self):
+        """Load the Whisper model using CUDA if available"""
+        try:
+            device = "cuda" if self.cuda_available else "cpu"
+            logger.info(f"Loading model: {self.model_name}, device: {device}")
+            
+            # Removed fp16 parameter as it's not supported in the current API
+            model = whisper.load_model(
+                self.model_name, 
+                device=device,
+                download_root=os.path.expanduser("~/.cache/whisper")
+            )
+            logger.info(f"Model loaded successfully")
+            return model
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            logger.error(f"Error loading model: {str(e)}\n{error_traceback}")
+            raise
+
+
+class AudioTranscriber(QThread):
+    """Thread for audio transcription using a pre-loaded Whisper model"""
+    transcription_progress = pyqtSignal(int)
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+    
+    def __init__(self, audio_file, model):
+        super().__init__()
+        self.audio_file = audio_file
+        self.model = model
+        self.cuda_available = torch.cuda.is_available()
+        logger.info(f"Initializing AudioTranscriber with loaded model, CUDA available: {self.cuda_available}")
+        logger.info(f"Audio file: {audio_file}, exists: {os.path.exists(audio_file)}")
+        
+    def run(self):
+        try:
+            # Transcribe the audio
+            logger.info(f"Transcribing audio from {self.audio_file}")
+            transcription = self._transcribe_audio()
+            
+            # Emit the transcription result
+            logger.info(f"Transcription completed: {transcription[:50]}...")
+            self.finished.emit(transcription)
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            logger.error(f"Error in AudioTranscriber.run: {str(e)}\n{error_traceback}")
+            self.error.emit(f"{str(e)}\n\nFull traceback:\n{error_traceback}")
+    
+    def _transcribe_audio(self):
+        """Transcribe the audio file with progress tracking"""
+        class TranscriptionProgressListener(ProgressListener):
+            def __init__(self, signal_fn):
+                self.signal_fn = signal_fn
+                
+            def on_progress(self, current, total):
+                progress = int((current / total) * 100) if total > 0 else 0
+                self.signal_fn.emit(progress)
+                QApplication.processEvents()  # Force UI update
+                
+            def on_finished(self):
+                self.signal_fn.emit(100)
+        
+        try:
+            with ProgressListenerHandle(TranscriptionProgressListener(self.transcription_progress)):
+                logger.info(f"Starting transcription of {self.audio_file}")
+                
+                # Verify the audio file exists
+                if not os.path.exists(self.audio_file):
+                    error_msg = f"Audio file does not exist: {self.audio_file}"
+                    logger.error(error_msg)
+                    raise FileNotFoundError(error_msg)
+                
+                # Print audio file info
+                try:
+                    with wave.open(self.audio_file, 'rb') as wf:
+                        logger.info(f"Audio file info: channels={wf.getnchannels()}, width={wf.getsampwidth()}, " 
+                                   f"rate={wf.getframerate()}, frames={wf.getnframes()}")
+                except Exception as e:
+                    logger.warning(f"Could not read wave file info: {str(e)}")
+                
+                # Try using the high-level API first
+                try:
+                    logger.info("Attempting transcription with high-level API")
+                    # Remove fp16 from transcribe call
+                    result = self.model.transcribe(
+                        self.audio_file, 
+                        verbose=None
+                    )
+                    logger.info("High-level API transcription successful")
+                    return result["text"]
+                except Exception as e:
+                    logger.warning(f"High-level API failed: {str(e)}, trying low-level API")
+                
+                # If that fails, use the low-level API
+                # Load audio file
+                logger.info("Loading audio with low-level API")
+                audio = whisper.load_audio(self.audio_file)
+                logger.info(f"Audio loaded, shape: {audio.shape}")
+                
+                # Make log-Mel spectrogram
+                logger.info("Creating mel spectrogram")
+                mel = whisper.log_mel_spectrogram(audio).to(self.model.device)
+                logger.info(f"Mel spectrogram created, shape: {mel.shape}")
+                
+                # Detect language
+                logger.info("Detecting language")
+                _, probs = self.model.detect_language(mel)
+                detected_language = max(probs, key=probs.get)
+                logger.info(f"Detected language: {detected_language}")
+                
+                # Decode the audio
+                logger.info("Decoding audio")
+                # Remove fp16 from DecodingOptions
+                options = whisper.DecodingOptions()
+                result = whisper.decode(self.model, mel, options)
+                logger.info("Decoding completed")
+                
+                # Return the transcribed text
+                return result.text
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            logger.error(f"Error in transcription: {str(e)}\n{error_traceback}")
+            raise
 
 
 def main():
-    # Create the application
-    app = QApplication(sys.argv)
-    
-    # Create and show the main window
-    window = MicrophoneBenchmark()
-    window.show()
-    
-    # Run the application event loop
-    sys.exit(app.exec_())
+    try:
+        # Create the application
+        app = QApplication(sys.argv)
+        
+        # Create and show the main window
+        logger.info("Starting MicrophoneBenchmark application")
+        window = MicrophoneBenchmark()
+        window.show()
+        
+        # Run the application event loop
+        logger.info("Entering application event loop")
+        sys.exit(app.exec_())
+    except Exception as e:
+        error_traceback = traceback.format_exc()
+        logger.critical(f"Unhandled exception in main: {str(e)}\n{error_traceback}")
+        print(f"CRITICAL ERROR: {str(e)}\n{error_traceback}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
