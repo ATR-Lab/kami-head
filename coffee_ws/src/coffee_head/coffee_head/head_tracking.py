@@ -117,16 +117,16 @@ class HeadTrackingSystem(QObject):
         
         # Pan/tilt motor IDs and parameters
         self.pan_motor_id = 1
-        self.tilt_motor_id = 2
+        self.tilt_motor_id = 9 # TODO: FIX NAMING AND NUMBERING
         
         # Motor angle limits (in degrees)
-        self.pan_min_angle = 0.01  # Min pan angle (right)
-        self.pan_max_angle = 180.0  # Max pan angle (left)
-        self.tilt_min_angle = 135.0  # Min tilt angle (up)
-        self.tilt_max_angle = 225.0  # Max tilt angle (down)
+        self.pan_min_angle = 143.0  # Min pan angle (right)
+        self.pan_max_angle = 210.0  # Max pan angle (left)
+        self.tilt_min_angle = 169.0  # Min tilt angle (up)
+        self.tilt_max_angle = 206.0  # Max tilt angle (down)
         
         # Default positions (center)
-        self.default_pan_angle = 90.0   # degrees (center)
+        self.default_pan_angle = 180.0  # degrees (center)
         self.default_tilt_angle = 180.0  # degrees (center)
         
         self.current_pan_position = 0
@@ -495,7 +495,7 @@ class HeadTrackingSystem(QObject):
         if self.use_pid_smoothing:
             # PID-based approach
             # Calculate the adjustments using PIDs, but only if needed
-            pan_adjustment = self.pan_pid.compute(0, -error_x) if need_pan_movement else 0
+            pan_adjustment = self.pan_pid.compute(0, error_x) if need_pan_movement else 0
             tilt_adjustment = self.tilt_pid.compute(0, -error_y) if need_tilt_movement else 0
             
             # Calculate new angles
