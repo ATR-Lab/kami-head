@@ -254,7 +254,7 @@ class FrameGrabber(QObject):
                 # Call go_to_pos only if we have a valid position
                 if eye_position:
                     # self.controller.go_to_pos(eye_position)
-                    self.node.get_logger().info(f'Moving eyes to position: ({eye_position[0]:.2f}, {eye_position[1]:.2f})')
+                    # self.node.get_logger().info(f'Moving eyes to position: ({eye_position[0]:.2f}, {eye_position[1]:.2f})')
                     point_msg = Point()
                     point_msg.x = eye_position[0]
                     point_msg.y = eye_position[1]
