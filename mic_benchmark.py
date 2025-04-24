@@ -7,8 +7,8 @@ import wave
 import tempfile
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                            QHBoxLayout, QComboBox, QPushButton, QLabel, 
-                           QStackedWidget, QProgressBar, QMessageBox)
-from PyQt5.QtCore import QTimer, Qt, pyqtSignal, QThread
+                           QStackedWidget, QProgressBar, QMessageBox, QFileDialog)
+from PyQt5.QtCore import Qt, pyqtSignal, QThread
 import pyaudio
 import torch
 import torchmetrics.audio as tm_audio
@@ -307,6 +307,11 @@ class ResultsScreen(QWidget):
         self.play_button.clicked.connect(self.play_audio)
         self.button_layout.addWidget(self.play_button)
         
+        # Save button
+        self.save_button = QPushButton("Save Audio")
+        self.save_button.clicked.connect(self.save_audio)
+        self.button_layout.addWidget(self.save_button)
+        
         # Back to start button
         self.back_button = QPushButton("Back to Microphone Selection")
         self.button_layout.addWidget(self.back_button)
@@ -344,6 +349,28 @@ class ResultsScreen(QWidget):
                 QMessageBox.warning(self, "Error", f"Failed to play audio: {str(e)}")
         else:
             QMessageBox.warning(self, "Error", "No audio file available for playback")
+            
+    def save_audio(self):
+        if not self.audio_file or not os.path.exists(self.audio_file):
+            QMessageBox.warning(self, "Error", "No audio file available to save")
+            return
+            
+        try:
+            # Open file dialog to get save location
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, 
+                "Save Audio File", 
+                os.path.expanduser("~/Desktop/recorded_audio.wav"),
+                "WAV Files (*.wav);;All Files (*)"
+            )
+            
+            if file_path:
+                # Copy the temporary audio file to the selected location
+                import shutil
+                shutil.copy2(self.audio_file, file_path)
+                QMessageBox.information(self, "Success", f"Audio saved to {file_path}")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to save audio: {str(e)}")
 
 
 class MicrophoneBenchmark(QMainWindow):
