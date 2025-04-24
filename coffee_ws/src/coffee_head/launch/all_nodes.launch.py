@@ -63,6 +63,6 @@ def generate_launch_description():
         dynamixel_node,
         camera_node,
         head_tracking_node,
-        eye_tracking_node,
-        face_recognition_node
+        # eye_tracking_node,
+        # face_recognition_node
     ]) 
