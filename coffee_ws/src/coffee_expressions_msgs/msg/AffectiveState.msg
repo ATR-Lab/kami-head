@@ -7,5 +7,8 @@ string trigger_source # "audio", "vision", "payment", "coffee"
 # Where the robot should direct its gaze (e.g. face position)
 geometry_msgs/Point gaze_target
 
+# Where the robot should direct its gaze (e.g. face position)
+string gaze_target_v2
+
 # Whether the robot is in idle state (e.g. no one is interacting)
 bool is_idle

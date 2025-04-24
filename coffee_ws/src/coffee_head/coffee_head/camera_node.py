@@ -107,6 +107,7 @@ class FrameGrabber(QObject):
         if self.node:
             self.face_pub = node.create_publisher(String, 'face_detection_data', 10)
             self.face_position_pub = node.create_publisher(Point, '/vision/face_position', 10)
+            self.face_position_pub_v2 = node.create_publisher(String, '/vision/face_position_v2', 10)
             self.frame_pub = node.create_publisher(Image, 'camera_frame', 10)
             self.face_image_pub = node.create_publisher(Image, 'face_images', 10)
             self.bridge = CvBridge()
@@ -203,6 +204,37 @@ class FrameGrabber(QObject):
         msg.data = json.dumps(face_data)
         self.face_pub.publish(msg)
 
+    def publish_face_position_v2(self, faces):
+        """Publish face detection data for other nodes"""
+        if not self.node or not faces:
+            return
+            
+        # Create JSON with face data - convert NumPy types to Python native types
+        face_data = {
+            "timestamp": float(time.time()),
+            "frame_width": int(self.frame_width),
+            "frame_height": int(self.frame_height),
+            "faces": [
+                {
+                    "x1": int(face["x1"]),
+                    "y1": int(face["y1"]),
+                    "x2": int(face["x2"]),
+                    "y2": int(face["y2"]),
+                    "center_x": int(face["center_x"]),
+                    "center_y": int(face["center_y"]),
+                    "confidence": float(face["confidence"]),
+                    "id": str(face.get("id", "Unknown"))
+                }
+                for face in faces
+            ]
+        }
+        
+        # Publish
+        msg = String()
+        msg.data = json.dumps(face_data)
+        self.face_position_pub_v2.publish(msg)
+
+        
     def publish_face_position(self, faces):
         """Process incoming face detection data"""
 
@@ -870,16 +902,16 @@ class FrameGrabber(QObject):
                         self.publish_frame(frame)
                         # Always publish face position, even when no faces are detected
                         # This is used so that we can re-center the eyes -- zero them in.
-                        self.publish_face_position(faces)
+                        # self.publish_face_position(faces)
                         # Only publish other face data if faces are detected
                         if faces:
+                            self.publish_face_position_v2(faces)
                             self.publish_face_data(faces)
                             self.publish_face_images(frame, faces)
                         
                         self.last_publish_time = current_time
         except Exception as e:
             self.error.emit(f"Error in publish thread: {str(e)}")
-
 
 class CameraViewer(QMainWindow):
     def __init__(self, node):

@@ -47,6 +47,7 @@ class StateManagerNode(Node):
         self._base_expression = self.get_parameter('default_expression').value
         self._last_voice_intent = "None"
         self._last_face_position = Point(x=0.0, y=0.0, z=1.0)
+        self._last_face_position_v2 = String()
         self._override_expression: Optional[str] = None
         self._override_reason: Optional[str] = None
         self._override_expire_time: Optional[float] = None
@@ -61,8 +62,11 @@ class StateManagerNode(Node):
             String, '/vision/emotion', self.vision_callback, qos)
         self.create_subscription(
             String, '/voice/intent', self.voice_callback, qos)
+        # self.create_subscription(
+        #     Point, '/vision/face_position', self.face_position_callback, qos)
         self.create_subscription(
-            Point, '/vision/face_position', self.face_position_callback, qos)
+            String, '/vision/face_position_v2', self.face_position_callback_v2, qos)
+
         self.create_subscription(
             String, '/system/event', self.event_callback, qos)
 
@@ -115,6 +119,11 @@ class StateManagerNode(Node):
         """Handle incoming face position updates."""
         self._last_face_position = msg
         self._last_active_time = time.time()
+    
+    def face_position_callback_v2(self, msg: String):
+        """Handle incoming face position updates."""
+        self._last_face_position_v2.data = msg.data
+        self._last_active_time = time.time()
 
     def event_callback(self, msg: String):
         """Handle incoming system events."""
@@ -159,6 +168,7 @@ class StateManagerNode(Node):
         msg.expression = expression
         msg.trigger_source = trigger_source
         msg.gaze_target = self._last_face_position
+        msg.gaze_target_v2 = self._last_face_position_v2.data
         msg.is_idle = is_idle
 
         self.state_pub.publish(msg)

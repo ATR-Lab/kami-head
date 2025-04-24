@@ -5,6 +5,7 @@ import pygame
 import time
 from geometry_msgs.msg import Point
 from coffee_expressions_msgs.msg import AffectiveState
+import json
 import os
 import sys
 
@@ -32,10 +33,21 @@ class PlaipinExpressiveEyes(Node):
         # self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
         pygame.display.set_caption("Coffee Buddy - Plaipin Eyes")
         
+        # Add parameters for mapping
+        self.declare_parameter('invert_x', False)  # Default FALSE for correct eye movement
+        self.declare_parameter('invert_y', False)  # Default FALSE for correct eye movement
+
+        # The constraint for the values of the eye movement in the UI
+        self.declare_parameter('eye_range', 1.0)   # Max range for eye movement (-3.0 to 3.0)
+
+        self.invert_x = self.get_parameter('invert_x').value
+        self.invert_y = self.get_parameter('invert_y').value
+        self.eye_range = self.get_parameter('eye_range').value
+
         # Create custom eye configuration
         config = EyeConfig(
-            width=120,  # Scaled down for 800x400 display
-            height=480,  # Scaled down for 800x400 display
+            width=200,  # Scaled down for 800x400 display
+            height=720,  # Scaled down for 800x400 display
             spacing=140,  # Scaled down for 800x400 display
             blink_interval=120,
             blink_speed=0.1,
@@ -95,13 +107,117 @@ class PlaipinExpressiveEyes(Node):
         if not msg.is_idle:
             # Convert ROS Point to normalized coordinates for plaipin
             # Assuming gaze_target is in the range [-1, 1] for x and y
-            self.eye_controller.set_eye_positions(
-                (msg.gaze_target.x, msg.gaze_target.y)
-            )
+            # TODO: COMMENTED THIS OUT
+            # self.eye_controller.set_eye_positions(
+            #     (msg.gaze_target.x, msg.gaze_target.y)
+            # )
+            self.handle_faces(msg.gaze_target_v2)
+            # self.eye_controller.set_eye_positions((gaze_target_x, gaze_target_y))
+
         else:
             # Return to center when idle
-            # self.eye_controller.set_eye_positions((0.0, 0.0))
-            self.eye_controller.set_eye_positions((msg.gaze_target.x, msg.gaze_target.y))
+            self.eye_controller.set_eye_positions((0.0, 0.0))
+            # self.eye_controller.set_eye_positions((msg.gaze_target.x, msg.gaze_target.y))
+    
+    # SEE `face_data_callback` in `coffee_eyes.py` for details
+    def handle_faces(self, msg):
+        """Process incoming face detection data"""
+        try:
+            # Parse the JSON data
+            data = json.loads(msg)
+            
+            # Update frame dimensions if provided
+            if 'frame_width' in data and 'frame_height' in data:
+                self.frame_width = data['frame_width']
+                self.frame_height = data['frame_height']
+            
+            # Update face positions
+            self.face_positions = data.get('faces', [])
+            self.last_face_update = time.time()
+            
+            # If no faces detected, just return
+            if not self.face_positions:
+                self.target_face_position = None
+                return
+                
+            # Select target face (largest/closest)
+            largest_area = 0
+            largest_face = None
+            
+            for face in self.face_positions:
+                width = face['x2'] - face['x1']
+                height = face['y2'] - face['y1']
+                area = width * height
+                
+                if area > largest_area:
+                    largest_area = area
+                    largest_face = face
+            
+            if largest_face:
+                self.target_face_position = (
+                    largest_face['center_x'], 
+                    largest_face['center_y']
+                )
+                
+                # Log face position before transformation
+                face_x = self.target_face_position[0]
+                face_y = self.target_face_position[1]
+                center_x = self.frame_width / 2
+                center_y = self.frame_height / 2
+                dx = face_x - center_x
+                dy = face_y - center_y
+                
+                self.get_logger().debug(f"Face detected at ({face_x:.1f}, {face_y:.1f}), offset from center: ({dx:.1f}, {dy:.1f})")
+                
+                # Transform camera coordinates to eye controller coordinates
+                eye_position = self.transform_camera_to_eye_coords(
+                    self.target_face_position[0],
+                    self.target_face_position[1]
+                )
+                
+                # Call go_to_pos only if we have a valid position
+                if eye_position:
+                    # self.controller.go_to_pos(eye_position)
+                    self.eye_controller.set_eye_positions((eye_position[0], eye_position[1]))
+                    self.get_logger().info(f'Moving eyes to position: ({eye_position[0]:.2f}, {eye_position[1]:.2f})')
+
+        except Exception as e:
+            self.get_logger().error(f"Error processing face data: {e}")
+            
+
+    def transform_camera_to_eye_coords(self, camera_x, camera_y):
+        """Transform camera coordinates to eye controller coordinates (-3.0 to 3.0 range)"""
+        # Normalize to -1.0 to 1.0
+        # Note: We invert the coordinates to ensure proper eye direction
+        # (When face is on right side, eyes should look right)
+        norm_x = (camera_x - self.frame_width/2) / (self.frame_width/2)
+        norm_y = (camera_y - self.frame_height/2) / (self.frame_height/2)
+        
+        # Add sensitivity multiplier (like in eye_tracking.py)
+        sensitivity = 1.5  # Higher = more sensitive eye movement
+        norm_x *= sensitivity
+        norm_y *= sensitivity
+        
+        # Apply inversions if configured
+        # Note: By default we want norm_x to be positive when face is on right side
+        # So default should have invert_x=False
+        if self.invert_x:
+            norm_x = -norm_x
+        if self.invert_y:
+            norm_y = -norm_y
+        
+        # Scale to eye controller range (-3.0 to 3.0)
+        eye_x = norm_x * self.eye_range
+        eye_y = norm_y * self.eye_range
+        
+        # Clamp values to valid range
+        eye_x = max(-self.eye_range, min(self.eye_range, eye_x))
+        eye_y = max(-self.eye_range, min(self.eye_range, eye_y))
+        
+        # Debug output for tuning
+        self.get_logger().debug(f'Camera coords: ({camera_x}, {camera_y}) -> Eye coords: ({eye_x}, {eye_y})')
+        
+        return (eye_x, eye_y)
     
     def run(self):
         """Main animation loop"""
