@@ -40,9 +40,16 @@ class PlaipinExpressiveEyes(Node):
         # The constraint for the values of the eye movement in the UI
         self.declare_parameter('eye_range', 1.0)   # Max range for eye movement (-3.0 to 3.0)
 
+        # Workspace parameters - defines the active region for eye movement
+        # Values are percentages of frame dimensions (0.0 to 1.0)
+        self.declare_parameter('workspace_width', 0.4)   # Width of workspace relative to frame width
+        self.declare_parameter('workspace_height', 0.4)  # Height of workspace relative to frame height
+
         self.invert_x = self.get_parameter('invert_x').value
         self.invert_y = self.get_parameter('invert_y').value
         self.eye_range = self.get_parameter('eye_range').value
+        self.workspace_width = self.get_parameter('workspace_width').value
+        self.workspace_height = self.get_parameter('workspace_height').value
 
         # Create custom eye configuration
         config = EyeConfig(
@@ -175,32 +182,43 @@ class PlaipinExpressiveEyes(Node):
                     self.target_face_position[1]
                 )
                 
-                # Call go_to_pos only if we have a valid position
-                if eye_position:
-                    # self.controller.go_to_pos(eye_position)
+                # Call set_eye_positions only if face is within workspace
+                if eye_position is not None:
                     self.eye_controller.set_eye_positions((eye_position[0], eye_position[1]))
                     self.get_logger().info(f'Moving eyes to position: ({eye_position[0]:.2f}, {eye_position[1]:.2f})')
+                else:
+                    # Face is outside workspace - keep eyes centered
+                    self.eye_controller.set_eye_positions((0.0, 0.0))
+                    self.get_logger().debug('Face outside workspace - keeping eyes centered')
 
         except Exception as e:
             self.get_logger().error(f"Error processing face data: {e}")
             
 
     def transform_camera_to_eye_coords(self, camera_x, camera_y):
-        """Transform camera coordinates to eye controller coordinates (-3.0 to 3.0 range)"""
-        # Normalize to -1.0 to 1.0
-        # Note: We invert the coordinates to ensure proper eye direction
-        # (When face is on right side, eyes should look right)
-        norm_x = (camera_x - self.frame_width/2) / (self.frame_width/2)
-        norm_y = (camera_y - self.frame_height/2) / (self.frame_height/2)
+        """Transform camera coordinates to eye controller coordinates (-3.0 to 3.0 range)
+        Only moves eyes when face is within the defined workspace area.
+        Returns None if face is outside workspace.
+        """
+        # Calculate workspace boundaries
+        workspace_half_width = (self.workspace_width * self.frame_width) / 2
+        workspace_half_height = (self.workspace_height * self.frame_height) / 2
+        frame_center_x = self.frame_width / 2
+        frame_center_y = self.frame_height / 2
         
-        # Add sensitivity multiplier (like in eye_tracking.py)
-        sensitivity = 1.5  # Higher = more sensitive eye movement
-        norm_x *= sensitivity
-        norm_y *= sensitivity
+        # Check if face is within workspace boundaries
+        if (abs(camera_x - frame_center_x) > workspace_half_width or
+            abs(camera_y - frame_center_y) > workspace_half_height):
+            # Face is outside workspace - return None to indicate no eye movement
+            return None
+            
+        # Normalize position within workspace to -1.0 to 1.0
+        # This maps the workspace edges to maximum eye movement
+        norm_x = (camera_x - frame_center_x) / workspace_half_width
+        norm_y = (camera_y - frame_center_y) / workspace_half_height
         
         # Apply inversions if configured
         # Note: By default we want norm_x to be positive when face is on right side
-        # So default should have invert_x=False
         if self.invert_x:
             norm_x = -norm_x
         if self.invert_y:
