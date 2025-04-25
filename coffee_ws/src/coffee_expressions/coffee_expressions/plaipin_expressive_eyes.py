@@ -42,8 +42,8 @@ class PlaipinExpressiveEyes(Node):
 
         # Workspace parameters - defines the active region for eye movement
         # Values are percentages of frame dimensions (0.0 to 1.0)
-        self.declare_parameter('workspace_width', 0.4)   # Width of workspace relative to frame width
-        self.declare_parameter('workspace_height', 0.4)  # Height of workspace relative to frame height
+        self.declare_parameter('workspace_width', 0.2)   # Width of workspace relative to frame width
+        self.declare_parameter('workspace_height', 0.2)  # Height of workspace relative to frame height
 
         self.invert_x = self.get_parameter('invert_x').value
         self.invert_y = self.get_parameter('invert_y').value
@@ -145,6 +145,8 @@ class PlaipinExpressiveEyes(Node):
             # If no faces detected, just return
             if not self.face_positions:
                 self.target_face_position = None
+                # Return to center with gentle movement
+                self.eye_controller.set_eye_positions((0.0, 0.0), state='RETURNING')
                 return
                 
             # Select target face (largest/closest)
@@ -184,12 +186,16 @@ class PlaipinExpressiveEyes(Node):
                 
                 # Call set_eye_positions only if face is within workspace
                 if eye_position is not None:
-                    self.eye_controller.set_eye_positions((eye_position[0], eye_position[1]))
+                    # Use TRACKING state for active face following
+                    self.eye_controller.set_eye_positions(
+                        (eye_position[0], eye_position[1]),
+                        state='TRACKING'
+                    )
                     self.get_logger().info(f'Moving eyes to position: ({eye_position[0]:.2f}, {eye_position[1]:.2f})')
                 else:
-                    # Face is outside workspace - keep eyes centered
-                    self.eye_controller.set_eye_positions((0.0, 0.0))
-                    self.get_logger().debug('Face outside workspace - keeping eyes centered')
+                    # Face is outside workspace - return to center gently
+                    self.eye_controller.set_eye_positions((0.0, 0.0), state='RETURNING')
+                    self.get_logger().debug('Face outside workspace - returning to center')
 
         except Exception as e:
             self.get_logger().error(f"Error processing face data: {e}")
