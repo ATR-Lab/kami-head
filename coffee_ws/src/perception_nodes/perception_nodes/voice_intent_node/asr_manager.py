@@ -79,27 +79,33 @@ class ASRManager:
         """
         Check if the Whisper model is downloaded, and download it if not.
         
+        Properly verifies model integrity by attempting to load it, not just
+        checking if the file exists.
+        
         Returns:
             bool: True if model is available, False otherwise
         """
-        # Whisper models are typically stored in ~/.cache/whisper
-        cache_dir = os.path.expanduser("~/.cache/whisper")
-        model_path = os.path.join(cache_dir, f"{self.model_size}.pt")
-        
-        if os.path.exists(model_path):
-            logger.info(f'Whisper model {self.model_size} found at {model_path}')
-            return True
-        
-        # Model not found, we need to trigger a download
-        logger.info(f'Whisper model {self.model_size} not found, downloading...')
         try:
-            # This import and function call will trigger the download
+            # Don't just check if file exists - actually try to load it
             import whisper
-            whisper.load_model(self.model_size)
-            logger.info(f'Successfully downloaded Whisper model {self.model_size}')
-            return True
-        except Exception as e:
-            logger.error(f'Failed to download Whisper model: {str(e)}')
+            logger.info(f'Attempting to load Whisper model {self.model_size}')
+            try:
+                whisper.load_model(self.model_size)
+                logger.info(f'Whisper model {self.model_size} loaded successfully')
+                return True
+            except Exception as e:
+                logger.error(f'Error loading Whisper model: {str(e)}')
+                logger.info(f'Attempting to download/re-download the model')
+                try:
+                    # Force re-download by using download parameter
+                    whisper.load_model(self.model_size, download=True)
+                    logger.info(f'Successfully downloaded Whisper model {self.model_size}')
+                    return True
+                except Exception as e:
+                    logger.error(f'Failed to download Whisper model: {str(e)}')
+                    return False
+        except ImportError:
+            logger.error('Whisper not available. Please install it with pip install openai-whisper')
             return False
     
     def init_asr(self):

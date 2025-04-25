@@ -16,14 +16,14 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='vr-workstation-2',
-    maintainer_email='Marcus.Arnett10@gmail.com',
-    description='TODO: Package description',
+    maintainer='opendive-technologies',
+    maintainer_email='Marcus@opendive.io',
+    description='Voice recognition and intent classification nodes for Coffee-Buddy',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'voice_intent_node = perception_nodes.voice_intent_node:main',
+            'voice_intent_node = perception_nodes.voice_intent_node.node:main',
         ],
     },
 )

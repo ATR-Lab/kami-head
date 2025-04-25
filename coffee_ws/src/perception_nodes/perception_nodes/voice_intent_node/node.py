@@ -20,10 +20,10 @@ from rcl_interfaces.msg import ParameterDescriptor, ParameterType
 from coffee_buddy_msgs.msg import IntentClassification
 
 # Import our modules
-from perception_nodes.audio_processor import AudioProcessor
-from perception_nodes.asr_manager import ASRManager
-from perception_nodes.intent_classifier import IntentClassifier
-from perception_nodes.memory_utils import MemoryManager
+from perception_nodes.voice_intent_node.audio_processor import AudioProcessor
+from perception_nodes.voice_intent_node.asr_manager import ASRManager
+from perception_nodes.voice_intent_node.intent_classifier import IntentClassifier
+from perception_nodes.voice_intent_node.memory_utils import MemoryManager
 
 
 class VoiceIntentNode(Node):
