@@ -16,6 +16,13 @@ from pathlib import Path
 from rclpy.parameter import Parameter
 from rcl_interfaces.msg import ParameterDescriptor, ParameterType
 
+# Import for Ollama
+import ollama
+import json
+
+# Import ROS2 message types
+from coffee_buddy_msgs.msg import IntentClassification
+
 # Import whisper streaming components
 from perception_nodes.whisper_streaming import (
     asr_factory,
@@ -116,6 +123,32 @@ class VoiceIntentNode(Node):
             )
         )
         
+        # LLM classification parameters
+        self.declare_parameter(
+            'llm_model', 
+            'gemma3:1b',
+            ParameterDescriptor(
+                type=ParameterType.PARAMETER_STRING,
+                description='Ollama LLM model for intent classification (e.g., gemma3:1b, tinyllama, etc.)'
+            )
+        )
+        self.declare_parameter(
+            'llm_timeout', 
+            3.0, 
+            ParameterDescriptor(
+                type=ParameterType.PARAMETER_DOUBLE,
+                description='Timeout in seconds for LLM classification'
+            )
+        )
+        self.declare_parameter(
+            'llm_retry', 
+            1, 
+            ParameterDescriptor(
+                type=ParameterType.PARAMETER_INTEGER,
+                description='Number of retries for LLM classification before falling back'
+            )
+        )
+        
         # Get parameters
         self.model_size = self.get_parameter('model_size').value
         self.language = self.get_parameter('language').value
@@ -127,13 +160,20 @@ class VoiceIntentNode(Node):
         self.gpu_memory_monitoring = self.get_parameter('gpu_memory_monitoring').value
         self.memory_cleanup_interval = self.get_parameter('memory_cleanup_interval').value
         
+        # Get LLM parameters
+        self.llm_model = self.get_parameter('llm_model').value
+        self.llm_timeout = self.get_parameter('llm_timeout').value
+        self.llm_retry = self.get_parameter('llm_retry').value
+        
         self.get_logger().info(f"Parameters loaded: model_size={self.model_size}, language={self.language}, " +
                               f"device_type={self.device_type}, compute_type={self.compute_type}, " +
                               f"timeout_segments={self.timeout_segments}, audio_device_id={self.audio_device_id}, " +
                               f"verbose_logging={self.verbose_logging}, gpu_memory_monitoring={self.gpu_memory_monitoring}")
+        self.get_logger().info(f"LLM parameters loaded: llm_model={self.llm_model}, " +
+                              f"llm_timeout={self.llm_timeout}, llm_retry={self.llm_retry}")
         
-        # Create publisher
-        self.publisher = self.create_publisher(String, '/voice/intent', 10)
+        # Create publisher - use the message type, not the service response type
+        self.publisher = self.create_publisher(IntentClassification, '/voice/intent', 10)
         
         # Check for CUDA availability if device_type is cuda
         self.using_gpu = self.device_type == 'cuda' and TORCH_AVAILABLE
@@ -162,6 +202,10 @@ class VoiceIntentNode(Node):
         
         # Audio processing queue
         self.audio_queue = queue.Queue(maxsize=100)  # Maximum 100 chunks in queue
+        
+        # LLM processing queue
+        self.llm_queue = queue.Queue(maxsize=10)  # Maximum 10 text prompts in queue
+        self.llm_ready = False  # Flag to indicate if LLM is ready
         
         self.get_logger().info(f"Wake phrase detection initialized with phrase: '{self.wake_phrase}'")
         self.get_logger().info(f"Timeout set to {self.timeout_segments} segments")
@@ -196,6 +240,10 @@ class VoiceIntentNode(Node):
         self.inference_thread = threading.Thread(target=self.process_audio)
         self.inference_thread.daemon = True
         self.inference_thread.start()
+        
+        self.llm_thread = threading.Thread(target=self.llm_processing_thread)
+        self.llm_thread.daemon = True
+        self.llm_thread.start()
         
         self.get_logger().info('Voice Intent Node started successfully')
     
@@ -293,6 +341,161 @@ class VoiceIntentNode(Node):
         except Exception as e:
             self.get_logger().error(f'Failed to download Whisper model: {str(e)}')
             return False
+    
+    def ensure_ollama_model_available(self):
+        """Check if the Ollama model is available, and pull it if not."""
+        self.get_logger().info(f'Checking if Ollama model {self.llm_model} is available...')
+        try:
+            # Check if model is available by listing models
+            models = ollama.list()
+            model_names = [model['model'] for model in models.get('models', [])]
+            
+            if self.llm_model in model_names:
+                self.get_logger().info(f'Ollama model {self.llm_model} is available')
+                return True
+            
+            # Model not found, we need to pull it
+            self.get_logger().info(f'Ollama model {self.llm_model} not found, pulling...')
+            ollama.pull(self.llm_model)
+            self.get_logger().info(f'Successfully pulled Ollama model {self.llm_model}')
+            return True
+        except Exception as e:
+            self.get_logger().error(f'Failed to ensure Ollama model availability: {str(e)}')
+            return False
+    
+    def init_llm(self):
+        """Initialize the LLM classifier."""
+        try:
+            # Check if the Ollama model is available
+            if not self.ensure_ollama_model_available():
+                self.get_logger().error("Failed to ensure Ollama model availability, LLM classification disabled")
+                return False
+            
+            self.get_logger().info(f"LLM classifier initialized with model {self.llm_model}")
+            self.llm_ready = True
+            return True
+        except Exception as e:
+            self.get_logger().error(f"Error initializing LLM: {str(e)}")
+            return False
+    
+    def classify_intent(self, prompt_text):
+        """
+        Classify user intent with the LLM.
+        Returns a tuple of (intent_code, success_flag)
+        """
+        if not self.llm_ready:
+            self.get_logger().warn("LLM not ready, using fallback classification")
+            return bytes([17]), False  # Fallback intent as bytes
+        
+        # System prompt for intent classification
+        system_prompt = (
+            "You are a language model designed strictly to classify the intent of the user's input. "
+            "Here is the list of intent labels with their corresponding numbers: "
+            "[\"Greeting\": 0, \"Goodbye\": 1, \"Thank\": 2, \"Apologize\": 3, \"Affirm\": 4, \"Deny\": 5, "
+            "\"Inform\": 6, \"Request\": 7, \"Question\": 8, \"Confirm\": 9, \"Disconfirm\": 10, "
+            "\"Clarify\": 11, \"Suggest\": 12, \"Complaint\": 13, \"Praise\": 14, \"Joke\": 15, "
+            "\"SmallTalk\": 16, \"Fallback\": 17, \"Agree\": 18, \"Disagree\": 19]. "
+            "Your task is to output ONLY the number that represents the intent. "
+            "Do NOT include any words, punctuation, or explanation. "
+            "Output format: A single number (e.g., 7). "
+            "If unsure, always default to '17' (Fallback) (e.g., 17). "
+            "Example:\n"
+            "User: I'm feeling good.\n"
+            "LLM: 16\n"
+            "Only respond with the number."
+        )
+        
+        # Number of retries
+        retries = 0
+        max_retries = self.llm_retry
+        
+        while retries <= max_retries:
+            try:
+                self.get_logger().info(f"Classifying intent with LLM, attempt {retries+1}/{max_retries+1}")
+                
+                # Call Ollama API with timeout
+                response = ollama.chat(
+                    model=self.llm_model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": "Yes, absolutely!"},
+                        {"role": "assistant", "content": "18"},
+                        {"role": "user", "content": "No, I don't think so."},
+                        {"role": "assistant", "content": "19"},
+                        {"role": "user", "content": "Buddy, what's the color of my shirt?"},
+                        {"role": "assistant", "content": "8"},
+                        {"role": "user", "content": "Buddy, my day has been stressful so far."},
+                        {"role": "assistant", "content": "13"},
+                        {"role": "user", "content": prompt_text}
+                    ],
+                    stream=False,
+                    options={"timeout": self.llm_timeout}
+                )
+                
+                # Extract response
+                response_text = response['message']['content'].strip()
+                self.get_logger().info(f"LLM response: {response_text}")
+                
+                # Parse the response to extract just the intent number
+                intent_match = re.search(r'\b(\d+)\b', response_text)
+                if intent_match:
+                    intent_number = int(intent_match.group(1))
+                    # Ensure intent is within valid range
+                    if 0 <= intent_number <= 17:
+                        self.get_logger().info(f"Intent classified as {intent_number}")
+                        return bytes([intent_number]), True  # Convert to bytes
+                    else:
+                        self.get_logger().warn(f"Invalid intent number {intent_number}, must be between 0-17")
+                else:
+                    self.get_logger().warn(f"Failed to extract intent number from response: {response_text}")
+                
+                # Increment retry counter
+                retries += 1
+                
+            except Exception as e:
+                self.get_logger().error(f"Error during intent classification: {str(e)}")
+                retries += 1
+        
+        # If we got here, all attempts failed
+        self.get_logger().warn("All classification attempts failed, using fallback classification")
+        return bytes([17]), False  # Fallback intent as bytes
+    
+    def llm_processing_thread(self):
+        """Thread for processing text with LLM for intent classification."""
+        try:
+            self.get_logger().info("Starting LLM processing thread")
+            
+            # Initialize LLM
+            self.init_llm()
+            
+            while self.running:
+                try:
+                    # Get text from queue with timeout
+                    try:
+                        prompt_text = self.llm_queue.get(timeout=0.5)
+                    except queue.Empty:
+                        continue  # No text to process, try again
+                    
+                    # Process the text with LLM
+                    intent_code, success = self.classify_intent(prompt_text)
+                    
+                    # Create and publish message
+                    msg = IntentClassification()
+                    msg.prompt_text = prompt_text
+                    msg.intent = intent_code  # Already converted to bytes in classify_intent
+                    
+                    self.publisher.publish(msg)
+                    self.get_logger().info(f"Published intent: prompt='{prompt_text}', intent={intent_code!r}")
+                    
+                    # Mark task as done
+                    self.llm_queue.task_done()
+                    
+                except Exception as e:
+                    self.get_logger().error(f'Error in LLM processing: {str(e)}')
+                    time.sleep(0.1)  # Small delay to avoid CPU spike on continuous errors
+            
+        except Exception as e:
+            self.get_logger().error(f'Error in LLM processing thread: {str(e)}')
     
     def init_asr(self):
         """Initialize the ASR processor."""
@@ -432,12 +635,28 @@ class VoiceIntentNode(Node):
                 self.publish_buffer("Timeout threshold reached")
     
     def publish_buffer(self, reason):
-        """Publish the accumulated text buffer and reset state."""
+        """Process the accumulated text buffer and add to LLM queue."""
         try:
-            msg = String()
-            msg.data = self.text_buffer.strip()
-            self.publisher.publish(msg)
-            self.get_logger().info(f"Published intent: '{msg.data}' ({reason})")
+            prompt_text = self.text_buffer.strip()
+            if not prompt_text:  # Skip empty prompts
+                self.get_logger().warn("Empty prompt text, skipping classification")
+                return
+                
+            self.get_logger().info(f"Adding prompt to LLM queue: '{prompt_text}' ({reason})")
+            
+            # Add to LLM queue for processing
+            try:
+                # Try to add to queue with timeout to avoid blocking indefinitely
+                self.llm_queue.put(prompt_text, timeout=0.5)
+                self.get_logger().info(f"Successfully added prompt to LLM queue")
+            except queue.Full:
+                self.get_logger().warn("LLM processing queue is full, skipping classification")
+                # Create and publish fallback message directly
+                msg = IntentClassification()
+                msg.prompt_text = prompt_text
+                msg.intent = bytes([17])  # Fallback intent as bytes
+                self.publisher.publish(msg)
+                self.get_logger().info(f"Published fallback intent: prompt='{prompt_text}', intent={bytes([17])} (Fallback)")
             
             # Reset state
             self.is_accumulating = False
@@ -447,6 +666,10 @@ class VoiceIntentNode(Node):
                 self.get_logger().debug("Buffer state reset, waiting for next wake phrase")
         except Exception as e:
             self.get_logger().error(f"Error publishing message: {str(e)}")
+            # Reset state even on error
+            self.is_accumulating = False
+            self.text_buffer = ""
+            self.segment_count = 0
     
     def capture_audio(self):
         """Thread for capturing audio from microphone and adding to processing queue."""
@@ -576,6 +799,10 @@ class VoiceIntentNode(Node):
         if hasattr(self, 'inference_thread') and self.inference_thread.is_alive():
             self.get_logger().info("Waiting for inference thread to terminate")
             self.inference_thread.join(timeout=1.0)
+        
+        if hasattr(self, 'llm_thread') and self.llm_thread.is_alive():
+            self.get_logger().info("Waiting for LLM processing thread to terminate")
+            self.llm_thread.join(timeout=1.0)
         
         # Perform final cleanup
         if self.using_gpu:
