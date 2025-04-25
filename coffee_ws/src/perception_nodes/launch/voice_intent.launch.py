@@ -7,8 +7,8 @@ def generate_launch_description():
     # Declare launch arguments
     model_size_arg = DeclareLaunchArgument(
         'model_size',
-        default_value='medium',
-        description='Whisper model size (tiny, base, small, medium, large)'
+        default_value='turbo',
+        description='Whisper model size (tiny, base, small, medium, large, turbo, large-v3-turbo)'
     )
     
     language_arg = DeclareLaunchArgument(
@@ -25,8 +25,8 @@ def generate_launch_description():
     
     compute_type_arg = DeclareLaunchArgument(
         'compute_type',
-        default_value='float32',
-        description='Compute type used for inference (float16, int8_float16, int8)'
+        default_value='int8',
+        description='Compute type used for inference (float16, int8_float16, int8, float32)'
     )
     
     # Create node
