@@ -42,14 +42,32 @@ class PlaipinExpressiveEyes(Node):
 
         # Workspace parameters - defines the active region for eye movement
         # Values are percentages of frame dimensions (0.0 to 1.0)
-        self.declare_parameter('workspace_width', 0.2)   # Width of workspace relative to frame width
-        self.declare_parameter('workspace_height', 0.2)  # Height of workspace relative to frame height
+        self.declare_parameter('base_workspace_width', 0.2)   # Base width of workspace relative to frame width
+        self.declare_parameter('base_workspace_height', 0.2)  # Base height of workspace relative to frame height
+        
+        # Workspace scaling parameters
+        self.declare_parameter('min_workspace_scale', 1.0)     # Minimum scaling factor (for far faces)
+        self.declare_parameter('max_workspace_scale', 3.0)     # Maximum scaling factor (for close faces)
+        self.declare_parameter('proximity_threshold', 0.1)     # Face area ratio where scaling starts
+        self.declare_parameter('max_proximity', 0.4)          # Face area ratio for maximum scaling
 
         self.invert_x = self.get_parameter('invert_x').value
         self.invert_y = self.get_parameter('invert_y').value
         self.eye_range = self.get_parameter('eye_range').value
-        self.workspace_width = self.get_parameter('workspace_width').value
-        self.workspace_height = self.get_parameter('workspace_height').value
+        
+        # Get base workspace dimensions
+        self.base_workspace_width = self.get_parameter('base_workspace_width').value
+        self.base_workspace_height = self.get_parameter('base_workspace_height').value
+        
+        # Get scaling parameters
+        self.min_workspace_scale = self.get_parameter('min_workspace_scale').value
+        self.max_workspace_scale = self.get_parameter('max_workspace_scale').value
+        self.proximity_threshold = self.get_parameter('proximity_threshold').value
+        self.max_proximity = self.get_parameter('max_proximity').value
+        
+        # Current workspace dimensions (will be updated based on face proximity)
+        self.workspace_width = self.base_workspace_width
+        self.workspace_height = self.base_workspace_height
 
         # Create custom eye configuration
         config = EyeConfig(
@@ -178,10 +196,16 @@ class PlaipinExpressiveEyes(Node):
                 
                 self.get_logger().debug(f"Face detected at ({face_x:.1f}, {face_y:.1f}), offset from center: ({dx:.1f}, {dy:.1f})")
                 
+                # Get face dimensions for workspace scaling
+                face_width = largest_face['x2'] - largest_face['x1']
+                face_height = largest_face['y2'] - largest_face['y1']
+                
                 # Transform camera coordinates to eye controller coordinates
                 eye_position = self.transform_camera_to_eye_coords(
                     self.target_face_position[0],
-                    self.target_face_position[1]
+                    self.target_face_position[1],
+                    face_width,
+                    face_height
                 )
                 
                 # Call set_eye_positions only if face is within workspace
@@ -201,11 +225,44 @@ class PlaipinExpressiveEyes(Node):
             self.get_logger().error(f"Error processing face data: {e}")
             
 
-    def transform_camera_to_eye_coords(self, camera_x, camera_y):
+    def calculate_workspace_scale(self, face_width, face_height):
+        """Calculate workspace scaling factor based on face proximity (size)"""
+        # Calculate face area ratio
+        face_area = face_width * face_height
+        frame_area = self.frame_width * self.frame_height
+        proximity_ratio = face_area / frame_area
+        
+        # No scaling if face is too far
+        if proximity_ratio < self.proximity_threshold:
+            return self.min_workspace_scale
+            
+        # Calculate scaling factor
+        proximity_range = self.max_proximity - self.proximity_threshold
+        scale_range = self.max_workspace_scale - self.min_workspace_scale
+        
+        # Linear interpolation of scale based on proximity
+        scale_factor = self.min_workspace_scale + (scale_range * 
+            min(1.0, (proximity_ratio - self.proximity_threshold) / proximity_range))
+            
+        return scale_factor
+    
+    def transform_camera_to_eye_coords(self, camera_x, camera_y, face_width=None, face_height=None):
         """Transform camera coordinates to eye controller coordinates (-3.0 to 3.0 range)
         Only moves eyes when face is within the defined workspace area.
         Returns None if face is outside workspace.
+        
+        Args:
+            camera_x: x coordinate in camera frame
+            camera_y: y coordinate in camera frame
+            face_width: width of detected face (for workspace scaling)
+            face_height: height of detected face (for workspace scaling)
         """
+        # Update workspace size based on face proximity if width/height provided
+        if face_width is not None and face_height is not None:
+            scale = self.calculate_workspace_scale(face_width, face_height)
+            self.workspace_width = self.base_workspace_width * scale
+            self.workspace_height = self.base_workspace_height * scale
+            
         # Calculate workspace boundaries
         workspace_half_width = (self.workspace_width * self.frame_width) / 2
         workspace_half_height = (self.workspace_height * self.frame_height) / 2
