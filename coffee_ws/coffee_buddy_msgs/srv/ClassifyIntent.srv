@@ -1,0 +1,4 @@
+# Empty request
+---
+string prompt_text   # The prompt text itself that the user inputted
+byte intent          # Enum value for sentiment classification from LLM 

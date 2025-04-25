@@ -7,7 +7,7 @@ import wave
 import tempfile
 import threading
 import traceback
-from typing import Union, Optional, Callable
+from typing import Union
 import tqdm
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                            QHBoxLayout, QComboBox, QPushButton, QLabel, 
@@ -18,6 +18,7 @@ import pyaudio
 import torch
 import torchmetrics.audio as tm_audio
 import whisper
+import gc  # For garbage collection
 
 # Enable more detailed logging
 import logging
@@ -602,11 +603,13 @@ class ResultsScreen(QWidget):
         self.sample_rate_label = QLabel("Sample Rate: N/A")
         self.duration_label = QLabel("Duration: N/A")
         self.bit_depth_label = QLabel("Bit Depth: N/A")
+        self.vram_usage_label = QLabel("VRAM Usage: N/A")
         
         self.metrics_layout.addWidget(self.snr_label)
         self.metrics_layout.addWidget(self.sample_rate_label)
         self.metrics_layout.addWidget(self.duration_label)
         self.metrics_layout.addWidget(self.bit_depth_label)
+        self.metrics_layout.addWidget(self.vram_usage_label)
         
         self.layout.addLayout(self.metrics_layout)
         
@@ -641,7 +644,7 @@ class ResultsScreen(QWidget):
         
         # Set layout
         self.setLayout(self.layout)
-        
+    
     def set_audio_file(self, file_path):
         self.audio_file = file_path
         self.calculate_metrics()
@@ -696,6 +699,15 @@ class ResultsScreen(QWidget):
                 QMessageBox.information(self, "Success", f"Audio saved to {file_path}")
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to save audio: {str(e)}")
+    
+    def set_vram_usage(self, max_vram_bytes):
+        """Set the VRAM usage information on the label"""
+        if max_vram_bytes is None or max_vram_bytes == 0:
+            self.vram_usage_label.setText("VRAM Usage: N/A (CPU mode)")
+        else:
+            # Convert bytes to MB for display
+            max_vram_mb = max_vram_bytes / (1024 * 1024)
+            self.vram_usage_label.setText(f"VRAM Usage: {max_vram_mb:.2f} MB")
 
 
 class MicrophoneBenchmark(QMainWindow):
@@ -814,6 +826,13 @@ class MicrophoneBenchmark(QMainWindow):
             self.transcriber.transcription_progress.connect(self.on_transcription_progress)
             self.transcriber.finished.connect(self.on_transcription_completed)
             self.transcriber.error.connect(self.on_transcription_error)
+            
+            # Connect VRAM usage signal if available
+            if hasattr(self.transcriber, 'vram_usage_updated') and torch.cuda.is_available():
+                self.transcriber.vram_usage_updated.connect(
+                    lambda vram: logger.debug(f"Current VRAM usage: {vram/(1024*1024):.2f} MB")
+                )
+            
             self.transcriber.start()
         except Exception as e:
             error_traceback = traceback.format_exc()
@@ -830,8 +849,14 @@ class MicrophoneBenchmark(QMainWindow):
         # Set the transcription result
         self.results_screen.set_transcription(text)
         
+        # Set VRAM usage in results screen
+        if hasattr(self.transcriber, 'max_vram_bytes') and torch.cuda.is_available():
+            self.results_screen.set_vram_usage(self.transcriber.max_vram_bytes)
+        else:
+            self.results_screen.set_vram_usage(None)
+        
         # Switch to the results screen
-        self.stacked_widget.setCurrentIndex(3)  # Results screen is index 3
+        self.stacked_widget.setCurrentIndex(3)
     
     def on_transcription_error(self, error_message):
         logger.error(f"Transcription error: {error_message}")
@@ -839,7 +864,7 @@ class MicrophoneBenchmark(QMainWindow):
         
         # Still show results screen but without transcription
         self.results_screen.set_transcription("Transcription failed. See console for details.")
-        self.stacked_widget.setCurrentIndex(3)  # Results screen is index 3
+        self.stacked_widget.setCurrentIndex(3)
 
 
 class WhisperModelPreparer(QThread):
@@ -954,20 +979,43 @@ class AudioTranscriber(QThread):
     transcription_progress = pyqtSignal(int)
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
+    vram_usage_updated = pyqtSignal(int)  # New signal for VRAM usage
     
     def __init__(self, audio_file, model):
         super().__init__()
         self.audio_file = audio_file
         self.model = model
         self.cuda_available = torch.cuda.is_available()
+        self.max_vram_bytes = 0  # Track maximum VRAM usage
         logger.info(f"Initializing AudioTranscriber with loaded model, CUDA available: {self.cuda_available}")
         logger.info(f"Audio file: {audio_file}, exists: {os.path.exists(audio_file)}")
-        
+    
+    def get_gpu_memory_usage(self):
+        """Get current GPU memory usage in bytes"""
+        if not self.cuda_available:
+            return 0
+        return torch.cuda.memory_allocated()
+    
+    def track_gpu_memory(self):
+        """Track GPU memory and update max usage"""
+        current_usage = self.get_gpu_memory_usage()
+        if current_usage > self.max_vram_bytes:
+            self.max_vram_bytes = current_usage
+            self.vram_usage_updated.emit(current_usage)
+    
     def run(self):
         try:
+            # Reset max VRAM tracking
+            self.max_vram_bytes = 0
+            
             # Transcribe the audio
             logger.info(f"Transcribing audio from {self.audio_file}")
             transcription = self._transcribe_audio()
+            
+            # Log final VRAM usage
+            if self.cuda_available:
+                logger.info(f"Maximum VRAM usage during transcription: {self.max_vram_bytes / (1024 * 1024):.2f} MB")
+                print(f"Maximum VRAM usage during transcription: {self.max_vram_bytes} bytes")
             
             # Emit the transcription result
             logger.info(f"Transcription completed: {transcription[:50]}...")
@@ -980,20 +1028,26 @@ class AudioTranscriber(QThread):
     def _transcribe_audio(self):
         """Transcribe the audio file with progress tracking"""
         class TranscriptionProgressListener(ProgressListener):
-            def __init__(self, signal_fn):
+            def __init__(self, signal_fn, memory_tracker):
                 self.signal_fn = signal_fn
+                self.memory_tracker = memory_tracker
                 
             def on_progress(self, current, total):
                 progress = int((current / total) * 100) if total > 0 else 0
                 self.signal_fn.emit(progress)
+                self.memory_tracker()  # Track memory at each progress update
                 QApplication.processEvents()  # Force UI update
                 
             def on_finished(self):
                 self.signal_fn.emit(100)
+                self.memory_tracker()  # Final memory check
         
         try:
-            with ProgressListenerHandle(TranscriptionProgressListener(self.transcription_progress)):
+            with ProgressListenerHandle(TranscriptionProgressListener(self.transcription_progress, self.track_gpu_memory)):
                 logger.info(f"Starting transcription of {self.audio_file}")
+                
+                # Track initial memory
+                self.track_gpu_memory()
                 
                 # Verify the audio file exists
                 if not os.path.exists(self.audio_file):
@@ -1001,22 +1055,17 @@ class AudioTranscriber(QThread):
                     logger.error(error_msg)
                     raise FileNotFoundError(error_msg)
                 
-                # Print audio file info
-                try:
-                    with wave.open(self.audio_file, 'rb') as wf:
-                        logger.info(f"Audio file info: channels={wf.getnchannels()}, width={wf.getsampwidth()}, " 
-                                   f"rate={wf.getframerate()}, frames={wf.getnframes()}")
-                except Exception as e:
-                    logger.warning(f"Could not read wave file info: {str(e)}")
-                
                 # Try using the high-level API first
                 try:
                     logger.info("Attempting transcription with high-level API")
-                    # Remove fp16 from transcribe call
                     result = self.model.transcribe(
                         self.audio_file, 
                         verbose=None
                     )
+                    
+                    # Track memory after transcription
+                    self.track_gpu_memory()
+                    
                     logger.info("High-level API transcription successful")
                     return result["text"]
                 except Exception as e:
@@ -1026,24 +1075,21 @@ class AudioTranscriber(QThread):
                 # Load audio file
                 logger.info("Loading audio with low-level API")
                 audio = whisper.load_audio(self.audio_file)
-                logger.info(f"Audio loaded, shape: {audio.shape}")
+                self.track_gpu_memory()  # Track after audio load
                 
-                # Make log-Mel spectrogram
                 logger.info("Creating mel spectrogram")
                 mel = whisper.log_mel_spectrogram(audio).to(self.model.device)
-                logger.info(f"Mel spectrogram created, shape: {mel.shape}")
+                self.track_gpu_memory()  # Track after spectrogram creation
                 
-                # Detect language
                 logger.info("Detecting language")
                 _, probs = self.model.detect_language(mel)
-                detected_language = max(probs, key=probs.get)
-                logger.info(f"Detected language: {detected_language}")
+                self.track_gpu_memory()  # Track after language detection
                 
-                # Decode the audio
                 logger.info("Decoding audio")
-                # Remove fp16 from DecodingOptions
                 options = whisper.DecodingOptions()
                 result = whisper.decode(self.model, mel, options)
+                self.track_gpu_memory()  # Track after decoding
+                
                 logger.info("Decoding completed")
                 
                 # Return the transcribed text
