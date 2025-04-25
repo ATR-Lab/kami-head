@@ -13,7 +13,7 @@ def generate_launch_description():
         emulate_tty=True,
         parameters=[
             {
-                'device_name': '/dev/ttyUSB1'
+                'device_name': '/dev/ttyUSB0'
             }
         ]
     )
