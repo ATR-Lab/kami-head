@@ -1,3 +1,15 @@
 [submodule "coffee_ws/src/coffee_expressions/coffee_expressions/plaipin"]
 	path = coffee_ws/src/coffee_expressions/coffee_expressions/plaipin
 	url = https://github.com/OpenDive/plaipin.git
+[submodule "coffee_ws/src/DynamixelSDK"]
+	path = coffee_ws/src/DynamixelSDK
+	url = https://github.com/ROBOTIS-GIT/DynamixelSDK.git
+	branch = jazzy
+[submodule "coffee_ws/src/dynamixel_hardware_interface"]
+	path = coffee_ws/src/dynamixel_hardware_interface
+	url = https://github.com/ROBOTIS-GIT/dynamixel_hardware_interface.git
+	branch = jazzy
+[submodule "coffee_ws/src/dynamixel_interfaces"]
+	path = coffee_ws/src/dynamixel_interfaces
+	url = https://github.com/ROBOTIS-GIT/dynamixel_interfaces.git
+	branch = jazzy
