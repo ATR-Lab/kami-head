@@ -17,7 +17,9 @@ setup(
     maintainer_email='irvsteve@gmail.com',
     description='Qt-based UI for monitoring and controlling the coffee expressions state manager',
     license='Apache-2.0',
-    tests_require=['pytest'],
+    extras_require={
+        'test': ['pytest'],
+    },
     entry_points={
         'console_scripts': [
             'state_ui = coffee_expressions_state_ui.state_ui_node:main',

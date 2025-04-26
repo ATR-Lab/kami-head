@@ -1,4 +1,6 @@
 from setuptools import setup
+import os
+from glob import glob
 
 package_name = 'coffee_expressions_test_ui'
 
@@ -17,7 +19,9 @@ setup(
     maintainer_email='irvsteve@gmail.com',
     description='Qt-based UI for testing coffee expressions',
     license='Apache-2.0',
-    tests_require=['pytest'],
+    extras_require={
+        'test': ['pytest'],
+    },
     entry_points={
         'console_scripts': [
             'expressions_test_ui = coffee_expressions_test_ui.expressions_test_ui:main',

@@ -17,7 +17,9 @@ setup(
     maintainer_email='Marcus.Arnett10@gmail.com',
     description='TODO: Package description',
     license='TODO: License declaration',
-    tests_require=['pytest'],
+    extras_require={
+        'test': ['pytest'],
+    },
     entry_points={
         'console_scripts': [
             'tts_node = effector_nodes.tts_node.node:main',

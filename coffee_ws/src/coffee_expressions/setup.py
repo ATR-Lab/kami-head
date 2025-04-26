@@ -22,7 +22,9 @@ setup(
     maintainer_email='irvsteve@gmail.com',
     description='TODO: Package description',
     license='TODO: License declaration',
-    tests_require=['pytest'],
+    extras_require={
+        'test': ['pytest'],
+    },
     entry_points={
         'console_scripts': [
             'expressive_eyes = coffee_expressions.expressive_eyes:main',

@@ -20,7 +20,9 @@ setup(
     maintainer_email='Marcus.Arnett10@gmail.com',
     description='Motion recorder and playback for Dynamixel servo-controlled robot head',
     license='Apache-2.0',
-    tests_require=['pytest'],
+    extras_require={
+        'test': ['pytest'],
+    },
     entry_points={
         'console_scripts': [
             'recorder_node = motion_recorder.recorder_node:main',

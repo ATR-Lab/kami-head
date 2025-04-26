@@ -17,7 +17,9 @@ setup(
     maintainer_email='irvsteve@gmail.com',
     description='Server for playing expression-based head motions',
     license='TODO: License declaration',
-    tests_require=['pytest'],
+    extras_require={
+        'test': ['pytest'],
+    },
     entry_points={
         'console_scripts': [
             'motion_server = head_motion_server.motion_server_node:main',

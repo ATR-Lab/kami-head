@@ -19,7 +19,9 @@ setup(
     maintainer_email='user@example.com',
     description='UI for controlling Dynamixel motors',
     license='Apache License 2.0',
-    tests_require=['pytest'],
+    extras_require={
+        'test': ['pytest'],
+    },
     entry_points={
         'console_scripts': [
             'dynamixel_ui = python_dynamixel_ui.dynamixel_ui_node:main',
