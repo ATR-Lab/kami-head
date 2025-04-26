@@ -10,6 +10,7 @@ import json
 import math  # Added for vector calculations
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
+from coffee_expressions_msgs.msg import AffectiveState
 from std_msgs.msg import String, Float32
 from geometry_msgs.msg import Vector3
 from dynamixel_sdk_custom_interfaces.msg import SetPosition
@@ -194,12 +195,18 @@ class HeadTrackingSystem(QObject):
         )
         
         # Subscribe to face detection data from camera_node.py
-        self.face_subscription = self.node.create_subscription(
-            String,
-            'face_detection_data',
+        # self.face_subscription = self.node.create_subscription(
+        #     String,
+        #     'face_detection_data',
+        #     self.face_data_callback,
+        #     10
+        # )
+
+        self.subscription = self.node.create_subscription(
+            AffectiveState,
+            '/robot/affective_state',
             self.face_data_callback,
-            10
-        )
+            10)
         
         # Initialize motor positions
         self.last_update_time = time.time()
@@ -242,11 +249,13 @@ class HeadTrackingSystem(QObject):
         except Exception as e:
             self.node.get_logger().warn(f"Could not update baud rate parameter: {e}")
     
-    def face_data_callback(self, msg):
+    def face_data_callback(self, msg: AffectiveState):
         """Process face data received from camera_node.py"""
         try:
             # Parse the JSON data
-            data = json.loads(msg.data)
+            # data = json.loads(msg.data)
+            # self.node.get_logger().info(f"Face data received: {msg}")
+            data = json.loads(msg.gaze_target_v2)
             
             # Update frame dimensions
             self.frame_width = data['frame_width']
@@ -318,9 +327,11 @@ class HeadTrackingSystem(QObject):
         """Start scanning motion when no face is detected"""
         if not self.scanning and self.tracking_enabled:
             self.scanning = True
-            self.scan_timer = QTimer()
-            self.scan_timer.timeout.connect(self.update_scan)
-            self.scan_timer.start(100)  # Update scan position every 100ms
+            # Create ROS timer instead of QTimer
+            self.scan_timer = self.node.create_timer(
+                0.1,  # 100ms in seconds
+                self.update_scan
+            )
             self.node.get_logger().info("Starting scan for faces")
     
     def stop_scanning(self):
@@ -328,7 +339,8 @@ class HeadTrackingSystem(QObject):
         if self.scanning:
             self.scanning = False
             if self.scan_timer:
-                self.scan_timer.stop()
+                self.scan_timer.cancel()
+                self.scan_timer.destroy()
                 self.scan_timer = None
             self.node.get_logger().info("Stopping scan")
     
