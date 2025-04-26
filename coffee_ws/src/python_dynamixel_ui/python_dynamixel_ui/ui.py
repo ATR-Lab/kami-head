@@ -17,7 +17,7 @@ from dynamixel_sdk_custom_interfaces.srv import GetPosition
 
 # Default settings from the read_write_node example
 DXL_PAN_ID = 1   # Pan motor ID
-DXL_TILT_ID = 2  # Tilt motor ID
+DXL_TILT_ID = 9  # Tilt motor ID
 
 # Constants for position conversion
 # Dynamixel position range is typically 0-4095 for a full 360 degrees
@@ -29,7 +29,7 @@ DEGREES_PER_POSITION = 360.0 / POSITION_RANGE
 POSITIONS_PER_DEGREE = POSITION_RANGE / 360.0
 
 # Default angles for motors
-DEFAULT_PAN_ANGLE = 90   # Pan motor default position (90 degrees)
+DEFAULT_PAN_ANGLE = 180   # Pan motor default position (90 degrees)
 DEFAULT_TILT_ANGLE = 180  # Tilt motor default position (180 degrees)
 
 class MotorControlWidget(QWidget):
