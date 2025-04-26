@@ -30,14 +30,7 @@ class PlaipinExpressiveEyes(Node):
         pygame.init()
         self.screen_width = 1080
         self.screen_height = 600
-        
-        # Window mode parameters
-        self.declare_parameter('borderless_mode', False)  # Default to normal window mode
-        self.borderless_mode = self.get_parameter('borderless_mode').value
-        self.window_pos = None  # Store window position for mode switching
-        
-        # Initialize window with current mode
-        self._setup_window()
+        # self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
         pygame.display.set_caption("Coffee Buddy - Plaipin Eyes")
         
         # Add parameters for mapping
@@ -307,40 +300,6 @@ class PlaipinExpressiveEyes(Node):
         
         return (eye_x, eye_y)
     
-    def _setup_window(self):
-        """Set up the window with current mode settings"""
-        if self.borderless_mode:
-            flags = pygame.NOFRAME
-        else:
-            flags = pygame.SHOWN | pygame.RESIZABLE  # Normal mode with maximize button
-        
-        # Set window position before creating window if we have one
-        if self.window_pos is not None:
-            os.environ['SDL_VIDEO_WINDOW_POS'] = f"{self.window_pos[0]},{self.window_pos[1]}"
-        
-        # Create the window
-        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), flags)
-    
-    def _toggle_window_mode(self):
-        """Toggle between normal and borderless window modes"""
-        # Try to get window info from SDL environment variable
-        window_pos = os.environ.get('SDL_VIDEO_WINDOW_POS', '')
-        if window_pos:
-            try:
-                x, y = map(int, window_pos.split(','))
-                self.window_pos = (x, y)
-            except (ValueError, AttributeError):
-                self.window_pos = None
-        
-        # Toggle mode
-        self.borderless_mode = not self.borderless_mode
-        
-        # Update parameter
-        self.set_parameters([rclpy.Parameter('borderless_mode', rclpy.Parameter.Type.BOOL, self.borderless_mode)])
-        
-        # Recreate window with new mode
-        self._setup_window()
-    
     def run(self):
         """Main animation loop"""
         clock = pygame.time.Clock()
@@ -355,9 +314,6 @@ class PlaipinExpressiveEyes(Node):
                     if event.key == pygame.K_ESCAPE:
                         self.running = False
                         break
-                    elif event.key == pygame.K_F11 or \
-                         (event.key == pygame.K_RETURN and event.mod & pygame.KMOD_ALT):
-                        self._toggle_window_mode()
                 
                 # Let the application handle other events
                 self.app.input_handler.handle_keyboard(event)
