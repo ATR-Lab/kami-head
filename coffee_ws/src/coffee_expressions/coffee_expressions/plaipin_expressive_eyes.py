@@ -98,16 +98,11 @@ class PlaipinExpressiveEyes(Node):
         self.workspace_height = self.base_workspace_height
 
     def create_eye_config(self):
-        """Create eye configuration based on current screen dimensions"""
-        # Calculate relative sizes based on screen dimensions
-        eye_width = int(self.screen_width * 0.185)  # 18.5% of screen width
-        eye_height = int(self.screen_height * 0.6)  # 60% of screen height
-        eye_spacing = int(self.screen_width * 0.13) # 13% of screen width
-        
+        """Create eye configuration using plaipin's original dimensions"""
         return EyeConfig(
-            width=eye_width,
-            height=eye_height,
-            spacing=eye_spacing,
+            width=200,  # Original plaipin dimension
+            height=720,  # Original plaipin dimension
+            spacing=140,  # Original plaipin dimension
             blink_interval=120,
             blink_speed=0.1,
             blink_close_frames=5,
