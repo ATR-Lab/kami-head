@@ -11,6 +11,7 @@ EFFECTOR = f"{SYSTEM}/effector"
 
 # Topics
 VOICE_INTENT_TOPIC = f"{SENSOR}/voice/intent"
+VOICE_INTENT_RESPONSE_TOPIC = f"{VOICE_INTENT_TOPIC}/response"
 VOICE_INTENT_CLASSIFIER_TOPIC = f"{VOICE_INTENT_TOPIC}/classifier"
 EMOTION_TOPIC = f"{EFFECTOR}/emotion"
 EMOTION_CLASSIFIER_TOPIC = f"{EMOTION_TOPIC}/classifier"
@@ -19,30 +20,32 @@ CAMERA_TOPIC = f"{SENSOR}/camera"
 MICROPHONE_TOPIC = f"{SENSOR}/microphone"
 LANGUAGE_MODEL_PROCESSOR_TOPIC = f"{BEHAVIOR}/language_model_processor"
 STATE_MANAGER_TOPIC = f"{BEHAVIOR}/state_manager"
+LANGUAGE_MODEL_PROCESSOR_STATUS_TOPIC = f"{LANGUAGE_MODEL_PROCESSOR_TOPIC}/status"
+
+# Services
+GENERATE_BEHAVIOR_RESPONSE_SERVICE = f"{LANGUAGE_MODEL_PROCESSOR_TOPIC}/generate_behavior_response"
 
 # Intent mapping used for determining the intent of the user's voice command
-INTENT_MAPPING = {
-    0: "Greeting",
-    1: "Goodbye",
-    2: "Thank",
-    3: "Apologize",
-    4: "Affirm",
-    5: "Deny",
-    6: "Inform",
-    7: "Request",
-    8: "Question",
-    9: "Confirm",
-    10: "Disconfirm",
-    11: "Clarify",
-    12: "Suggest",
-    13: "Complaint",
-    14: "Praise",
-    15: "Joke",
-    16: "SmallTalk",
-    17: "Fallback",
-    18: "Agree",
-    19: "Disagree"
+INTENT_MAPPING_BYTE_TO_STRING = {
+    1: "Agree",
+    2: "Disagree",
+    3: "Joke",
+    4: "Question",
+    5: "None"
 }
+
+# Intent mapping used for determining the intent of the user's voice command
+INTENT_MAPPING_STRING_TO_BYTE = {
+    "Agree": 1,
+    "Disagree": 2,
+    "Joke": 3,
+    "Question": 4,
+    "None": 5
+}
+
+DEFAULT_INTENT = len(INTENT_MAPPING_BYTE_TO_STRING)
+
+NULL_VALUE = "NULL"
 
 # QoS settings
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy

@@ -15,17 +15,26 @@ import threading
 import logging
 from rclpy.parameter import Parameter
 from rcl_interfaces.msg import ParameterDescriptor, ParameterType
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 import time
+import json
 
 # Import ROS2 message types
 from coffee_buddy_msgs.msg import IntentClassification
 
 # Import our modules
-from perception_nodes.voice_intent_node.audio_processor import AudioProcessor
-from perception_nodes.voice_intent_node.asr_manager import ASRManager
-from perception_nodes.voice_intent_node.intent_classifier import IntentClassifier
-from perception_nodes.voice_intent_node.memory_utils import MemoryManager
+from perception_nodes.sensor_nodes.voice_intent_node.audio_processor import AudioProcessor
+from perception_nodes.sensor_nodes.voice_intent_node.asr_manager import ASRManager
+from perception_nodes.sensor_nodes.voice_intent_node.intent_classifier import IntentClassifier
+from perception_nodes.sensor_nodes.voice_intent_node.memory_utils import MemoryManager
 
+from shared_configs import (
+    GENERATE_BEHAVIOR_RESPONSE_SERVICE,
+    VOICE_INTENT_RESPONSE_TOPIC
+)
+
+from coffee_buddy_msgs.srv import GenerateBehaviorResponse
+from std_msgs.msg import String
 
 class VoiceIntentNode(Node):
     """
@@ -42,6 +51,8 @@ class VoiceIntentNode(Node):
         super().__init__('voice_intent_node')
         
         self.get_logger().info("Initializing VoiceIntentNode")
+
+        self.service_group = MutuallyExclusiveCallbackGroup()
         
         # Declare parameters
         self._declare_parameters()
@@ -49,8 +60,12 @@ class VoiceIntentNode(Node):
         # Get parameters
         self._get_parameters()
         
-        # Create publisher
-        self.publisher = self.create_publisher(IntentClassification, 'system/perception/sensor/voice/intent', 10)
+        # Create client for the language model processor node
+        self.language_model_processor_client = self.create_client(
+            GenerateBehaviorResponse, GENERATE_BEHAVIOR_RESPONSE_SERVICE, callback_group=self.service_group)
+        
+        self.llm_behavior_response_publisher = self.create_publisher(
+            String, "/voice/intent", 10)
         
         # Check for CUDA availability if device_type is cuda
         self._setup_gpu()
@@ -357,17 +372,37 @@ class VoiceIntentNode(Node):
                 msg = IntentClassification()
                 msg.prompt_text = prompt_text
                 msg.intent = intent_code
-                
-                self.publisher.publish(msg)
+
                 intent_name = self.intent_classifier.get_intent_name(intent_code)
-                self.get_logger().info(f"Published intent: prompt='{prompt_text}', intent={intent_code!r} ({intent_name})")
+                self.get_logger().info(f"Voice Intent Output: prompt='{prompt_text}', intent={intent_code!r} ({intent_name})")
                 
+                # Start the LLM service call
+                self._start_llm_call(prompt_text, intent_code)
+
                 # Mark task as done
                 self.llm_queue.task_done()
                 
             except Exception as e:
                 self.get_logger().error(f'Error in LLM thread: {str(e)}')
-    
+
+    def _start_llm_call(self, prompt_text, intent):
+        """Function for starting the LLM service call"""
+        try:
+            request = GenerateBehaviorResponse.Request()
+            request.prompt = prompt_text
+            request.intent = intent
+            future = self.language_model_processor_client.call_async(request)
+            rclpy.spin_until_future_complete(self.node, future, timeout_sec=7.0)
+            
+            # response -> (response: str /* LLM text response */, emotion: /* emotion for the robot to express */ str)
+            response = future.result()
+
+            llm_behavior_response_publisher.publish(intent)
+
+            # self.llm_behavior_response_publisher.publish(json.dumps(response))
+        except Exception as e:
+            self.get_logger().error(f"Error in start LLM service call: {e}")
+
     def _add_to_llm_queue(self, prompt_text, reason):
         """
         Add a text prompt to the LLM queue for intent classification.

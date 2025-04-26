@@ -15,7 +15,7 @@ import numpy as np
 
 # Import whisper streaming components
 try:
-    from perception_nodes.whisper_streaming import (
+    from perception_nodes.utils.whisper_streaming import (
         asr_factory,
         load_audio_chunk,
         OnlineASRProcessor,
