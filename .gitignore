@@ -12,6 +12,9 @@ __pycache__/
 *.so
 .Python
 env/
+venv/
+venv*/
+coffee_buddy_venv
 build/
 develop-eggs/
 dist/
