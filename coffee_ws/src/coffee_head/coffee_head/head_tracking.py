@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                             QDoubleSpinBox, QScrollArea)
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer
-
+from coffee_buddy_msgs.msg import SetupDynamixel
 # PID controller class for smooth motor control
 class PIDController:
     def __init__(self, kp=0.5, ki=0.0, kd=0.1, output_limits=(-100, 100)):
@@ -84,6 +84,8 @@ class HeadTrackingSystem(QObject):
     def __init__(self, node):
         super().__init__()
         self.node = node
+
+        qos = QoSProfile(depth=10)
         
         # Parameters for head tracking
         self.tracking_enabled = False
@@ -119,6 +121,17 @@ class HeadTrackingSystem(QObject):
         # Pan/tilt motor IDs and parameters
         self.pan_motor_id = 1
         self.tilt_motor_id = 9 # TODO: FIX NAMING AND NUMBERING
+
+        # Declare dynamixel publisher early to ensure motors are setup before use
+        self.setup_dynamixel_publisher = self.node.create_publisher(
+            SetupDynamixel,
+            'setup_dynamixel',
+            qos
+        )
+
+        # Setup dynamixel motors early to ensure motors are setup before use
+        self.setup_dynamixel(self.pan_motor_id)
+        self.setup_dynamixel(self.tilt_motor_id)
         
         # Motor angle limits (in degrees)
         self.pan_min_angle = 143.0  # Min pan angle (right)
@@ -168,7 +181,6 @@ class HeadTrackingSystem(QObject):
         self.max_tilt_speed = 15.0 # deg/s - slightly slower for tilt
         
         # Create ROS publisher for motor control
-        qos = QoSProfile(depth=10)
         self.position_publisher = self.node.create_publisher(
             SetPosition,
             'set_position',
@@ -225,6 +237,12 @@ class HeadTrackingSystem(QObject):
         
         self.node.get_logger().info("Head tracking system initialized and ready for face data")
     
+    def setup_dynamixel(self, id: int):
+        """Setup the dynamixel motor with the given id"""
+        msg = SetupDynamixel()
+        msg.id = id
+        self.setup_dynamixel_publisher.publish(msg)
+
     def set_update_rate(self, rate_hz):
         """Set the motor update rate in Hz"""
         self.update_rate_hz = max(1.0, min(100.0, rate_hz))  # Limit between 1Hz and 100Hz

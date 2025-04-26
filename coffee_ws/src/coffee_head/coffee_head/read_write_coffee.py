@@ -9,8 +9,6 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from coffee_buddy_msgs.msg import SetupDynamixel
-import logging
-from rclpy.parameter import Parameter
 from rcl_interfaces.msg import ParameterDescriptor, ParameterType
 
 TORQUE_ENABLE = 1  # Value for enabling the torque

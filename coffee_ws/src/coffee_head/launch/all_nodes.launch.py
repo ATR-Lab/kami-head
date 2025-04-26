@@ -18,22 +18,22 @@ def generate_launch_description():
         ]
     )
     
-    # Camera node
-    camera_node = Node(
-        package='coffee_head',
-        executable='camera_node',
-        name='camera_node',
-        output='screen'
-    )
+    # # Camera node
+    # camera_node = Node(
+    #     package='coffee_head',
+    #     executable='camera_node',
+    #     name='camera_node',
+    #     output='screen'
+    # )
     
-    # Head tracking node
-    head_tracking_node = Node(
-        package='coffee_head',
-        executable='head_tracking',
-        name='head_tracking_node',
-        output='screen',
-        emulate_tty=True
-    )
+    # # Head tracking node
+    # head_tracking_node = Node(
+    #     package='coffee_head',
+    #     executable='head_tracking',
+    #     name='head_tracking_node',
+    #     output='screen',
+    #     emulate_tty=True
+    # )
     
     # # Eye tracking node
     # eye_tracking_node = Node(
@@ -61,8 +61,8 @@ def generate_launch_description():
     # Return launch description
     return LaunchDescription([
         dynamixel_node,
-        camera_node,
-        head_tracking_node,
+        # camera_node,
+        # head_tracking_node,
         # eye_tracking_node,
         # face_recognition_node
     ]) 
