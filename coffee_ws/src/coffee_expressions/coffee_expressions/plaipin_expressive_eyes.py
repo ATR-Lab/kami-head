@@ -28,38 +28,17 @@ class PlaipinExpressiveEyes(Node):
         
         # Initialize Pygame and Plaipin components
         pygame.init()
-        # Get the display info for screen dimensions
-        display_info = pygame.display.Info()
         self.screen_width = 1080
         self.screen_height = 600
-        self.original_width = self.screen_width
-        self.original_height = self.screen_height
-        self.max_width = display_info.current_w
-        self.max_height = display_info.current_h
-        self.is_fullscreen = False
-        self.running = True
+        
+        # Window mode parameters
+        self.declare_parameter('borderless_mode', False)  # Default to normal window mode
+        self.borderless_mode = self.get_parameter('borderless_mode').value
+        self.window_pos = None  # Store window position for mode switching
+        
+        # Initialize window with current mode
+        self._setup_window()
         pygame.display.set_caption("Coffee Buddy - Plaipin Eyes")
-        
-        # Get package share directory path
-        from ament_index_python.packages import get_package_share_directory
-        package_share_dir = get_package_share_directory('coffee_expressions')
-        
-        # Get absolute path to expressions.json in the package share directory
-        expressions_path = os.path.join(package_share_dir, 'plaipin', 'display_pi', 'src', 'expressions.json')
-
-        # Create the initial window
-        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.RESIZABLE)
-        
-        # Create initial eye configuration
-        self.config = self.create_eye_config()
-        
-        # Initialize Plaipin application and controller with expressions file path
-        self.app = Application(self.screen_width, self.screen_height, self.config, expressions_file=expressions_path)
-        self.eye_controller = VizEyeController(self.app)
-        
-        # Initialize state
-        self.current_expression = "base_blob"  # Default neutral expression
-        self.eye_controller.set_expression(self.current_expression)
         
         # Add parameters for mapping
         self.declare_parameter('invert_x', False)  # Default FALSE for correct eye movement
@@ -97,12 +76,11 @@ class PlaipinExpressiveEyes(Node):
         self.workspace_width = self.base_workspace_width
         self.workspace_height = self.base_workspace_height
 
-    def create_eye_config(self):
-        """Create eye configuration using plaipin's original dimensions"""
-        return EyeConfig(
-            width=200,  # Original plaipin dimension
-            height=720,  # Original plaipin dimension
-            spacing=140,  # Original plaipin dimension
+        # Create custom eye configuration
+        config = EyeConfig(
+            width=200,  # Scaled down for 800x400 display
+            height=720,  # Scaled down for 800x400 display
+            spacing=140,  # Scaled down for 800x400 display
             blink_interval=120,
             blink_speed=0.1,
             blink_close_frames=5,
@@ -110,37 +88,25 @@ class PlaipinExpressiveEyes(Node):
             fill_color=(255, 255, 255),
             outline_width=2,
             background_color=(0, 0, 0),
-            base_screen_width=self.screen_width,
-            base_screen_height=self.screen_height
+            base_screen_width=self.screen_width,    # Match our display
+            base_screen_height=self.screen_height   # Match our display
         )
         
-    def toggle_fullscreen(self):
-        """Toggle between fullscreen and windowed mode"""
-        self.is_fullscreen = not self.is_fullscreen
-        if self.is_fullscreen:
-            self.screen_width = self.max_width
-            self.screen_height = self.max_height
-            flags = pygame.FULLSCREEN
-        else:
-            self.screen_width = self.original_width
-            self.screen_height = self.original_height
-            flags = pygame.RESIZABLE
-            
-        self.update_screen_configuration(flags)
+        # Get package share directory path
+        from ament_index_python.packages import get_package_share_directory
+        package_share_dir = get_package_share_directory('coffee_expressions')
         
-    def update_screen_configuration(self, flags=pygame.RESIZABLE):
-        """Update screen and eye configuration with new dimensions"""
-        # Recreate the screen with new dimensions
-        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), flags)
+        # Get absolute path to expressions.json in the package share directory
+        expressions_path = os.path.join(package_share_dir, 'plaipin', 'display_pi', 'src', 'expressions.json')
+
+        # Initialize Plaipin application and controller with expressions file path
+        self.app = Application(self.screen_width, self.screen_height, config, expressions_file=expressions_path)
+        self.eye_controller = VizEyeController(self.app)
         
-        # Update eye configuration
-        self.config = self.create_eye_config()
-        
-        # Update application configuration
-        self.app.config = self.config
-        self.app.screen = self.screen
-        self.app.animated_eyes.update_control_points()
-        self.app.animated_eyes.update_eye_positions()
+        # Initialize state
+        self.current_expression = "base_blob"  # Default neutral expression
+        self.eye_controller.set_expression(self.current_expression)
+        self.running = True
         
         # Create subscription
         self.subscription = self.create_subscription(
@@ -341,6 +307,40 @@ class PlaipinExpressiveEyes(Node):
         
         return (eye_x, eye_y)
     
+    def _setup_window(self):
+        """Set up the window with current mode settings"""
+        if self.borderless_mode:
+            flags = pygame.NOFRAME
+        else:
+            flags = pygame.SHOWN | pygame.RESIZABLE  # Normal mode with maximize button
+        
+        # Set window position before creating window if we have one
+        if self.window_pos is not None:
+            os.environ['SDL_VIDEO_WINDOW_POS'] = f"{self.window_pos[0]},{self.window_pos[1]}"
+        
+        # Create the window
+        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), flags)
+    
+    def _toggle_window_mode(self):
+        """Toggle between normal and borderless window modes"""
+        # Try to get window info from SDL environment variable
+        window_pos = os.environ.get('SDL_VIDEO_WINDOW_POS', '')
+        if window_pos:
+            try:
+                x, y = map(int, window_pos.split(','))
+                self.window_pos = (x, y)
+            except (ValueError, AttributeError):
+                self.window_pos = None
+        
+        # Toggle mode
+        self.borderless_mode = not self.borderless_mode
+        
+        # Update parameter
+        self.set_parameters([rclpy.Parameter('borderless_mode', rclpy.Parameter.Type.BOOL, self.borderless_mode)])
+        
+        # Recreate window with new mode
+        self._setup_window()
+    
     def run(self):
         """Main animation loop"""
         clock = pygame.time.Clock()
@@ -355,12 +355,9 @@ class PlaipinExpressiveEyes(Node):
                     if event.key == pygame.K_ESCAPE:
                         self.running = False
                         break
-                    elif event.key == pygame.K_F11 or (event.key == pygame.K_RETURN and event.mod & pygame.KMOD_ALT):
-                        self.toggle_fullscreen()
-                elif event.type == pygame.VIDEORESIZE and not self.is_fullscreen:
-                    self.screen_width = event.w
-                    self.screen_height = event.h
-                    self.update_screen_configuration()
+                    elif event.key == pygame.K_F11 or \
+                         (event.key == pygame.K_RETURN and event.mod & pygame.KMOD_ALT):
+                        self._toggle_window_mode()
                 
                 # Let the application handle other events
                 self.app.input_handler.handle_keyboard(event)
