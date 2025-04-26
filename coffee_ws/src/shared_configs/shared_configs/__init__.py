@@ -21,9 +21,12 @@ MICROPHONE_TOPIC = f"{SENSOR}/microphone"
 LANGUAGE_MODEL_PROCESSOR_TOPIC = f"{BEHAVIOR}/language_model_processor"
 STATE_MANAGER_TOPIC = f"{BEHAVIOR}/state_manager"
 LANGUAGE_MODEL_PROCESSOR_STATUS_TOPIC = f"{LANGUAGE_MODEL_PROCESSOR_TOPIC}/status"
+TTS_TOPIC = f"{EFFECTOR}/tts"
+TTS_STATUS_TOPIC = f"{TTS_TOPIC}/status"
 
 # Services
 GENERATE_BEHAVIOR_RESPONSE_SERVICE = f"{LANGUAGE_MODEL_PROCESSOR_TOPIC}/generate_behavior_response"
+TTS_SERVICE = f"{TTS_TOPIC}/tts_query"
 
 # Intent mapping used for determining the intent of the user's voice command
 INTENT_MAPPING_BYTE_TO_STRING = {

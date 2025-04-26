@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'tts_node = effector_nodes.tts_node.node:main',
         ],
     },
 )

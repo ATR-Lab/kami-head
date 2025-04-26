@@ -1,5 +1,5 @@
 string prompt_text   # The prompt text itself that the user inputted
-byte intent          # Enum value for sentiment classification from LLM 
+string intent        # Enum value for sentiment classification from LLM 
 ---
 string response      # The text response from the LLM
 string emotion       # The emotion the robot should have (use for state management and animation)
