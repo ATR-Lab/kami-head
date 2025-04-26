@@ -1,23 +1,52 @@
-# Image Processing
-opencv-contrib-python==4.11.0.86
+# Core Python packages
 numpy==1.26.4
-dlib==19.24.6
-imutils==0.5.4
-mediapipe==0.10.21
+PyAudio==0.2.14
+pydantic==2.10.6
+pydantic_core==2.27.2
+setuptools==79.0.1
+typing_extensions==4.13.2
 
-# UI Libraries
+# Audio processing
+elevenlabs==1.57.0
+pyaudio==0.2.14
+sounddevice==0.4.6
+soundfile==0.13.1
+wave==0.0.2
+pulsectl==23.5.2
+
+# Speech recognition
+faster-whisper==1.1.1
+openai-whisper==20240930
+whisper==1.1.10
+ctranslate2==4.6.0
+ffmpeg-python==0.2.0
+librosa==0.11.0
+scipy==1.15.2
+
+# AI and machine learning
+ollama==0.4.8
+atoma-sdk==0.1.1
+torch==2.7.0
+torchaudio==2.7.0
+tokenizers==0.21.1
+
+# Tokenization/NLP
+mosestokenizer==1.0.0
+regex==2024.11.6
+
+# UI and visualization 
+PyQt5==5.15.11
 pygame==2.6.1
-PyQt5==5.15.10
-pyqtgraph==0.12.0
+pyqtgraph==0.13.7
 
-# Utility Libraries
-PyYAML==6.0.1
-psutil==5.9.8
-matplotlib==3.6.3
+# Utility libraries
+tqdm==4.67.1
+urllib3==2.4.0
+requests==2.32.3
+certifi==2025.1.31
+coloredlogs==15.0.1
+jsonpath-python==1.0.6
+humanfriendly==10.0
 
-# Serial Communication
+# Serial communication (for Dynamixel)
 pyserial==3.5
-
-# For testing
-pytest==7.4.4
-pytest-cov==4.1.0 
