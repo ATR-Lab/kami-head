@@ -108,8 +108,8 @@ class HeadTrackingSystem(QObject):
         self.baudrate_options = [9600, 19200, 57600, 115200, 1000000, 2000000, 3000000, 4000000, 4500000]
         
         # Separate pan and tilt thresholds
-        self.pan_threshold = 40  # Horizontal pixel threshold - match with eye tracking
-        self.tilt_threshold = 25  # Vertical pixel threshold
+        self.pan_threshold = 80  # Horizontal pixel threshold - match with eye tracking
+        self.tilt_threshold = 80  # Vertical pixel threshold
         self.movement_threshold = 40  # Legacy vector threshold (kept for compatibility)
         
         # Individual deadzone region used for display purposes
@@ -135,10 +135,11 @@ class HeadTrackingSystem(QObject):
         
         # Scanning parameters when no face is detected
         self.scanning = False
-        self.scan_direction = 1  # 1 for right-to-left, -1 for left-to-right
-        self.scan_speed = 3.0    # Reduced scan speed for smoother movement
         self.scan_timer = None
+        self.scan_start_time = 0.0
+        self.scan_frequency = 0.10  # Complete scan cycles per second
         self.current_scan_angle = self.default_pan_angle
+        self.scan_phase_offset = 0.0  # Offset to maintain position continuity
         
         # Smoothing for movement
         self.target_pan_angle = self.default_pan_angle
@@ -326,10 +327,21 @@ class HeadTrackingSystem(QObject):
     def start_scanning(self):
         """Start scanning motion when no face is detected"""
         if not self.scanning and self.tracking_enabled:
+            # Calculate initial phase offset based on current position
+            center_angle = (self.pan_max_angle + self.pan_min_angle) / 2
+            scan_amplitude = (self.pan_max_angle - self.pan_min_angle) / 2
+            current_angle = (self.current_pan_position * self.degrees_per_position) % 360
+            
+            # Calculate phase offset to start from current position
+            if scan_amplitude != 0:
+                normalized_pos = (current_angle - center_angle) / scan_amplitude
+                self.scan_phase_offset = math.asin(max(min(normalized_pos, 1), -1))
+            
             self.scanning = True
-            # Create ROS timer instead of QTimer
+            self.scan_start_time = time.time()
+            # Create ROS timer with higher frequency for smoother motion
             self.scan_timer = self.node.create_timer(
-                0.1,  # 100ms in seconds
+                0.02,  # 20ms for 50Hz updates
                 self.update_scan
             )
             self.node.get_logger().info("Starting scan for faces")
@@ -351,7 +363,7 @@ class HeadTrackingSystem(QObject):
         self.node.get_logger().info(f"Tilt set to default: {self.default_tilt_angle}")
     
     def update_scan(self):
-        """Update head position during scanning"""
+        """Update head position during scanning using sine interpolation"""
         if not self.scanning or not self.tracking_enabled:
             return
         
@@ -359,29 +371,27 @@ class HeadTrackingSystem(QObject):
         if self.target_face is not None:
             return
         
-        # Update scanning angle
-        self.current_scan_angle += self.scan_direction * self.scan_speed
+        # Calculate the center and amplitude of the scanning motion
+        center_angle = (self.pan_max_angle + self.pan_min_angle) / 2
+        scan_amplitude = (self.pan_max_angle - self.pan_min_angle) / 2
         
-        # Check bounds and reverse direction if needed
-        if self.current_scan_angle >= self.pan_max_angle:
-            self.current_scan_angle = self.pan_max_angle
-            self.scan_direction = -1
-        elif self.current_scan_angle <= self.pan_min_angle:
-            self.current_scan_angle = self.pan_min_angle
-            self.scan_direction = 1
+        # Calculate elapsed time for smooth oscillation
+        elapsed_time = time.time() - self.scan_start_time
         
-        # Apply smoothing to the pan angle change
-        self.target_pan_angle = self.current_scan_angle
-        smoothed_angle = self.apply_smoothing(self.target_pan_angle)
+        # Use sine wave for smooth oscillation with phase offset
+        # 2 * pi * frequency * time gives us the angle in radians
+        phase = 2 * math.pi * self.scan_frequency * elapsed_time + self.scan_phase_offset
+        self.current_scan_angle = center_angle + scan_amplitude * math.sin(phase)
         
         # Convert to motor position
-        scan_position = int(smoothed_angle * self.positions_per_degree)
+        scan_position = int(self.current_scan_angle * self.positions_per_degree)
         
         # Send the command
         self.send_motor_command(self.pan_motor_id, scan_position)
         
-        # Log current scan position
-        self.node.get_logger().debug(f"Scanning at angle: {smoothed_angle:.1f}")
+        # Log current scan position (less frequently to reduce spam)
+        if int(elapsed_time * 10) % 10 == 0:  # Log approximately once per second
+            self.node.get_logger().debug(f"Scanning at angle: {self.current_scan_angle:.1f}")
     
     def apply_smoothing(self, target_angle):
         """Apply smoothing to angle changes"""
@@ -1276,15 +1286,15 @@ class HeadTrackingUI(QMainWindow):
         tuning_layout.addLayout(smoothing_layout)
         
         # Scanning controls
-        tuning_layout.addWidget(QLabel("Scan Speed:"))
+        tuning_layout.addWidget(QLabel("Scan Frequency (Hz):"))
         scan_layout = QHBoxLayout()
-        self.scan_speed_slider = QSlider(Qt.Horizontal)
-        self.scan_speed_slider.setRange(1, 10)
-        self.scan_speed_slider.setValue(int(self.head_tracker.scan_speed))
-        self.scan_speed_slider.valueChanged.connect(self.update_scan_speed)
-        self.scan_speed_value_label = QLabel(f"{self.head_tracker.scan_speed:.1f}")
-        scan_layout.addWidget(self.scan_speed_slider)
-        scan_layout.addWidget(self.scan_speed_value_label)
+        self.scan_freq_slider = QSlider(Qt.Horizontal)
+        self.scan_freq_slider.setRange(1, 50)  # 0.02 Hz to 1 Hz
+        self.scan_freq_slider.setValue(int(self.head_tracker.scan_frequency * 100))
+        self.scan_freq_slider.valueChanged.connect(self.update_scan_frequency)
+        self.scan_freq_value_label = QLabel(f"{self.head_tracker.scan_frequency:.2f}")
+        scan_layout.addWidget(self.scan_freq_slider)
+        scan_layout.addWidget(self.scan_freq_value_label)
         tuning_layout.addLayout(scan_layout)
         
         tuning_group.setLayout(tuning_layout)
@@ -1387,12 +1397,27 @@ class HeadTrackingUI(QMainWindow):
         self.smoothing_value_label.setText(f"{value:.2f}")
         self.node.get_logger().info(f"Smoothing updated: {value:.2f}")
     
-    def update_scan_speed(self):
-        """Update scanning speed"""
-        value = self.scan_speed_slider.value()
-        self.head_tracker.scan_speed = value
-        self.scan_speed_value_label.setText(f"{value:.1f}")
-        self.node.get_logger().info(f"Scan speed updated: {value:.1f}")
+    def update_scan_frequency(self):
+        """Update scanning frequency while maintaining position continuity"""
+        if self.head_tracker.scanning:
+            # Store current position before frequency change
+            center_angle = (self.head_tracker.pan_max_angle + self.head_tracker.pan_min_angle) / 2
+            scan_amplitude = (self.head_tracker.pan_max_angle - self.head_tracker.pan_min_angle) / 2
+            current_angle = self.head_tracker.current_scan_angle
+            
+            # Calculate new phase offset to maintain current position
+            if scan_amplitude != 0:
+                normalized_pos = (current_angle - center_angle) / scan_amplitude
+                self.head_tracker.scan_phase_offset = math.asin(max(min(normalized_pos, 1), -1))
+            
+            # Reset time but keep the phase offset
+            self.head_tracker.scan_start_time = time.time()
+        
+        # Update frequency
+        value = self.scan_freq_slider.value() / 100.0  # Convert slider value to Hz
+        self.head_tracker.scan_frequency = value
+        self.scan_freq_value_label.setText(f"{value:.2f}")
+        self.node.get_logger().info(f"Scan frequency updated: {value:.2f}")
     
     def update_min_pan_speed(self):
         """Update minimum pan speed"""
