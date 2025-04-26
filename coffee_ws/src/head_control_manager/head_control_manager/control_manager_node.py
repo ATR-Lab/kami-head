@@ -4,6 +4,7 @@ import rclpy
 from rclpy.node import Node
 from dynamixel_sdk_custom_interfaces.msg import SetPosition
 from std_msgs.msg import String
+from head_control_interfaces.srv import RequestControl
 
 class HeadControlManager(Node):
     """
@@ -20,11 +21,18 @@ class HeadControlManager(Node):
         self.current_controller = self.default_controller
         self.motion_in_progress = False
         
-        # Create subscribers
-        self.create_subscription(
+        # Create subscribers for each controller
+        self.tracking_sub = self.create_subscription(
             SetPosition,
-            'set_position',
-            self.handle_position_command,
+            'head_tracking/set_position',
+            lambda msg: self.handle_position_command(msg, "head_tracking"),
+            10
+        )
+        
+        self.motion_sub = self.create_subscription(
+            SetPosition,
+            'head_motion/set_position',
+            lambda msg: self.handle_position_command(msg, "head_motion_server"),
             10
         )
         
@@ -41,19 +49,20 @@ class HeadControlManager(Node):
             10
         )
         
+        # Create service
+        self.control_service = self.create_service(
+            RequestControl,
+            'request_head_control',
+            self.handle_control_request
+        )
+        
         # Publish initial status
         self.publish_status()
         
         self.get_logger().info('Head Control Manager initialized')
     
-    def handle_position_command(self, msg: SetPosition):
+    def handle_position_command(self, msg: SetPosition, controller_id: str):
         """Handle incoming position commands and filter based on current controller."""
-        # Extract controller ID from topic name or message
-        # For now, we'll assume it's in the topic name
-        # TODO: Add controller ID to message or use different topics
-        
-        controller_id = "head_tracking"  # Default assumption
-        
         # Determine if command should be forwarded
         should_forward = False
         
@@ -67,12 +76,40 @@ class HeadControlManager(Node):
         # Forward command if allowed
         if should_forward:
             self.position_pub.publish(msg)
+            self.get_logger().debug(f'Forwarded command from {controller_id}')
+    
+    def handle_control_request(self, request: RequestControl.Request, 
+                             response: RequestControl.Response):
+        """Handle requests for control of the head."""
+        response.current_owner = self.current_controller
+        
+        if request.controller_id == "head_motion_server":
+            # Motion server can always take control
+            self.set_motion_state(True)
+            response.success = True
+            response.message = "Control granted to motion server"
+        elif request.controller_id == "head_tracking":
+            # Tracking can only take control if no motion is in progress
+            if not self.motion_in_progress:
+                self.current_controller = "head_tracking"
+                response.success = True
+                response.message = "Control granted to tracking"
+            else:
+                response.success = False
+                response.message = "Motion in progress, cannot take control"
+        else:
+            response.success = False
+            response.message = f"Unknown controller: {request.controller_id}"
+        
+        self.publish_status()
+        return response
     
     def set_motion_state(self, in_progress: bool):
         """Update the motion state and controller."""
         self.motion_in_progress = in_progress
         self.current_controller = "head_motion_server" if in_progress else self.default_controller
         self.publish_status()
+        self.get_logger().info(f'Motion state set to: {in_progress}')
     
     def publish_status(self):
         """Publish current control status."""
