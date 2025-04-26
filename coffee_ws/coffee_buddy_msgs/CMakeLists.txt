@@ -14,6 +14,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ClassifyIntent.srv"
   "srv/GenerateBehaviorResponse.srv"
   "msg/IntentClassification.msg"
+  "srv/TTSQuery.srv"
   DEPENDENCIES std_msgs
 )
 

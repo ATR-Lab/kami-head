@@ -30,10 +30,12 @@ from perception_nodes.sensor_nodes.voice_intent_node.memory_utils import MemoryM
 
 from shared_configs import (
     GENERATE_BEHAVIOR_RESPONSE_SERVICE,
-    VOICE_INTENT_RESPONSE_TOPIC
+    VOICE_INTENT_RESPONSE_TOPIC,
+    TTS_SERVICE,
+    INTENT_MAPPING_BYTE_TO_STRING
 )
 
-from coffee_buddy_msgs.srv import GenerateBehaviorResponse
+from coffee_buddy_msgs.srv import GenerateBehaviorResponse, TTSQuery
 from std_msgs.msg import String
 
 class VoiceIntentNode(Node):
@@ -63,6 +65,9 @@ class VoiceIntentNode(Node):
         # Create client for the language model processor node
         self.language_model_processor_client = self.create_client(
             GenerateBehaviorResponse, GENERATE_BEHAVIOR_RESPONSE_SERVICE, callback_group=self.service_group)
+        
+        self.tts_client = self.create_client(
+            TTSQuery, TTS_SERVICE, callback_group=self.service_group)
         
         self.llm_behavior_response_publisher = self.create_publisher(
             String, "/voice/intent", 10)
@@ -377,7 +382,7 @@ class VoiceIntentNode(Node):
                 self.get_logger().info(f"Voice Intent Output: prompt='{prompt_text}', intent={intent_code!r} ({intent_name})")
                 
                 # Start the LLM service call
-                self._start_llm_call(prompt_text, intent_code)
+                self._start_llm_call(prompt_text, intent_name)
 
                 # Mark task as done
                 self.llm_queue.task_done()
@@ -389,17 +394,22 @@ class VoiceIntentNode(Node):
         """Function for starting the LLM service call"""
         try:
             request = GenerateBehaviorResponse.Request()
-            request.prompt = prompt_text
+            request.prompt_text = prompt_text
             request.intent = intent
             future = self.language_model_processor_client.call_async(request)
-            rclpy.spin_until_future_complete(self.node, future, timeout_sec=7.0)
+            rclpy.spin_until_future_complete(self, future, timeout_sec=7.0)
             
             # response -> (response: str /* LLM text response */, emotion: /* emotion for the robot to express */ str)
             response = future.result()
 
-            llm_behavior_response_publisher.publish(intent)
+            # Publish the LLM response to the behavior response topic
+            self.llm_behavior_response_publisher.publish(String(data=intent))
 
-            # self.llm_behavior_response_publisher.publish(json.dumps(response))
+            # TTS service call
+            tts_request = TTSQuery.Request()
+            tts_request.text = response.response
+            future = self.tts_client.call_async(tts_request)
+            rclpy.spin_until_future_complete(self, future, timeout_sec=7.0)
         except Exception as e:
             self.get_logger().error(f"Error in start LLM service call: {e}")
 

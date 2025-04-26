@@ -123,7 +123,7 @@ class IntentClassifier:
         """
         if not self.is_ready:
             logger.warning("LLM not ready, using fallback classification")
-            return bytes([17]), False  # Fallback intent as bytes
+            return bytes([5]), False  # Fallback intent as bytes
         
         # Number of retries
         retries = 0
@@ -160,11 +160,11 @@ class IntentClassifier:
                 if intent_match:
                     intent_number = int(intent_match.group(1))
                     # Ensure intent is within valid range
-                    if 0 <= intent_number <= 19:
+                    if 0 <= intent_number <= 5:
                         logger.info(f"Intent classified as {intent_number}")
                         return bytes([intent_number]), True  # Convert to bytes
                     else:
-                        logger.warning(f"Invalid intent number {intent_number}, must be between 0-19")
+                        logger.warning(f"Invalid intent number {intent_number}, must be between 0-5")
                 else:
                     logger.warning(f"Failed to extract intent number from response: {response_text}")
                 

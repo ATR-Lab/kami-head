@@ -84,15 +84,13 @@ class LanguageModelProcessorNode(Node):
         """
         # Extract the user's prompt and intent
         prompt_text = request.prompt_text
-        intent_code = request.intent
+        intent_name = request.intent
 
         # Initialize the response and emotion to NULL_VALUE
         response.response = NULL_VALUE
         response.emotion = NULL_VALUE
-        
-        # Get the intent name
-        intent_name = INTENT_MAPPING_BYTE_TO_STRING.get(intent_code, "None")
-        self.get_logger().info(f"Received intent: {intent_name} - '{prompt_text}'")
+
+        self.get_logger().info(f"Received intent and prompt: {intent_name} - '{prompt_text}'")
         
         try:
             # Create system prompt with BrewBot information
