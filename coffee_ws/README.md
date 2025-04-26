@@ -68,3 +68,8 @@ colcon build --packages-select coffee_expressions_test_ui
 ```
 source install/setup.bash && ros2 run coffee_expressions_test_ui expressions_test_ui
 ```
+
+
+```
+ros2 topic echo /robot/affective_state --field gaze_target_v2
+```
