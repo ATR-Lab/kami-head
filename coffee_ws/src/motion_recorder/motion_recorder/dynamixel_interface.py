@@ -38,13 +38,13 @@ class DynamixelInterface:
         
         # Motor IDs (currently using 2 motors)
         self.pan_id = 1   # Pan motor
-        self.tilt_id = 2  # Tilt motor
+        self.tilt_id = 9  # Tilt motor
         
         # Motor angle limits (in degrees)
-        self.pan_min_angle = 0.01   # Min pan angle (right)
-        self.pan_max_angle = 180.0  # Max pan angle (left)
-        self.tilt_min_angle = 135.0 # Min tilt angle (up)
-        self.tilt_max_angle = 225.0 # Max tilt angle (down)
+        self.pan_min_angle = 143.0 # 0.01   # Min pan angle (right)
+        self.pan_max_angle = 210.0 # 180.0  # Max pan angle (left)
+        self.tilt_min_angle = 169.0 # 135.0 # Min tilt angle (up)
+        self.tilt_max_angle = 206.0 # 225.0 # Max tilt angle (down)
         
         # Initialize port handler and packet handler
         self.portHandler = PortHandler(self.DEVICENAME)
