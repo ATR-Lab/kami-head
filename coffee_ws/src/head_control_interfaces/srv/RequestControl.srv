@@ -1,0 +1,7 @@
+# Request
+string controller_id      # ID of the controller requesting control
+---
+# Response
+bool success             # Whether control was granted
+string current_owner     # Current owner of control
+string message          # Additional information/error message

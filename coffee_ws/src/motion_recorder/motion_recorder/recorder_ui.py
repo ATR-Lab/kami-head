@@ -568,16 +568,31 @@ class MotionRecorderUI(QMainWindow):
             QMessageBox.warning(self, "Error", "Please enter a name for the motion")
             return
         
-        # Confirm overwrite if name already exists
-        if motion_name in [self.motion_list.item(i).text() for i in range(self.motion_list.count())]:
+        # Open directory selector dialog
+        save_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Select Directory to Save Motion",
+            os.path.expanduser("~")
+        )
+        
+        if not save_dir:  # User cancelled
+            return
+            
+        # Create full path
+        motion_path = os.path.join(save_dir, f"{motion_name}.json")
+        
+        # Confirm overwrite if file already exists
+        if os.path.exists(motion_path):
             reply = QMessageBox.question(
                 self, "Confirm Overwrite",
-                f"Motion '{motion_name}' already exists. Overwrite?",
+                f"Motion file '{motion_path}' already exists. Overwrite?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No
             )
             if reply == QMessageBox.No:
                 return
         
+        # Store the target directory for use in the callback
+        self.last_save_dir = save_dir
         threading.Thread(target=lambda: self._save_motion_thread(motion_name), daemon=True).start()
     
     def _save_motion_thread(self, motion_name):
@@ -591,10 +606,23 @@ class MotionRecorderUI(QMainWindow):
             
             if response and response.success:
                 self.node.get_logger().info(f"Saved motion: {response.message}")
-                # Refresh motion list
-                QTimer.singleShot(0, self.load_motion_list)
-                # Show success message
-                QTimer.singleShot(0, lambda: QMessageBox.information(self, "Success", f"Saved motion: {motion_name}"))
+                
+                # After successful save, copy the file to the selected directory
+                try:
+                    source_path = os.path.expanduser(f"~/.ros/motion_files/{motion_name}.json")
+                    target_path = os.path.join(self.last_save_dir, f"{motion_name}.json")
+                    
+                    # Copy the file to the selected directory
+                    import shutil
+                    shutil.copy2(source_path, target_path)
+                    
+                    # Refresh motion list
+                    QTimer.singleShot(0, self.load_motion_list)
+                    # Show success message with the new location
+                    QTimer.singleShot(0, lambda: QMessageBox.information(self, "Success", f"Saved motion to: {target_path}"))
+                except Exception as copy_error:
+                    self.node.get_logger().error(f"Error copying motion file: {copy_error}")
+                    QTimer.singleShot(0, lambda: QMessageBox.warning(self, "Error", f"Motion was saved but could not be copied to selected directory: {copy_error}"))
             else:
                 error_msg = response.message if response else "Timeout"
                 self.node.get_logger().error(f"Failed to save motion: {error_msg}")
@@ -632,14 +660,37 @@ class MotionRecorderUI(QMainWindow):
             self.motion_list.addItem(motion_name)
     
     def load_selected_motion(self):
-        """Load the selected motion from the list"""
-        selected_items = self.motion_list.selectedItems()
-        if not selected_items:
-            QMessageBox.warning(self, "Error", "Please select a motion to load")
-            return
+        """Load a motion file from disk"""
+        # Open file selector dialog
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Motion File to Load",
+            os.path.expanduser("~"),
+            "Motion Files (*.json);;All Files (*)"
+        )
         
-        motion_name = selected_items[0].text()
-        threading.Thread(target=lambda: self._load_motion_thread(motion_name), daemon=True).start()
+        if not file_path:  # User cancelled
+            return
+            
+        # Extract motion name from file path
+        motion_name = os.path.splitext(os.path.basename(file_path))[0]
+        
+        # Copy the selected file to the ROS motion files directory
+        try:
+            target_path = os.path.expanduser(f"~/.ros/motion_files/{motion_name}.json")
+            
+            # Create the motion_files directory if it doesn't exist
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            
+            # Copy the file
+            import shutil
+            shutil.copy2(file_path, target_path)
+            
+            # Now load the motion using the standard service call
+            threading.Thread(target=lambda: self._load_motion_thread(motion_name), daemon=True).start()
+        except Exception as copy_error:
+            self.node.get_logger().error(f"Error copying motion file: {copy_error}")
+            QMessageBox.warning(self, "Error", f"Could not copy motion file: {copy_error}")
     
     def _load_motion_thread(self, motion_name):
         """Thread function for load motion service call"""
