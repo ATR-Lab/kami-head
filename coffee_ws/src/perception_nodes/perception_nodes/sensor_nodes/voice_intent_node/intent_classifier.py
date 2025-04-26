@@ -11,7 +11,7 @@ import re
 import logging
 import time
 
-from shared_configs import INTENT_MAPPING
+from shared_configs import (INTENT_MAPPING_STRING_TO_BYTE, DEFAULT_INTENT)
 
 # Import for Ollama
 try:
@@ -50,16 +50,13 @@ class IntentClassifier:
         
         # System prompt for intent classification
         self.system_prompt = (
-            "You are a language model designed strictly to classify the intent of the user's input. "
+            "You are a classifier model designed strictly to classify the intent of the user's input. "
             "Here is the list of intent labels with their corresponding numbers: "
-            "[\"Greeting\": 0, \"Goodbye\": 1, \"Thank\": 2, \"Apologize\": 3, \"Affirm\": 4, \"Deny\": 5, "
-            "\"Inform\": 6, \"Request\": 7, \"Question\": 8, \"Confirm\": 9, \"Disconfirm\": 10, "
-            "\"Clarify\": 11, \"Suggest\": 12, \"Complaint\": 13, \"Praise\": 14, \"Joke\": 15, "
-            "\"SmallTalk\": 16, \"Fallback\": 17, \"Agree\": 18, \"Disagree\": 19]. "
+            f"{INTENT_MAPPING_STRING_TO_BYTE}"
             "Your task is to output ONLY the number that represents the intent. "
             "Do NOT include any words, punctuation, or explanation. "
-            "Output format: A single number (e.g., 7). "
-            "If unsure, always default to '17' (Fallback) (e.g., 17). "
+            "Output format: A single number (e.g., 3). "
+            f"If unsure, always default to '{DEFAULT_INTENT}' (Fallback) (e.g., {DEFAULT_INTENT}). "
             "Only respond with the number."
         )
         
@@ -141,13 +138,13 @@ class IntentClassifier:
                     messages=[
                         {"role": "system", "content": self.system_prompt},
                         {"role": "user", "content": "Yes, absolutely!"},
-                        {"role": "assistant", "content": "18"},
+                        {"role": "assistant", "content": "1"},
                         {"role": "user", "content": "No, I don't think so."},
-                        {"role": "assistant", "content": "19"},
+                        {"role": "assistant", "content": "2"},
                         {"role": "user", "content": "Buddy, what's the color of my shirt?"},
-                        {"role": "assistant", "content": "8"},
+                        {"role": "assistant", "content": "4"},
                         {"role": "user", "content": "Buddy, my day has been stressful so far."},
-                        {"role": "assistant", "content": "13"},
+                        {"role": "assistant", "content": "5"},
                         {"role": "user", "content": prompt_text}
                     ],
                     stream=False,
@@ -181,7 +178,7 @@ class IntentClassifier:
         
         # If we got here, all attempts failed
         logger.warning("All classification attempts failed, using fallback classification")
-        return bytes([17]), False  # Fallback intent as bytes
+        return bytes([DEFAULT_INTENT]), False  # None intent as bytes
         
     def get_fallback_intent(self):
         """
@@ -190,7 +187,7 @@ class IntentClassifier:
         Returns:
             bytes: Fallback intent code as bytes
         """
-        return bytes([17])  # Fallback intent
+        return bytes([DEFAULT_INTENT])  # None intent
     
     def get_intent_name(self, intent_code):
         """
@@ -200,17 +197,17 @@ class IntentClassifier:
             intent_code (bytes): Intent code as bytes
             
         Returns:
-            str: Intent name or 'Unknown' if not found
+            str: Intent name or 'None' if not found
         """
         if not intent_code or len(intent_code) == 0:
-            return "Unknown"
+            return "None"
         
         # Convert bytes to int
         intent_number = intent_code[0]
         
         # Find the intent name by number
-        for name, number in self.INTENT_MAPPING.items():
+        for name, number in INTENT_MAPPING_STRING_TO_BYTE.items():
             if number == intent_number:
                 return name
         
-        return "Unknown" 
+        return "None" 
