@@ -88,7 +88,20 @@ source /opt/ros/jazzy/setup.bash
 source ~/path/to/coffee-budy/coffee_ws/install/setup.bash
 ```
 
-### 5. Running Coffee Buddy
+### 5. Set Environment Variables
+
+For the Language Model Processor node to work, you need to set the Atoma API key as an environment variable:
+
+```bash
+# Add this to your ~/.bashrc file to make it persistent
+echo 'export ATOMA_API_KEY="your_atoma_api_key_here"' >> ~/.bashrc
+source ~/.bashrc
+
+# Or set it temporarily for the current session
+export ATOMA_API_KEY="your_atoma_api_key_here"
+```
+
+### 6. Running Coffee Buddy
 
 First, make sure you've sourced the setup files:
 ```bash

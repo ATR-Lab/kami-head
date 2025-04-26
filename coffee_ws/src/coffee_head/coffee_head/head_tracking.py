@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                             QDoubleSpinBox, QScrollArea)
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer
-
+from coffee_buddy_msgs.msg import SetupDynamixel
 # PID controller class for smooth motor control
 class PIDController:
     def __init__(self, kp=0.5, ki=0.0, kd=0.1, output_limits=(-100, 100)):
@@ -172,6 +172,13 @@ class HeadTrackingSystem(QObject):
             'set_position',
             qos
         )
+
+        # Setup Dynamixel ROS publisher
+        self.setup_dynamixel_publisher = self.node.create_publisher(
+            SetupDynamixel,
+            'setup_dynamixel',
+            qos
+        )
         
         # Publisher for face velocity vector
         self.velocity_publisher = self.node.create_publisher(
@@ -214,6 +221,10 @@ class HeadTrackingSystem(QObject):
         
         # Last time we received face data
         self.last_face_data_time = time.time()
+        
+        # Send setup dynamixel command to the motors
+        self.setup_dynamixel_command(self.pan_motor_id)
+        self.setup_dynamixel_command(self.tilt_motor_id)
         
         self.node.get_logger().info("Head tracking system initialized and ready for face data")
     
@@ -418,6 +429,12 @@ class HeadTrackingSystem(QObject):
                 
         except Exception as e:
             self.node.get_logger().error(f'Service call failed: {e}')
+
+    def setup_dynamixel_command(self, motor_id):
+        """Send setup dynamixel command to the motor"""
+        msg = SetupDynamixel()
+        msg.id = motor_id
+        self.setup_dynamixel_publisher.publish(msg)
     
     def send_motor_command(self, motor_id, position):
         """Send position command to a motor"""

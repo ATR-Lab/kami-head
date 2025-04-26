@@ -249,6 +249,15 @@ class ASRManager:
         # Extract text starting from wake phrase
         content = text[wake_phrase_pos:]
         
+        # Check if end punctuation immediately follows wake word
+        wake_end_pos = wake_phrase_pos + len(self.wake_phrase)
+        if wake_end_pos < len(text) and re.match(r'[.!?]', text[wake_end_pos]):
+            # Replace end punctuation after wake word with comma
+            modified_text = text[:wake_end_pos] + "," + text[wake_end_pos+1:]
+            content = modified_text[wake_phrase_pos:]
+            if self.verbose:
+                logger.info(f"Converted punctuation after wake word to comma: '{content}'")
+        
         # Find first end punctuation
         match = re.search(r'[.!?]', content)
         if match:
@@ -306,8 +315,29 @@ class ASRManager:
             # Already accumulating text
             self.segment_count += 1
             
-            # Add new text to buffer and check for end punctuation
-            combined_text = self.text_buffer + " " + transcription
+            # Instead of just concatenating with a space, we need to handle the streaming buffer more intelligently
+            # If the new segment starts with the same content as the end of the buffer, it's likely an overlap
+            overlap_found = False
+            
+            # Try different overlap lengths to find the best match
+            for overlap_size in range(min(len(self.text_buffer), len(transcription)), 3, -1):
+                buffer_end = self.text_buffer[-overlap_size:]
+                segment_start = transcription[:overlap_size]
+                
+                # Check for overlap with some flexibility (lowercase comparison for robustness)
+                if buffer_end.lower() == segment_start.lower():
+                    # Found overlap, append only the new part
+                    combined_text = self.text_buffer + transcription[overlap_size:]
+                    overlap_found = True
+                    if self.verbose:
+                        logger.info(f"Found overlap of {overlap_size} characters")
+                    break
+            
+            if not overlap_found:
+                # No overlap found, simply append with a space
+                combined_text = self.text_buffer + " " + transcription
+            
+            # Extract from wake phrase again to handle cases where the wake phrase appears in the new segment
             extracted, has_punctuation = self.extract_content_with_wake_phrase(combined_text)
             self.text_buffer = extracted
             if self.verbose:
