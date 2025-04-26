@@ -1,7 +1,11 @@
 # Request
-string controller_id      # ID of the controller requesting control
+string controller_id      # ID of the controller requesting control (e.g., "head_motion_server")
+float32 priority        # Optional priority level (higher numbers = higher priority)
+float32 timeout        # Requested control duration in seconds (0 = indefinite)
+bool force             # Force control takeover regardless of current state
 ---
 # Response
 bool success             # Whether control was granted
 string current_owner     # Current owner of control
 string message          # Additional information/error message
+float32 granted_timeout # Actual timeout granted (may differ from requested)
