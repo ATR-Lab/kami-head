@@ -1,0 +1,2 @@
+# UI and visualization 
+pygame==2.6.1 

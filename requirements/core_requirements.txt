@@ -1,0 +1,7 @@
+# Core Python packages
+numpy==1.26.4
+PyAudio==0.2.14
+pydantic==2.10.6
+pydantic_core==2.27.2
+setuptools==79.0.1
+typing_extensions==4.13.2 
