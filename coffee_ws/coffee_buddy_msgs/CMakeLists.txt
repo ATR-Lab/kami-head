@@ -13,6 +13,7 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ClassifyIntent.srv"
   "msg/IntentClassification.msg"
+  "msg/SetupDynamixel.msg"
   DEPENDENCIES std_msgs
 )
 

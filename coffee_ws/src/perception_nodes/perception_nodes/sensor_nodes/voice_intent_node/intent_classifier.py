@@ -11,6 +11,8 @@ import re
 import logging
 import time
 
+from shared_configs import INTENT_MAPPING
+
 # Import for Ollama
 try:
     import ollama
@@ -28,30 +30,6 @@ class IntentClassifier:
     This class handles initialization of the LLM, intent classification,
     and fallback mechanisms when classification fails.
     """
-    
-    # Intent mapping for reference
-    INTENT_MAPPING = {
-        "Greeting": 0,
-        "Goodbye": 1,
-        "Thank": 2,
-        "Apologize": 3,
-        "Affirm": 4,
-        "Deny": 5,
-        "Inform": 6,
-        "Request": 7,
-        "Question": 8,
-        "Confirm": 9,
-        "Disconfirm": 10,
-        "Clarify": 11,
-        "Suggest": 12,
-        "Complaint": 13,
-        "Praise": 14,
-        "Joke": 15,
-        "SmallTalk": 16,
-        "Fallback": 17,
-        "Agree": 18,
-        "Disagree": 19
-    }
     
     def __init__(self, model='gemma3:1b', timeout=3.0, max_retries=1):
         """

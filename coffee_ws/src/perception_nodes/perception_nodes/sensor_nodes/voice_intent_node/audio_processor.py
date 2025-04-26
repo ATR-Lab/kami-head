@@ -158,10 +158,22 @@ class AudioProcessor:
                 return
             
             audio_buffer = np.array([], dtype=np.float32)
+            consecutive_full_queue = 0
             
             logger.info("Entering audio capture loop")
             while self.running:
                 try:
+                    # Check if queue is getting critically full
+                    if self.audio_queue.qsize() > self.audio_queue.maxsize * 0.8:
+                        consecutive_full_queue += 1
+                        if consecutive_full_queue > 5:
+                            # Queue has been nearly full for multiple iterations, drain it
+                            logger.warning(f"Audio queue critically full ({self.audio_queue.qsize()}/{self.audio_queue.maxsize}), draining to recover")
+                            self.drain_audio_queue()
+                            consecutive_full_queue = 0
+                    else:
+                        consecutive_full_queue = 0
+                    
                     # Read audio data
                     data = stream.read(self.CHUNK, exception_on_overflow=False)
                     
@@ -198,6 +210,37 @@ class AudioProcessor:
             
         except Exception as e:
             logger.error(f'Error in audio capture thread: {str(e)}')
+    
+    def drain_audio_queue(self):
+        """
+        Drain the audio queue when it gets too full to prevent freezing.
+        Keeps the most recent chunks and removes older ones.
+        """
+        try:
+            # Keep track of how many items we remove
+            removed_count = 0
+            
+            # Calculate how many items to keep (25% of max size)
+            items_to_keep = max(1, int(self.audio_queue.maxsize * 0.25))
+            
+            # Calculate how many items to remove
+            current_size = self.audio_queue.qsize()
+            items_to_remove = max(0, current_size - items_to_keep)
+            
+            # Remove items from the queue
+            for _ in range(items_to_remove):
+                try:
+                    # Use get_nowait to avoid blocking
+                    self.audio_queue.get_nowait()
+                    self.audio_queue.task_done()
+                    removed_count += 1
+                except queue.Empty:
+                    # Queue became empty while we were draining
+                    break
+            
+            logger.info(f"Drained {removed_count} items from audio queue, new size: {self.audio_queue.qsize()}")
+        except Exception as e:
+            logger.error(f"Error draining audio queue: {str(e)}")
     
     def get_audio_chunk(self, timeout=0.5):
         """

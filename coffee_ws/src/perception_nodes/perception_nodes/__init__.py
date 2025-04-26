@@ -5,4 +5,4 @@ This package contains various perception-related nodes for the Coffee-Buddy syst
 - Voice Intent Node: Recognizes speech and classifies user intents
 """
 
-from perception_nodes.voice_intent_node import VoiceIntentNode
+from perception_nodes.sensor_nodes.voice_intent_node import VoiceIntentNode

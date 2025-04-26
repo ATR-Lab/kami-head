@@ -15,6 +15,7 @@ import threading
 import logging
 from rclpy.parameter import Parameter
 from rcl_interfaces.msg import ParameterDescriptor, ParameterType
+import time
 
 # Import ROS2 message types
 from coffee_buddy_msgs.msg import IntentClassification
@@ -277,8 +278,16 @@ class VoiceIntentNode(Node):
         """Thread for processing audio and running ASR inference."""
         self.get_logger().info("Starting inference thread")
         
+        consecutive_errors = 0
+        last_successful_inference_time = time.time()
+        
         while self.running:
             try:
+                # Check how many items are in the audio queue
+                queue_size = self.audio_processor.audio_queue.qsize()
+                if queue_size > self.audio_processor.audio_queue.maxsize * 0.7:
+                    self.get_logger().warning(f"Audio queue filling up ({queue_size}/{self.audio_processor.audio_queue.maxsize})")
+                
                 # Get audio chunk with timeout
                 audio_chunk = self.audio_processor.get_audio_chunk()
                 if audio_chunk is None:
@@ -297,6 +306,10 @@ class VoiceIntentNode(Node):
                 # Mark task as done
                 self.audio_processor.task_done()
                 
+                # Reset error counter on successful processing
+                consecutive_errors = 0
+                last_successful_inference_time = time.time()
+                
                 # Process the transcription if we got one
                 if transcription:
                     prompt_text, reason, is_complete = self.asr_manager.process_transcription(transcription)
@@ -306,7 +319,24 @@ class VoiceIntentNode(Node):
                         self._add_to_llm_queue(prompt_text, reason)
             
             except Exception as e:
+                consecutive_errors += 1
                 self.get_logger().error(f'Error in inference thread: {str(e)}')
+                
+                # If we've had multiple consecutive errors or it's been too long since a successful inference
+                if consecutive_errors > 5 or (time.time() - last_successful_inference_time) > 30.0:
+                    self.get_logger().error(f"Multiple inference errors detected, attempting recovery")
+                    consecutive_errors = 0
+                    last_successful_inference_time = time.time()
+                    
+                    # Force memory cleanup
+                    self.memory_manager.cleanup_memory(force=True)
+                    
+                    # Drain audio queue if it's getting full
+                    if hasattr(self.audio_processor, 'drain_audio_queue'):
+                        self.audio_processor.drain_audio_queue()
+                    
+                    # Short sleep to give system time to recover
+                    time.sleep(0.5)
     
     def _llm_thread(self):
         """Thread for processing intent classification with LLM."""
