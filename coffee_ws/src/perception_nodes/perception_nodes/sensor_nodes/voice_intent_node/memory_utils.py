@@ -126,6 +126,35 @@ class MemoryManager:
         self.inference_count = 0
         self.last_cleanup_time = current_time
         
+    def get_detailed_memory_usage(self):
+        """
+        Get detailed memory usage information.
+        
+        Returns:
+            dict: Detailed memory usage metrics
+        """
+        import psutil
+        
+        info = {
+            'ram_total': psutil.virtual_memory().total / (1024 * 1024),  # MB
+            'ram_used': psutil.virtual_memory().used / (1024 * 1024),    # MB
+            'ram_percent': psutil.virtual_memory().percent,
+            'gpu_used': 0,
+            'gpu_total': 0,
+            'gpu_percent': 0
+        }
+        
+        if self.using_gpu and self.torch_available:
+            try:
+                import torch
+                info['gpu_used'] = torch.cuda.memory_allocated(0) / (1024 * 1024)    # MB
+                info['gpu_total'] = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024)
+                info['gpu_percent'] = (info['gpu_used'] / info['gpu_total']) * 100
+            except Exception as e:
+                logger.error(f"Error getting GPU metrics: {str(e)}")
+        
+        return info
+    
     def get_memory_info(self):
         """
         Get current memory info for diagnostics.

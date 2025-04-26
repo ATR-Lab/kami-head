@@ -161,10 +161,23 @@ class AudioProcessor:
             consecutive_full_queue = 0
             
             logger.info("Entering audio capture loop")
+            last_queue_size = 0
+            last_queue_check_time = time.time()
             while self.running:
                 try:
+                    # Monitor queue growth
+                    current_time = time.time()
+                    current_queue_size = self.audio_queue.qsize()
+                    
+                    # Log queue metrics every 2 seconds
+                    if current_time - last_queue_check_time >= 2.0:
+                        queue_growth = current_queue_size - last_queue_size
+                        logger.info(f"Queue metrics - Size: {current_queue_size}/{self.audio_queue.maxsize}, Growth: {queue_growth} chunks in 2s")
+                        last_queue_size = current_queue_size
+                        last_queue_check_time = current_time
+
                     # Check if queue is getting critically full
-                    if self.audio_queue.qsize() > self.audio_queue.maxsize * 0.8:
+                    if current_queue_size > self.audio_queue.maxsize * 0.8:
                         consecutive_full_queue += 1
                         if consecutive_full_queue > 5:
                             # Queue has been nearly full for multiple iterations, drain it

@@ -9,6 +9,7 @@ Whisper models for speech recognition, as well as wake phrase detection.
 
 import os
 import re
+import time
 import logging
 import argparse
 import numpy as np
@@ -128,10 +129,14 @@ class ASRManager:
         args.model = self.model_size
         args.lan = self.language
         args.min_chunk_size = 2.0  # Process at least 2 seconds of audio
-        args.buffer_trimming_sec = 30  # Buffer trimming in seconds
+        args.buffer_trimming_sec = 10  # Reduced from 30s to prevent memory accumulation
         args.vad = True  # Voice activity detection
         args.backend = 'faster-whisper'  # Use faster-whisper for better performance
         args.buffer_trimming = 'sentence'  # Trim at sentence boundaries
+        
+        # Track model state size
+        self.last_inference_time = time.time()
+        self.total_audio_processed = 0
         
         # Add device_type and compute_type for WhisperModel initialization
         args.device_type = self.device_type
@@ -145,6 +150,12 @@ class ASRManager:
             logger.info("Creating ASR factory")
             self.asr, self.processor = asr_factory(args)
             self.processor.buffer_trimming_way = 'sentence'  # Ensure sentence-based trimming
+            
+            # Ensure tokenizer is properly initialized
+            if not hasattr(self.processor, 'tokenizer'):
+                from mosestokenizer import MosesTokenizer
+                self.processor.tokenizer = MosesTokenizer(self.language)
+                
             logger.info("ASR factory created successfully")
             
             # Warm up the model with a small audio chunk to make first inference faster
@@ -158,9 +169,28 @@ class ASRManager:
             logger.error(f"Error during ASR initialization: {str(e)}")
             return False
     
+    def get_model_cache_size(self):
+        """Get the current model cache size in MB."""
+        if not hasattr(self, 'processor') or self.processor is None:
+            return 0
+            
+        # Get internal state size if available
+        try:
+            if hasattr(self.processor, 'audio_buffer'):
+                return len(self.processor.audio_buffer) * 4 / 1024 / 1024  # float32 = 4 bytes
+            elif hasattr(self.processor, '_buffer'):
+                return len(self.processor._buffer) * 4 / 1024 / 1024
+            elif hasattr(self.processor, 'buffer_size'):
+                return self.processor.buffer_size * 4 / 1024 / 1024
+            else:
+                # Estimate based on args
+                return self.processor.args.buffer_trimming_sec * 16000 * 4 / 1024 / 1024
+        except Exception as e:
+            logger.debug(f"Could not get exact cache size: {e}")
+            return 0
+    
     def process_audio_chunk(self, audio_chunk):
-        """
-        Process an audio chunk and return the transcription.
+        """Process a chunk of audio data and return transcription.
         
         Args:
             audio_chunk (numpy.ndarray): Audio data as float32 numpy array
@@ -172,22 +202,37 @@ class ASRManager:
             return None
         
         try:
+            # Initialize tokenizer if needed
+            if not hasattr(self, '_tokenizer'):
+                logger.info("Initializing tokenizer...")
+                from mosestokenizer import MosesTokenizer
+                self._tokenizer = MosesTokenizer(self.language)
+                self.processor.tokenizer = self._tokenizer
+            elif self.processor.tokenizer is None:
+                self.processor.tokenizer = self._tokenizer
+            
             # Insert audio into processor
             self.processor.insert_audio_chunk(audio_chunk)
             
             # Process the current buffer
             result = self.processor.process_iter()
             
-            # Check if we got a transcription result
+            # Check if we got a transcription result and it's different from last one
             if result[0] is not None and result[2]:
-                transcription = result[2]
-                if self.verbose:
-                    logger.info(f'Transcription received: {transcription}')
-                return transcription
+                if not hasattr(self, '_last_result') or self._last_result != result[2]:
+                    self._last_result = result[2]
+                    return result[2]
             
             return None
+
         except Exception as e:
             logger.error(f'Error processing audio chunk: {str(e)}')
+            # If we get a processing error, try to recover the ASR processor
+            try:
+                logger.warning("Attempting to recover ASR processor...")
+                self.init_asr()
+            except Exception as recover_e:
+                logger.error(f"Failed to recover ASR processor: {recover_e}")
             return None
     
     def set_timeout_segments(self, timeout_segments):

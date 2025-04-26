@@ -313,15 +313,43 @@ class VoiceIntentNode(Node):
                 if audio_chunk is None:
                     continue
                 
-                # Log GPU memory before inference
-                self.memory_manager.log_gpu_memory_usage("Before inference")
+                # Detailed profiling before inference
+                before_mem = self.memory_manager.get_detailed_memory_usage()
+                before_cache = self.asr_manager.get_model_cache_size()
                 
-                # Process the audio chunk
-                transcription = self.asr_manager.process_audio_chunk(audio_chunk)
+                # Process the audio chunk with timing
+                start_time = time.time()
+                try:
+                    transcription = self.asr_manager.process_audio_chunk(audio_chunk)
+                    if transcription:
+                        self.get_logger().info(f"Transcribed text: {transcription}")
+                        # Add to LLM queue if it ends with punctuation or is long enough
+                        if transcription.strip().endswith(('.', '!', '?')) or len(transcription.split()) > 5:
+                            self._add_to_llm_queue(transcription, "End punctuation detected")
+                except Exception as e:
+                    self.get_logger().error(f"ASR processing error: {e}")
+                    transcription = None
+                processing_time = time.time() - start_time
                 
-                # Memory cleanup and logging after inference
+                # Detailed profiling after inference
+                after_mem = self.memory_manager.get_detailed_memory_usage()
+                after_cache = self.asr_manager.get_model_cache_size()
+                
+                # Log comprehensive metrics
+                self.get_logger().info(
+                    f"ASR Metrics:\n" \
+                    f"  Processing: {processing_time:.3f}s for {len(audio_chunk)/self.audio_processor.RATE:.2f}s audio\n" \
+                    f"  Memory: {after_mem['gpu_used'] - before_mem['gpu_used']:.1f}MB change\n" \
+                    f"  Cache: {after_cache - before_cache:.1f}MB\n" \
+                    f"  RAM: {after_mem['ram_used'] - before_mem['ram_used']:.1f}MB change"
+                )
+                
+                # Log transcription if we got one
+                if transcription:
+                    self.get_logger().info(f"Transcribed text: {transcription}")
+                
+                # Memory cleanup and logging
                 self.memory_manager.cleanup_memory()
-                self.memory_manager.log_gpu_memory_usage("After inference")
                 
                 # Mark task as done
                 self.audio_processor.task_done()
@@ -390,9 +418,33 @@ class VoiceIntentNode(Node):
             except Exception as e:
                 self.get_logger().error(f'Error in LLM thread: {str(e)}')
 
-    def _start_llm_call(self, prompt_text, intent):
-        """Function for starting the LLM service call"""
+    def _start_llm_service(self):
+        """Initialize the LLM service and queue."""
         try:
+            self.get_logger().info("Starting LLM service")
+            # Start the LLM service
+            if not hasattr(self, 'llm_queue'):
+                self.llm_queue = queue.Queue(maxsize=10)
+                self.get_logger().info("LLM service initialized")
+            return True
+        except Exception as e:
+            self.get_logger().error(f"Error initializing LLM service: {e}")
+            return False
+
+    def _start_llm_call(self, prompt_text, intent):
+        """Make an async call to the LLM service.
+        
+        Args:
+            prompt_text (str): The text to process
+            intent (str): The classified intent
+        """
+        try:
+            # Initialize LLM service if needed
+            if not hasattr(self, 'llm_queue'):
+                if not self._start_llm_service():
+                    self.get_logger().error("Failed to initialize LLM service")
+                    return
+
             request = GenerateBehaviorResponse.Request()
             request.prompt_text = prompt_text
             request.intent = intent
@@ -413,34 +465,48 @@ class VoiceIntentNode(Node):
         except Exception as e:
             self.get_logger().error(f"Error in start LLM service call: {e}")
 
+    def _add_prompt_to_llm_queue(self, prompt):
+        """Add a prompt to the LLM queue and handle the response.
+        
+        Args:
+            prompt (str): Text prompt to classify
+        """
+        try:
+            if not hasattr(self, 'llm_queue') or self.llm_queue is None:
+                self.get_logger().warning("LLM service not ready, using fallback classification")
+                return
+                
+            self.get_logger().info(f"Adding prompt to LLM queue: '{prompt}'")
+            try:
+                self.llm_queue.put(prompt, timeout=0.5)
+                self.get_logger().info("Successfully added prompt to LLM queue")
+            except queue.Full:
+                self.get_logger().warning("LLM queue full, skipping prompt")
+        except Exception as e:
+            self.get_logger().error(f"Error adding prompt to LLM queue: {e}")
+
     def _add_to_llm_queue(self, prompt_text, reason):
         """
         Add a text prompt to the LLM queue for intent classification.
         
         Args:
             prompt_text (str): Text prompt to classify
-            reason (str): Reason for completion
+            reason (str): Reason for adding to queue
         """
         try:
-            self.get_logger().info(f"Adding prompt to LLM queue: '{prompt_text}' ({reason})")
-            
-            # Try to add to queue with timeout
+            if not hasattr(self, 'llm_queue') or self.llm_queue is None:
+                self.get_logger().warning("LLM service not ready, using fallback classification")
+                return
+                
+            self.get_logger().info(f"Adding prompt to LLM queue: '{prompt_text}'")
             try:
                 self.llm_queue.put(prompt_text, timeout=0.5)
                 self.get_logger().info("Successfully added prompt to LLM queue")
             except queue.Full:
-                self.get_logger().warning("LLM queue is full, using fallback intent")
-                
-                # Create and publish fallback message directly
-                msg = IntentClassification()
-                msg.prompt_text = prompt_text
-                msg.intent = self.intent_classifier.get_fallback_intent()
-                self.publisher.publish(msg)
-                
-                self.get_logger().info(f"Published fallback intent: prompt='{prompt_text}', intent=Fallback")
-                
+                self.get_logger().warning("LLM queue full, skipping prompt")
         except Exception as e:
-            self.get_logger().error(f"Error adding to LLM queue: {str(e)}")
+            self.get_logger().error(f"Error adding prompt to LLM queue: {e}")
+            return str(e)
     
     def destroy_node(self):
         """Clean up resources when the node is destroyed."""
