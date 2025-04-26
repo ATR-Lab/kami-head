@@ -176,8 +176,11 @@ class FrameGrabber(QObject):
     
     def publish_face_data(self, faces):
         """Publish face detection data for other nodes"""
-        if not self.node or not faces:
+        if not self.node:
             return
+        
+        # Ensure faces is at least an empty list
+        faces = faces if faces else []
             
         # Create JSON with face data - convert NumPy types to Python native types
         face_data = {
@@ -206,8 +209,11 @@ class FrameGrabber(QObject):
 
     def publish_face_position_v2(self, faces):
         """Publish face detection data for other nodes"""
-        if not self.node or not faces:
+        if not self.node:
             return
+            
+        # Ensure faces is at least an empty list
+        faces = faces if faces else []
             
         # Create JSON with face data - convert NumPy types to Python native types
         face_data = {
@@ -903,10 +909,11 @@ class FrameGrabber(QObject):
                         # Always publish face position, even when no faces are detected
                         # This is used so that we can re-center the eyes -- zero them in.
                         # self.publish_face_position(faces)
-                        # Only publish other face data if faces are detected
+                        # Always publish face data, even when no faces are detected
+                        self.publish_face_position_v2(faces)
+                        self.publish_face_data(faces)
+                        # Only publish face images when faces are actually detected
                         if faces:
-                            self.publish_face_position_v2(faces)
-                            self.publish_face_data(faces)
                             self.publish_face_images(frame, faces)
                         
                         self.last_publish_time = current_time
