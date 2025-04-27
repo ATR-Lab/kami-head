@@ -79,9 +79,11 @@ class ASRManager:
         self.verbose = verbose
         
         # Wake word and buffer variables
-        self.text_buffer = ""
-        self.is_accumulating = False
-        self.segment_count = 0
+        # VAD and transcription state
+        self.vad_active = False  # True when VAD detects speech
+        self.current_utterance = []  # Buffer for accumulating transcriptions
+        self.last_vad_update = time.time()
+        self.last_transcription = None
         self.timeout_segments = 5  # Default value
         
         # Initialize ASR components
@@ -256,11 +258,47 @@ class ASRManager:
             # Process the current buffer
             result = self.processor.process_iter()
             
-            # Check if we got a transcription result and it's different from last one
-            if result[0] is not None and result[2]:
-                if not hasattr(self, '_last_result') or self._last_result != result[2]:
-                    self._last_result = result[2]
-                    return result[2]
+            # Unpack VAD status and transcription
+            start_time, end_time, transcription = result
+            current_time = time.time()
+            
+            # Handle VAD state changes
+            if start_time is not None and not self.vad_active:
+                # VAD detected start of speech
+                self.vad_active = True
+                self.current_utterance = []
+                self.last_vad_update = current_time
+                logger.debug("VAD: Speech started")
+            
+            # Update transcription buffer if we have text
+            if transcription and transcription.strip():
+                if self.vad_active and transcription != self.last_transcription:
+                    self.current_utterance.append(transcription.strip())
+                    self.last_transcription = transcription
+                    self.last_vad_update = current_time
+                    logger.debug(f"VAD: Added transcription: {transcription}")
+            
+            # Check for end of speech
+            if end_time is not None and self.vad_active:
+                # VAD detected end of speech
+                self.vad_active = False
+                if self.current_utterance:
+                    # Join accumulated transcriptions and clean up
+                    final_transcription = " ".join(self.current_utterance)
+                    self.current_utterance = []
+                    self.last_transcription = None
+                    logger.info(f"VAD: Speech ended, final transcription: {final_transcription}")
+                    return final_transcription
+            
+            # Handle timeout case
+            if self.vad_active and (current_time - self.last_vad_update) > 10.0:  # 10 second timeout
+                logger.warning("VAD: Timeout reached, forcing utterance end")
+                self.vad_active = False
+                if self.current_utterance:
+                    final_transcription = " ".join(self.current_utterance)
+                    self.current_utterance = []
+                    self.last_transcription = None
+                    return final_transcription
             
             return None
 
@@ -270,6 +308,10 @@ class ASRManager:
             try:
                 logger.warning("Attempting to recover ASR processor...")
                 self.init_asr()
+                # Reset VAD state on recovery
+                self.vad_active = False
+                self.current_utterance = []
+                self.last_transcription = None
             except Exception as recover_e:
                 logger.error(f"Failed to recover ASR processor: {recover_e}")
             return None
