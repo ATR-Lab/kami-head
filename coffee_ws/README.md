@@ -54,6 +54,13 @@ ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_du
 # Use with threshold: float = 0.4, min_silence_duration_ms: int = 2000, speech_pad_ms: int = 1000
 ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=2000
 
+# Run coffee control node directly
+ros2 run coffee_control coffee_control_node --ros-args -p mac_address:=<your_machine_mac>
+
+# Or use the launch file (recommended)
+ros2 launch coffee_control coffee_control.launch.py  # Uses default MAC: 9C:95:6E:61:B6:2C
+ros2 launch coffee_control coffee_control.launch.py mac_address:=<your_machine_mac>
+```
 
 # NOTES:
 1. VAD Parameters (Speech Detection):
