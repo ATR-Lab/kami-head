@@ -390,22 +390,18 @@ class VoiceIntentNode(Node):
                 after_cache = self.asr_manager.get_model_cache_size()
                 
                 # Log comprehensive metrics
-                self.get_logger().info(
-                    f"ASR Metrics:\n" \
-                    f"  Processing: {processing_time:.3f}s for {len(audio_chunk)/self.audio_processor.RATE:.2f}s audio\n" \
-                    f"  GPU Memory:\n" \
-                    f"    Current: {after_mem['gpu_used']:.1f}MB\n" \
-                    f"    Reserved: {after_mem['gpu_reserved']:.1f}MB\n" \
-                    f"    Peak: {after_mem['gpu_peak']:.1f}MB\n" \
-                    f"  RAM Memory:\n" \
-                    f"    Current: {after_mem['ram_used']:.1f}MB\n" \
-                    f"    Peak: {after_mem['ram_peak']:.1f}MB\n" \
-                    f"  Cache: {after_cache:.1f}MB"
-                )
-                
-                # Log transcription if we got one
-                if transcription:
-                    self.get_logger().info(f"Transcribed text: {transcription}")
+                # self.get_logger().info(
+                #     f"ASR Metrics:\n" \
+                #     f"  Processing: {processing_time:.3f}s for {len(audio_chunk)/self.audio_processor.RATE:.2f}s audio\n" \
+                #     f"  GPU Memory:\n" \
+                #     f"    Current: {after_mem['gpu_used']:.1f}MB\n" \
+                #     f"    Reserved: {after_mem['gpu_reserved']:.1f}MB\n" \
+                #     f"    Peak: {after_mem['gpu_peak']:.1f}MB\n" \
+                #     f"  RAM Memory:\n" \
+                #     f"    Current: {after_mem['ram_used']:.1f}MB\n" \
+                #     f"    Peak: {after_mem['ram_peak']:.1f}MB\n" \
+                #     f"  Cache: {after_cache:.1f}MB"
+                # )
                 
                 # Memory cleanup and logging
                 self.memory_manager.cleanup_memory()
