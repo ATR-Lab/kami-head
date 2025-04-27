@@ -29,9 +29,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'llm_sensor_node = perception_nodes.sensor_nodes.llm_sensor_node.node:main',
-            'voice_intent_node = perception_nodes.sensor_nodes.voice_intent_node.node:main',
-            'emotion_node = perception_nodes.sensor_nodes.emotion_node.node:main',
+            'voice_intent_node = perception_nodes.sensor_nodes.voice_nodes.voice_intent_node.node:main',
+            'vision_node = perception_nodes.sensor_nodes.vision_nodes.vision_node:main',
         ],
     },
 )

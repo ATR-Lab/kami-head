@@ -34,6 +34,24 @@ TTS_STATUS_TOPIC = f"{TTS_TOPIC}/status"
 GENERATE_BEHAVIOR_RESPONSE_SERVICE = f"{LANGUAGE_MODEL_PROCESSOR_TOPIC}/generate_behavior_response"
 TTS_SERVICE = f"{TTS_TOPIC}/tts_query"
 
+# Node Names
+VOICE_INTENT_NODE = "voice_intent_node"
+VISION_NODE = "vision_node"
+
+# Vision Parameter Names
+VISION_RESOLUTION_WIDTH = "vision_resolution_width"
+VISION_RESOLUTION_HEIGHT = "vision_resolution_height"
+VISION_CAMERA_INDEX = "vision_camera_index"
+VISION_FPS = "vision_fps"
+VISION_ENCODING_FORMAT = "vision_encoding_format"
+
+# Vision Parameter Default Values
+VISION_RESOLUTION_WIDTH_DEFAULT = 640
+VISION_RESOLUTION_HEIGHT_DEFAULT = 480
+VISION_CAMERA_INDEX_DEFAULT = 0
+VISION_FPS_DEFAULT = 30
+VISION_ENCODING_FORMAT_DEFAULT = "bgr8"
+
 # Intent mapping used for determining the intent of the user's voice command
 INTENT_MAPPING_BYTE_TO_STRING = {
     1: "Agree",

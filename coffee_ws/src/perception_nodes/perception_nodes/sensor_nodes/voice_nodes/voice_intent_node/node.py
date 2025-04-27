@@ -22,17 +22,15 @@ import json
 # Import ROS2 message types
 from coffee_buddy_msgs.msg import IntentClassification
 
-# Import our modules
-from perception_nodes.sensor_nodes.voice_intent_node.audio_processor import AudioProcessor
-from perception_nodes.sensor_nodes.voice_intent_node.asr_manager import ASRManager
-from perception_nodes.sensor_nodes.voice_intent_node.intent_classifier import IntentClassifier
-from perception_nodes.sensor_nodes.voice_intent_node.memory_utils import MemoryManager
+# Import voice intent node modules
+from perception_nodes.sensor_nodes.voice_nodes.voice_intent_node.audio_processor import AudioProcessor
+from perception_nodes.sensor_nodes.voice_nodes.voice_intent_node.asr_manager import ASRManager
+from perception_nodes.sensor_nodes.voice_nodes.voice_intent_node.intent_classifier import IntentClassifier
+from perception_nodes.sensor_nodes.voice_nodes.voice_intent_node.memory_utils import MemoryManager
 
 from shared_configs import (
     GENERATE_BEHAVIOR_RESPONSE_SERVICE,
-    VOICE_INTENT_RESPONSE_TOPIC,
     TTS_SERVICE,
-    INTENT_MAPPING_BYTE_TO_STRING
 )
 
 from coffee_buddy_msgs.srv import GenerateBehaviorResponse, TTSQuery
