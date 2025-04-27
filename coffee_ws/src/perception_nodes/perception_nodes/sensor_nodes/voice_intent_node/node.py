@@ -372,9 +372,10 @@ class VoiceIntentNode(Node):
                 try:
                     transcription = self.asr_manager.process_audio_chunk(audio_chunk)
                     if transcription:
-                        self.get_logger().info(f"Transcribed text: {transcription}")
+                        # self.get_logger().info(f"Transcribed text: {transcription}")
                         # Add to LLM queue if it ends with punctuation or is long enough
                         if transcription.strip().endswith(('.', '!', '?')) or len(transcription.split()) > 5:
+                            self.get_logger().info(f"Transcribed text: {transcription}")
                             self._add_to_llm_queue(transcription, "End punctuation detected")
                 except Exception as e:
                     self.get_logger().error(f"ASR processing error: {e}")
