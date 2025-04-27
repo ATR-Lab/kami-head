@@ -364,6 +364,9 @@ class VoiceIntentNode(Node):
                 before_mem = self.memory_manager.get_detailed_memory_usage()
                 before_cache = self.asr_manager.get_model_cache_size()
                 
+                # Log memory before ASR
+                self.memory_manager.log_gpu_memory_usage("Before ASR")
+                
                 # Process the audio chunk with timing
                 start_time = time.time()
                 try:
@@ -378,6 +381,9 @@ class VoiceIntentNode(Node):
                     transcription = None
                 processing_time = time.time() - start_time
                 
+                # Log memory after ASR
+                self.memory_manager.log_gpu_memory_usage("After ASR")
+                
                 # Detailed profiling after inference
                 after_mem = self.memory_manager.get_detailed_memory_usage()
                 after_cache = self.asr_manager.get_model_cache_size()
@@ -386,9 +392,14 @@ class VoiceIntentNode(Node):
                 self.get_logger().info(
                     f"ASR Metrics:\n" \
                     f"  Processing: {processing_time:.3f}s for {len(audio_chunk)/self.audio_processor.RATE:.2f}s audio\n" \
-                    f"  Memory: {after_mem['gpu_used'] - before_mem['gpu_used']:.1f}MB change\n" \
-                    f"  Cache: {after_cache - before_cache:.1f}MB\n" \
-                    f"  RAM: {after_mem['ram_used'] - before_mem['ram_used']:.1f}MB change"
+                    f"  GPU Memory:\n" \
+                    f"    Current: {after_mem['gpu_used']:.1f}MB\n" \
+                    f"    Reserved: {after_mem['gpu_reserved']:.1f}MB\n" \
+                    f"    Peak: {after_mem['gpu_peak']:.1f}MB\n" \
+                    f"  RAM Memory:\n" \
+                    f"    Current: {after_mem['ram_used']:.1f}MB\n" \
+                    f"    Peak: {after_mem['ram_peak']:.1f}MB\n" \
+                    f"  Cache: {after_cache:.1f}MB"
                 )
                 
                 # Log transcription if we got one

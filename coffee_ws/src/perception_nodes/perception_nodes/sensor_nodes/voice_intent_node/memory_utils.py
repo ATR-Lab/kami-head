@@ -37,17 +37,20 @@ class MemoryManager:
         self.inference_count = 0
         self.last_cleanup_time = time.time()
         
+        # Track peak memory usage
+        self.peak_gpu_memory = 0
+        self.peak_ram_memory = 0
+        
         # Conditionally import torch
         if self.using_gpu:
             try:
                 import torch
                 self.torch_available = True
+                torch.cuda.reset_peak_memory_stats()
                 logger.info("PyTorch available for GPU memory management")
             except ImportError:
                 self.torch_available = False
                 logger.warning("PyTorch not available, GPU memory monitoring disabled")
-        else:
-            self.torch_available = False
     
     def log_gpu_memory_usage(self, label=""):
         """
@@ -65,11 +68,18 @@ class MemoryManager:
             # Get current GPU memory usage
             allocated = torch.cuda.memory_allocated(0) / 1024 / 1024
             reserved = torch.cuda.memory_reserved(0) / 1024 / 1024
+            peak = torch.cuda.max_memory_allocated(0) / 1024 / 1024
             
             if label:
-                logger.info(f"GPU Memory {label}: {allocated:.2f} MB allocated, {reserved:.2f} MB reserved")
+                logger.info(f"GPU Memory {label}:\n" + 
+                           f"  Current: {allocated:.2f} MB allocated\n" +
+                           f"  Reserved: {reserved:.2f} MB\n" +
+                           f"  Peak: {peak:.2f} MB")
             else:
-                logger.info(f"GPU Memory: {allocated:.2f} MB allocated, {reserved:.2f} MB reserved")
+                logger.info(f"GPU Memory:\n" +
+                           f"  Current: {allocated:.2f} MB allocated\n" +
+                           f"  Reserved: {reserved:.2f} MB\n" +
+                           f"  Peak: {peak:.2f} MB")
                 
             # Log warning if memory usage is high
             if allocated > 1000:  # 1 GB threshold
@@ -135,11 +145,16 @@ class MemoryManager:
         """
         import psutil
         
+        ram_used = psutil.virtual_memory().used / (1024 * 1024)  # MB
+        self.peak_ram_memory = max(self.peak_ram_memory, ram_used)
+        
         info = {
             'ram_total': psutil.virtual_memory().total / (1024 * 1024),  # MB
-            'ram_used': psutil.virtual_memory().used / (1024 * 1024),    # MB
+            'ram_used': ram_used,
+            'ram_peak': self.peak_ram_memory,
             'ram_percent': psutil.virtual_memory().percent,
             'gpu_used': 0,
+            'gpu_peak': 0,
             'gpu_total': 0,
             'gpu_percent': 0
         }
@@ -147,8 +162,20 @@ class MemoryManager:
         if self.using_gpu and self.torch_available:
             try:
                 import torch
-                info['gpu_used'] = torch.cuda.memory_allocated(0) / (1024 * 1024)    # MB
-                info['gpu_total'] = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024)
+                # Get current GPU memory usage
+                gpu_allocated = torch.cuda.memory_allocated(0) / (1024 * 1024)    # MB
+                gpu_reserved = torch.cuda.memory_reserved(0) / (1024 * 1024)      # MB
+                gpu_peak = torch.cuda.max_memory_allocated(0) / (1024 * 1024)     # MB
+                
+                # Update peak if current usage is higher
+                self.peak_gpu_memory = max(self.peak_gpu_memory, gpu_peak)
+                
+                info.update({
+                    'gpu_used': gpu_allocated,
+                    'gpu_reserved': gpu_reserved,
+                    'gpu_peak': self.peak_gpu_memory,
+                    'gpu_total': torch.cuda.get_device_properties(0).total_memory / (1024 * 1024)
+                })
                 info['gpu_percent'] = (info['gpu_used'] / info['gpu_total']) * 100
             except Exception as e:
                 logger.error(f"Error getting GPU metrics: {str(e)}")

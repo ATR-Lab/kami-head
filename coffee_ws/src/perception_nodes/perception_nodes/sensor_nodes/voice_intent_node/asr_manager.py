@@ -92,6 +92,7 @@ class ASRManager:
     def init_asr(self):
         """Initialize or reinitialize the ASR processor."""
         try:
+            import torch
             from perception_nodes.utils.whisper_streaming import FasterWhisperASR, VACOnlineASRProcessor, OnlineASRProcessor
             
             # Create the ASR object first
@@ -107,21 +108,23 @@ class ASRManager:
             if self.use_vad:
                 asr.use_vad()
             
+            # Create the processor
             if self.use_vad:
-                # VACOnlineASRProcessor expects chunk_size as first positional arg
                 # Convert vad_silence_duration from ms to seconds for online_chunk_size
                 online_chunk_size = self.vad_silence_duration / 1000
                 self.processor = VACOnlineASRProcessor(
                     online_chunk_size,  # online_chunk_size in seconds
-                    asr                 # asr as second arg
+                    asr=asr,            # ASR model will determine device type
+                    logfile=self.logfile
                 )
+                logger.info(f"Using VAD-enabled ASR processor on device: {self.device_type}")
             else:
-                # OnlineASRProcessor expects asr as first positional arg
                 self.processor = OnlineASRProcessor(
-                    asr,              # asr as first arg
-                    logfile=sys.stderr,
-                    buffer_trimming=("segment", 15)
+                    asr=asr,
+                    logfile=self.logfile
                 )
+                logger.info("Using standard ASR processor")
+            
             self.asr = self.processor
             return True
         except Exception as e:
