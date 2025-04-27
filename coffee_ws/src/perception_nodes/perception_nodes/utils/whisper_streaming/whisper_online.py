@@ -714,13 +714,24 @@ class VACOnlineASRProcessor(OnlineASRProcessor):
 
     def process_iter(self):
         if self.is_currently_final:
-            return self.finish()
+            # When VAD detects end of speech, get complete transcription
+            ret = self.finish()
+            if ret[2]:  # If we have transcription text
+                self.current_online_chunk_buffer_size = 0
+                self.is_currently_final = False
+                return ret
+            return (None, None, "")
         elif self.current_online_chunk_buffer_size > self.SAMPLING_RATE*self.online_chunk_size:
+            # Process intermediate results during long speech
             self.current_online_chunk_buffer_size = 0
             ret = self.online.process_iter()
             return ret
         else:
-            print("no online update, only VAD", self.status, file=self.logfile)
+            # No update needed yet
+            if self.status == 'voice':
+                print("Speech ongoing, accumulating audio", file=self.logfile)
+            else:
+                print("No speech detected", file=self.logfile)
             return (None, None, "")
 
     def finish(self):

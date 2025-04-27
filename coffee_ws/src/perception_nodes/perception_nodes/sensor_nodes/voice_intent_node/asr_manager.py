@@ -84,7 +84,9 @@ class ASRManager:
         self.current_utterance = []  # Buffer for accumulating transcriptions
         self.last_vad_update = time.time()
         self.last_transcription = None
-        self.timeout_segments = 5  # Default value
+        # self.timeout_segments = 5  # Default value
+        self.timeout_duration = 3.0  # 3 seconds timeout for utterance completion
+        self.min_utterance_gap = 0.5  # 500ms minimum gap between utterances
         
         # Initialize ASR components
         self.asr = None

@@ -400,10 +400,6 @@ class VoiceIntentNode(Node):
                 #     f"    Peak: {after_mem['ram_peak']:.1f}MB\n" \
                 #     f"  Cache: {after_cache:.1f}MB"
                 # )
-                # Log transcription if we got one
-                if transcription:
-                    self.get_logger().info(f">> UTTERANCE text: {transcription}")
-
 
                 # Memory cleanup and logging
                 self.memory_manager.cleanup_memory()
