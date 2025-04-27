@@ -194,7 +194,7 @@ class ASRManager:
                     chunk_size=self.chunk_size,
                     asr=self.asr,
                     tokenizer=None,  # Will be initialized on first use
-                    buffer_trimming=("segment", 15),
+                    buffer_trimming=("segment", 30),  # Increased buffer size for better context
                     logfile=self.logfile
                 )
                 logger.info("ASR processor initialized with VAD")

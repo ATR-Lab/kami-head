@@ -13,8 +13,8 @@ class VADIterator:
                  sampling_rate: int = 16000,
                 #  min_silence_duration_ms: int = 500,  # original value
                 #  speech_pad_ms: int = 100          # original value
-                 min_silence_duration_ms: int = 2000,  # increased to 2 seconds to avoid breaking up sentences with natural pauses
-                 speech_pad_ms: int = 500             # increased padding to better maintain context between segments
+                 min_silence_duration_ms: int = 1000,  # 1 second silence threshold for better responsiveness
+                 speech_pad_ms: int = 800             # increased padding to maintain better context between segments
                  ):
 
         """
