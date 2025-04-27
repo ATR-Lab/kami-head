@@ -328,16 +328,11 @@ class VoiceIntentNode(Node):
         self.inference_thread = threading.Thread(target=self._inference_thread)
         self.inference_thread.daemon = True
         
-        # # Create LLM thread
-        # self.llm_thread = threading.Thread(target=self._llm_thread)
-        # self.llm_thread.daemon = True
-        
         # Start audio processor
         self.audio_processor.start()
         
         # Start threads
         self.inference_thread.start()
-        # self.llm_thread.start()
         
         self.get_logger().info("All processing threads started")
     
