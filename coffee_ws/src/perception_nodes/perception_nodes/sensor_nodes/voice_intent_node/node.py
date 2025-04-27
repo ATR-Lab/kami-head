@@ -36,6 +36,7 @@ from shared_configs import (
 )
 
 from coffee_buddy_msgs.srv import GenerateBehaviorResponse, TTSQuery
+from coffee_interfaces.srv import AtomaChatService
 from std_msgs.msg import String
 
 class VoiceIntentNode(Node):
@@ -68,6 +69,10 @@ class VoiceIntentNode(Node):
         
         self.tts_client = self.create_client(
             TTSQuery, TTS_SERVICE, callback_group=self.service_group)
+            
+        # Create Atoma chat service client
+        self.atoma_chat_client = self.create_client(
+            AtomaChatService, 'atoma_chat', callback_group=self.service_group)
 
         # Check for CUDA availability if device_type is cuda
         self._setup_gpu()
@@ -321,6 +326,31 @@ class VoiceIntentNode(Node):
                     if transcription:
                         # Complete utterance received from VAD
                         self.get_logger().info(f">> UTTERANCE text: {transcription}")
+                        
+                        # Call Atoma chat service
+                        request = AtomaChatService.Request()
+                        request.prompt = transcription
+                        
+                        self.get_logger().info("Calling Atoma chat service...")
+                        future = self.atoma_chat_client.call_async(request)
+                        
+                        # Wait for response
+                        rclpy.spin_until_future_complete(self, future, timeout_sec=10.0)
+                        
+                        if future.result() is not None:
+                            response = future.result()
+                            if response.success:
+                                self.get_logger().info(f"Atoma response: {response.response}")
+                                
+                                # Send response to TTS
+                                tts_request = TTSQuery.Request()
+                                tts_request.text = response.response
+                                future = self.tts_client.call_async(tts_request)
+                                rclpy.spin_until_future_complete(self, future, timeout_sec=7.0)
+                            else:
+                                self.get_logger().error(f"Atoma service error: {response.error}")
+                        else:
+                            self.get_logger().error("Failed to get response from Atoma service")
                 except Exception as e:
                     self.get_logger().error(f"ASR processing error: {e}")
                     transcription = None
