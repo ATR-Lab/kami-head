@@ -22,6 +22,7 @@ from shared_configs import (
     LANGUAGE_MODEL_PROCESSOR_STATUS_TOPIC
 )
 from coffee_buddy_msgs.srv import GenerateBehaviorResponse
+from coffee_interfaces.srv import AtomaChatService
 from atoma_sdk import AtomaSDK
 from atoma_sdk.models import ChatCompletionMessage
 from rclpy.action import ActionServer
@@ -37,6 +38,23 @@ class LanguageModelProcessorNode(Node):
 
         self.service_group = MutuallyExclusiveCallbackGroup()
         self.timer_group = MutuallyExclusiveCallbackGroup()
+        
+        # Initialize conversation history
+        self.conversation_history = [
+            {
+                "role": "system",
+                "content": (
+                    "You are BrewBot, a friendly coffee robot. You're warm, conversational, and curious about people. "
+                    "Your responses should be natural, brief (1-2 sentences max), and conversational. "
+                    "You're interested in how people are enjoying the conference, which talks they've found interesting, "
+                    "and their thoughts on blockchain technology. "
+                    "Keep your responses concise and natural – like a brief, friendly exchange between people. "
+                    "Avoid long explanations or formal language. Talk like a person, not an assistant. "
+                    "Never mention that you're a robot or AI - just have a natural conversation. "
+                    "Don't end every response with a question."
+                )
+            }
+        ]
 
         # Declare parameters
         self.declare_parameter('model', 'Infermatic/Llama-3.3-70B-Instruct-FP8-Dynamic')
@@ -54,11 +72,19 @@ class LanguageModelProcessorNode(Node):
         self.status_pub = self.create_publisher(
             String, LANGUAGE_MODEL_PROCESSOR_STATUS_TOPIC, 10)
 
-        # Create a service for the language model responses
+        # Create services for the language model responses
         self.create_service(
             GenerateBehaviorResponse,
             GENERATE_BEHAVIOR_RESPONSE_SERVICE,
             self.generate_behavior_response_callback,
+            callback_group=self.service_group
+        )
+        
+        # Create the Atoma chat service
+        self.create_service(
+            AtomaChatService,
+            'atoma_chat',
+            self.atoma_chat_callback,
             callback_group=self.service_group
         )
 
@@ -159,8 +185,50 @@ class LanguageModelProcessorNode(Node):
                 self.get_logger().error("Invalid JSON response from Atoma")
                 return response
         except Exception as e:
-            self.get_logger().error(f"Error generating behavior response: {str(e)}")
+            self.get_logger().error(f"Error in behavior response generation: {e}")
             return response
+            
+    def atoma_chat_callback(self, request, response):
+        """Handle Atoma chat service requests."""
+        try:
+            # Add user message to conversation history
+            self.conversation_history.append({"role": "user", "content": request.prompt})
+            
+            # Trim conversation history if too long
+            if len(self.conversation_history) > 13:
+                self.conversation_history = self.conversation_history[:1] + self.conversation_history[-12:]
+            
+            # Convert conversation history to ChatCompletionMessage objects
+            messages = [ChatCompletionMessage(**msg) for msg in self.conversation_history]
+            
+            # Make API request to Atoma
+            api_response = self.atoma_client.chat.create(
+                messages=messages,
+                model=self.model,
+                temperature=0.7,
+                max_tokens=100
+            )
+            
+            # Get response text
+            response_text = api_response.choices[0].message.content.strip()
+            
+            # Add assistant response to conversation history
+            self.conversation_history.append({"role": "assistant", "content": response_text})
+            
+            # Set response
+            response.response = response_text
+            response.success = True
+            response.error = ""
+            
+            self.get_logger().info(f"Chat response generated: {response_text}")
+            
+        except Exception as e:
+            self.get_logger().error(f"Error in chat response generation: {e}")
+            response.response = ""
+            response.success = False
+            response.error = str(e)
+            
+        return response
             
 
 def main(args=None):
