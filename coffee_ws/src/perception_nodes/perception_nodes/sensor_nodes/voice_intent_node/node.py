@@ -328,16 +328,16 @@ class VoiceIntentNode(Node):
         self.inference_thread = threading.Thread(target=self._inference_thread)
         self.inference_thread.daemon = True
         
-        # Create LLM thread
-        self.llm_thread = threading.Thread(target=self._llm_thread)
-        self.llm_thread.daemon = True
+        # # Create LLM thread
+        # self.llm_thread = threading.Thread(target=self._llm_thread)
+        # self.llm_thread.daemon = True
         
         # Start audio processor
         self.audio_processor.start()
         
         # Start threads
         self.inference_thread.start()
-        self.llm_thread.start()
+        # self.llm_thread.start()
         
         self.get_logger().info("All processing threads started")
     
@@ -376,7 +376,7 @@ class VoiceIntentNode(Node):
                         # Add to LLM queue if it ends with punctuation or is long enough
                         if transcription.strip().endswith(('.', '!', '?')) or len(transcription.split()) > 5:
                             self.get_logger().info(f"Transcribed text: {transcription}")
-                            self._add_to_llm_queue(transcription, "End punctuation detected")
+                            # self._add_to_llm_queue(transcription, "End punctuation detected")
                 except Exception as e:
                     self.get_logger().error(f"ASR processing error: {e}")
                     transcription = None
@@ -414,12 +414,12 @@ class VoiceIntentNode(Node):
                 last_successful_inference_time = time.time()
                 
                 # Process the transcription if we got one
-                if transcription:
-                    prompt_text, reason, is_complete = self.asr_manager.process_transcription(transcription)
+                # if transcription:
+                #     prompt_text, reason, is_complete = self.asr_manager.process_transcription(transcription)
                     
                     # If we have a complete prompt, add it to the LLM queue
-                    if is_complete and prompt_text:
-                        self._add_to_llm_queue(prompt_text, reason)
+                    # if is_complete and prompt_text:
+                    #     self._add_to_llm_queue(prompt_text, reason)
             
             except Exception as e:
                 consecutive_errors += 1
@@ -577,9 +577,9 @@ class VoiceIntentNode(Node):
             self.get_logger().info("Waiting for inference thread to terminate")
             self.inference_thread.join(timeout=1.0)
         
-        if hasattr(self, 'llm_thread') and self.llm_thread.is_alive():
-            self.get_logger().info("Waiting for LLM thread to terminate")
-            self.llm_thread.join(timeout=1.0)
+        # if hasattr(self, 'llm_thread') and self.llm_thread.is_alive():
+        #     self.get_logger().info("Waiting for LLM thread to terminate")
+        #     self.llm_thread.join(timeout=1.0)
         
         # Perform final cleanup
         if hasattr(self, 'memory_manager') and self.using_gpu:
