@@ -14,7 +14,9 @@ class VADIterator:
                 #  min_silence_duration_ms: int = 500,  # original value
                 #  speech_pad_ms: int = 100          # original value
                  min_silence_duration_ms: int = 1000,  # 1 second silence threshold for better responsiveness
-                 speech_pad_ms: int = 800             # increased padding to maintain better context between segments
+                 speech_pad_ms: int = 800             # increased padding to maintain better
+                 #  min_silence_duration_ms: int = 2000,  # 2 second silence threshold for natural pauses
+                 #  speech_pad_ms: int = 1000            # 1 second padding for better context
                  ):
 
         """
