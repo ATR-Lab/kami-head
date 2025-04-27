@@ -51,6 +51,10 @@ ros2 run coffee_expressions_state_ui state_ui
 #Run with VAD -- 
 ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=1500
 
+# Use with threshold: float = 0.4, min_silence_duration_ms: int = 2000, speech_pad_ms: int = 1000
+ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=2000
+
+
 # NOTES:
 1. VAD Parameters (Speech Detection):
   - min_silence_duration_ms (Currently 1000ms):
