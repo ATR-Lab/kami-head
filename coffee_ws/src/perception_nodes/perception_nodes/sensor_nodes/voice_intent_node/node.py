@@ -375,7 +375,7 @@ class VoiceIntentNode(Node):
                         # self.get_logger().info(f"Transcribed text: {transcription}")
                         # Add to LLM queue if it ends with punctuation or is long enough
                         if transcription.strip().endswith(('.', '!', '?')) or len(transcription.split()) > 5:
-                            self.get_logger().info(f"Transcribed text: {transcription}")
+                            self.get_logger().info(f">> ENDING utterance text: {transcription}")
                             # self._add_to_llm_queue(transcription, "End punctuation detected")
                 except Exception as e:
                     self.get_logger().error(f"ASR processing error: {e}")
@@ -402,7 +402,11 @@ class VoiceIntentNode(Node):
                 #     f"    Peak: {after_mem['ram_peak']:.1f}MB\n" \
                 #     f"  Cache: {after_cache:.1f}MB"
                 # )
-                
+                # Log transcription if we got one
+                if transcription:
+                    self.get_logger().info(f">> UTTERANCE text: {transcription}")
+
+
                 # Memory cleanup and logging
                 self.memory_manager.cleanup_memory()
                 
