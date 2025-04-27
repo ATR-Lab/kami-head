@@ -8,6 +8,14 @@ from coffee_expressions_msgs.msg import AffectiveState
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 import time
 from typing import Dict, Optional, Set
+from shared_configs.shared_configs import (
+    EMOTION_TOPIC,
+    FACE_POSITION_TOPIC,
+    VOICE_INTENT_TOPIC,
+    EVENT,
+    STATE_MANAGER_AFFECTIVE_STATE_TOPIC,
+    DIAGNOSTICS
+)
 
 
 class StateManagerNode(Node):
@@ -39,7 +47,6 @@ class StateManagerNode(Node):
 
         # Load parameters with default values
         self.declare_parameter('idle_timeout', 5.0)
-        # self.declare_parameter('publish_rate', 0.1)  # 10Hz
         self.declare_parameter('publish_rate', 0.01)  # 10Hz
         self.declare_parameter('default_expression', 'Neutral')
 
@@ -59,22 +66,20 @@ class StateManagerNode(Node):
 
         # Subscribers
         self.create_subscription(
-            String, '/vision/emotion', self.vision_callback, qos)
+            String, EMOTION_TOPIC, self.vision_callback, qos)
         self.create_subscription(
-            String, '/voice/intent', self.voice_callback, qos)
-        # self.create_subscription(
-        #     Point, '/vision/face_position', self.face_position_callback, qos)
+            String, VOICE_INTENT_TOPIC, self.voice_callback, qos)
         self.create_subscription(
-            String, '/vision/face_position_v2', self.face_position_callback_v2, qos)
+            String, FACE_POSITION_TOPIC, self.face_position_callback_v2, qos)
 
         self.create_subscription(
-            String, '/system/event', self.event_callback, qos)
+            String, EVENT, self.event_callback, qos)
 
         # Publishers
         self.state_pub = self.create_publisher(
-            AffectiveState, '/robot/affective_state', qos)
+            AffectiveState, STATE_MANAGER_AFFECTIVE_STATE_TOPIC, qos)
         self.diagnostics_pub = self.create_publisher(
-            String, '/robot/state_manager/diagnostics', qos)
+            String, DIAGNOSTICS, qos)
 
         # Main loop timer
         period = self.get_parameter('publish_rate').value
