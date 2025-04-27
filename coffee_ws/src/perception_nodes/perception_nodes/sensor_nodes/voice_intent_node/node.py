@@ -98,6 +98,32 @@ class VoiceIntentNode(Node):
                 description='Whisper model size (tiny, base, small, medium, large, turbo)'
             )
         )
+        
+        # VAD parameters
+        self.declare_parameter(
+            'use_vad',
+            False,
+            ParameterDescriptor(
+                type=ParameterType.PARAMETER_BOOL,
+                description='Enable Voice Activity Detection for better speech segmentation'
+            )
+        )
+        self.declare_parameter(
+            'vad_silence_duration',
+            500,
+            ParameterDescriptor(
+                type=ParameterType.PARAMETER_INTEGER,
+                description='Milliseconds of silence to consider speech ended'
+            )
+        )
+        self.declare_parameter(
+            'chunk_size',
+            1920,
+            ParameterDescriptor(
+                type=ParameterType.PARAMETER_INTEGER,
+                description='Size of audio chunks for VAD (120ms at 16kHz)'
+            )
+        )
         self.declare_parameter(
             'language', 
             'en', 
@@ -163,6 +189,16 @@ class VoiceIntentNode(Node):
             )
         )
         
+        # Wake phrase parameter
+        self.declare_parameter(
+            'wake_phrase',
+            'buddy',
+            ParameterDescriptor(
+                type=ParameterType.PARAMETER_STRING,
+                description='Wake phrase to listen for'
+            )
+        )
+        
         # LLM classification parameters
         self.declare_parameter(
             'llm_model', 
@@ -201,6 +237,14 @@ class VoiceIntentNode(Node):
         self.verbose_logging = self.get_parameter('verbose_logging').value
         self.gpu_memory_monitoring = self.get_parameter('gpu_memory_monitoring').value
         self.memory_cleanup_interval = self.get_parameter('memory_cleanup_interval').value
+        self.wake_phrase = self.get_parameter('wake_phrase').value
+        
+        # VAD parameters
+        self.use_vad = self.get_parameter('use_vad').value
+        self.vad_silence_duration = self.get_parameter('vad_silence_duration').value
+        self.chunk_size = self.get_parameter('chunk_size').value
+        self.wake_phrase = self.get_parameter('wake_phrase').value
+
         
         # LLM parameters
         self.llm_model = self.get_parameter('llm_model').value
@@ -257,8 +301,11 @@ class VoiceIntentNode(Node):
                 language=self.language,
                 device_type=self.device_type,
                 compute_type=self.compute_type,
-                wake_phrase='buddy',
-                verbose=self.verbose_logging
+                wake_phrase=self.wake_phrase,
+                verbose=self.verbose_logging,
+                use_vad=self.use_vad,
+                vad_silence_duration=self.vad_silence_duration,
+                chunk_size=self.chunk_size
             )
             self.asr_manager.set_timeout_segments(self.timeout_segments)
             self.get_logger().info("ASR manager initialized")

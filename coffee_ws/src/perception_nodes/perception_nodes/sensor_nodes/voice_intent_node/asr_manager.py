@@ -11,6 +11,7 @@ import os
 import re
 import time
 import logging
+import sys
 import argparse
 import numpy as np
 
@@ -38,25 +39,38 @@ class ASRManager:
     """
     
     def __init__(self, model_size='base', language='en', device_type='cuda', 
-                 compute_type='int8', wake_phrase='buddy', verbose=True):
+                 compute_type='int8', wake_phrase='buddy', verbose=True,
+                 use_vad=False, vad_silence_duration=500, chunk_size=1920,
+                 logfile=sys.stderr):
         """
         Initialize the ASR manager.
-        
+
         Args:
-            model_size (str): Whisper model size (tiny, base, small, medium, large)
-            language (str): Language for transcription (en, auto, etc.)
-            device_type (str): Device type used for inference (cuda, cpu, mps)
-            compute_type (str): Compute type used for inference (float16, int8_float16, int8, float32)
+            language (str, optional): Language code. Defaults to "en".
+            model_size (str, optional): Model size. Defaults to "base".
+            device_type (str, optional): Device type. Defaults to "cpu".
+            compute_type (str, optional): Compute type. Defaults to "int8".
+            use_vad (bool, optional): Whether to use Voice Activity Detection. Defaults to False.
+            vad_silence_duration (int, optional): Duration of silence in ms to consider speech ended. Defaults to 500.
+            chunk_size (int, optional): Size of audio chunks for VAD. Defaults to 1920 (120ms at 16kHz).
+            logfile (file, optional): Log file. Defaults to sys.stderr.
             wake_phrase (str): Wake phrase to listen for
             verbose (bool): Whether to log detailed information
+            use_vad (bool, optional): Whether to use Voice Activity Detection. Defaults to False.
+            vad_silence_duration (int, optional): Duration of silence in ms to consider speech ended. Defaults to 500.
+            chunk_size (int, optional): Size of audio chunks for VAD. Defaults to 1920 (120ms at 16kHz).
         """
         if not WHISPER_STREAMING_AVAILABLE:
             raise ImportError("whisper_streaming module is not available")
         
-        self.model_size = model_size
         self.language = language
+        self.modelsize = model_size
         self.device_type = device_type
         self.compute_type = compute_type
+        self.use_vad = use_vad
+        self.vad_silence_duration = vad_silence_duration
+        self.chunk_size = chunk_size
+        self.logfile = logfile
         self.wake_phrase = wake_phrase
         self.verbose = verbose
         
@@ -74,7 +88,7 @@ class ASRManager:
         self.ensure_model_downloaded()
         
         # Initialize the model
-        self.init_asr()
+        self._init_processor()
     
     def ensure_model_downloaded(self):
         """
@@ -89,18 +103,18 @@ class ASRManager:
         try:
             # Don't just check if file exists - actually try to load it
             import whisper
-            logger.info(f'Attempting to load Whisper model {self.model_size}')
+            logger.info(f'Attempting to load Whisper model {self.modelsize}')
             try:
-                whisper.load_model(self.model_size)
-                logger.info(f'Whisper model {self.model_size} loaded successfully')
+                whisper.load_model(self.modelsize)
+                logger.info(f'Whisper model {self.modelsize} loaded successfully')
                 return True
             except Exception as e:
                 logger.error(f'Error loading Whisper model: {str(e)}')
                 logger.info(f'Attempting to download/re-download the model')
                 try:
                     # Force re-download by using download parameter
-                    whisper.load_model(self.model_size, download=True)
-                    logger.info(f'Successfully downloaded Whisper model {self.model_size}')
+                    whisper.load_model(self.modelsize, download=True)
+                    logger.info(f'Successfully downloaded Whisper model {self.modelsize}')
                     return True
                 except Exception as e:
                     logger.error(f'Failed to download Whisper model: {str(e)}')
@@ -109,65 +123,43 @@ class ASRManager:
             logger.error('Whisper not available. Please install it with pip install openai-whisper')
             return False
     
-    def init_asr(self):
-        """
-        Initialize the ASR processor.
-        
-        Returns:
-            bool: True if initialization was successful, False otherwise
-        """
-        logger.info("Starting ASR initialization")
-        
-        # Create parser with Whisper options
-        parser = argparse.ArgumentParser()
-        add_shared_args(parser)
-        
-        # Use parse_known_args instead of parse_args to ignore ROS2 arguments
-        args, _ = parser.parse_known_args()
-        
-        # Override parameters with provided parameters
-        args.model = self.model_size
-        args.lan = self.language
-        args.min_chunk_size = 2.0  # Process at least 2 seconds of audio
-        args.buffer_trimming_sec = 10  # Reduced from 30s to prevent memory accumulation
-        args.vad = True  # Voice activity detection
-        args.backend = 'faster-whisper'  # Use faster-whisper for better performance
-        args.buffer_trimming = 'sentence'  # Trim at sentence boundaries
-        
-        # Track model state size
-        self.last_inference_time = time.time()
-        self.total_audio_processed = 0
-        
-        # Add device_type and compute_type for WhisperModel initialization
-        args.device_type = self.device_type
-        args.compute_type = self.compute_type
-        
-        logger.info(f'Initializing Whisper ASR with model {self.model_size} and language {self.language}')
-        logger.info(f'Using device type: {self.device_type}, compute type: {self.compute_type}')
-        
-        # Initialize ASR components
+    def _init_processor(self):
+        """Initialize the ASR processor."""
         try:
-            logger.info("Creating ASR factory")
-            self.asr, self.processor = asr_factory(args)
-            self.processor.buffer_trimming_way = 'sentence'  # Ensure sentence-based trimming
+            # Create ASR instance
+            args = SimpleNamespace(
+                model=self.modelsize,
+                model_dir=None,
+                cache_dir=None,
+                device=self.device_type,
+                compute_type=self.compute_type,
+                lan=self.language,
+                log_level="ERROR"
+            )
+
+            # Create ASR instance
+            self.asr, base_processor = asr_factory(args, logfile=self.logfile)
             
-            # Ensure tokenizer is properly initialized
-            if not hasattr(self.processor, 'tokenizer'):
-                from mosestokenizer import MosesTokenizer
-                self.processor.tokenizer = MosesTokenizer(self.language)
-                
-            logger.info("ASR factory created successfully")
+            if self.use_vad:
+                # Initialize VAD-enabled processor
+                from ..utils.whisper_streaming.whisper_online import VACOnlineASRProcessor
+                self.processor = VACOnlineASRProcessor(
+                    chunk_size=self.chunk_size,
+                    asr=self.asr,
+                    tokenizer=None,  # Will be initialized on first use
+                    buffer_trimming=("segment", 15),
+                    logfile=self.logfile
+                )
+                logger.info("ASR processor initialized with VAD")
+            else:
+                # Use base processor without VAD
+                self.processor = base_processor
+                logger.info("ASR processor initialized without VAD")
             
-            # Warm up the model with a small audio chunk to make first inference faster
-            logger.info("Warming up the ASR model")
-            dummy_audio = np.zeros(1600, dtype=np.float32)  # 0.1 seconds of silence
-            self.asr.transcribe(dummy_audio)
-            self.processor.init()
-            logger.info("ASR model warm-up completed")
-            return True
+            logger.info("ASR processor initialized successfully")
         except Exception as e:
-            logger.error(f"Error during ASR initialization: {str(e)}")
-            return False
+            logger.error(f"Error initializing ASR processor: {e}")
+            self.processor = None
     
     def get_model_cache_size(self):
         """Get the current model cache size in MB."""
