@@ -3,7 +3,7 @@
 """
 This node is responsible for generating a behavior response based on the user's intent and prompt.
 
-It uses the Atoma API to generate a response.
+It uses the OpenAI API to generate a response.
 """
 
 import os
@@ -22,9 +22,8 @@ from shared_configs import (
     LANGUAGE_MODEL_PROCESSOR_STATUS_TOPIC
 )
 from coffee_buddy_msgs.srv import GenerateBehaviorResponse
-from coffee_interfaces.srv import AtomaChatService
-from atoma_sdk import AtomaSDK
-from atoma_sdk.models import ChatCompletionMessage
+from coffee_interfaces.srv import AtomaChatService, DispenseCoffee
+from openai import OpenAI
 from rclpy.action import ActionServer
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 
@@ -57,17 +56,30 @@ class LanguageModelProcessorNode(Node):
         ]
 
         # Declare parameters
-        self.declare_parameter('model', 'Infermatic/Llama-3.3-70B-Instruct-FP8-Dynamic')
+        self.declare_parameter('model', 'gpt-4o')
         self.model = self.get_parameter('model').get_parameter_value().string_value
 
-        # Initialize Atoma SDK client
-        api_key = os.environ.get('ATOMA_API_KEY')
+        # Initialize OpenAI client
+        api_key = os.environ.get('OPENAI_API_KEY')
         if not api_key:
-            self.get_logger().error("ATOMA_API_KEY environment variable not set")
-            raise ValueError("ATOMA_API_KEY environment variable is required, refer to the README for more information")
+            self.get_logger().error("OPENAI_API_KEY environment variable not set")
+            raise ValueError("OPENAI_API_KEY environment variable is required, refer to the README for more information")
         
-        self.atoma_client = AtomaSDK(bearer_auth=api_key)
-        self.get_logger().info(f"Atoma SDK initialized with model: {self.model}")
+        self.openai_client = OpenAI(api_key=api_key)
+        self.get_logger().info(f"OpenAI client initialized with model: {self.model}")
+
+        # Create coffee dispenser service client
+        self.coffee_client = self.create_client(
+            DispenseCoffee, 
+            'dispense_coffee',
+            callback_group=self.service_group
+        )
+        
+        # Wait for the coffee service to become available
+        while not self.coffee_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Coffee dispenser service not available, waiting...')
+        
+        self.get_logger().info('Coffee dispenser service connected')
 
         self.status_pub = self.create_publisher(
             String, LANGUAGE_MODEL_PROCESSOR_STATUS_TOPIC, 10)
@@ -80,17 +92,33 @@ class LanguageModelProcessorNode(Node):
             callback_group=self.service_group
         )
         
-        # Create the Atoma chat service
+        # Create the chat service
         self.create_service(
             AtomaChatService,
             'atoma_chat',
-            self.atoma_chat_callback,
+            self.chat_callback,
             callback_group=self.service_group
         )
 
         # Status update timer (1Hz)
         self.status_timer = self.create_timer(
             1.0, self.publish_status, callback_group=self.timer_group)
+        
+        # Define functions for function calling
+        self.functions = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "make_espresso",
+                    "description": "Dispense an espresso from the coffee machine",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
+            }
+        ]
         
         self.get_logger().info("Language model processor node initialized and ready")
 
@@ -130,6 +158,8 @@ class LanguageModelProcessorNode(Node):
                 "Never mention that you're a robot or AI - just have a natural conversation. "
                 "Don't end every response with a question. "
                 "Keep your responses brief (1-2 sentences maximum). \n\n"
+                "You have access to a function that lets you make an espresso. Use this function when someone asks for coffee or espresso. "
+                "Make sure to respond conversationally first before making coffee.\n\n"
                 "Goal: Your output should be a JSON object with the following fields: "
                 "    response: The response text to be said using a TTS engine. \n"
                 "    emotion: The emotion the robot should have (use for state management and animation). \n"
@@ -140,21 +170,23 @@ class LanguageModelProcessorNode(Node):
             # Create user prompt with context
             user_prompt = f"Intent: {intent_name}\nUser said: {prompt_text}\n\nRespond only with a JSON object:"
             
-            # Make API request to Atoma
-            api_response = self.atoma_client.chat.create(
+            # Make API request to OpenAI
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "Buddy, thank you for the coffee!"},
+                {"role": "assistant", "content": "{\"response\": \"You're welcome!\", \"emotion\": \"Happy\"}"},
+                {"role": "user", "content": "Buddy, I'm feeling sad today."},
+                {"role": "assistant", "content": "{\"response\": \"I'm sorry to hear that.\", \"emotion\": \"Sad\"}"},
+                {"role": "user", "content": "Buddy, what's the color of my shirt?"},
+                {"role": "assistant", "content": "{\"response\": \"Your shirt is blue.\", \"emotion\": \"Curious\"}"},
+                {"role": "user", "content": "Buddy, can you make me a coffee, please?"},
+                {"role": "assistant", "content": "{\"response\": \"Sure, I'll make you a coffee.\", \"emotion\": \"Happy\"}"},
+                {"role": "user", "content": user_prompt}
+            ]
+
+            api_response = self.openai_client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    ChatCompletionMessage(role="system", content=system_prompt),
-                    ChatCompletionMessage(role="user", content="Buddy, thank you for the coffee!"),
-                    ChatCompletionMessage(role="assistant", content="{\"response\": \"You're welcome!\", \"emotion\": \"Happy\"}"),
-                    ChatCompletionMessage(role="user", content="Buddy, I'm feeling sad today."),
-                    ChatCompletionMessage(role="assistant", content="{\"response\": \"I'm sorry to hear that.\", \"emotion\": \"Sad\"}"),
-                    ChatCompletionMessage(role="user", content="Buddy, what's the color of my shirt?"),
-                    ChatCompletionMessage(role="assistant", content="{\"response\": \"Your shirt is blue.\", \"emotion\": \"Curious\"}"),
-                    ChatCompletionMessage(role="user", content="Buddy, can you make me a coffee, please?"),
-                    ChatCompletionMessage(role="assistant", content="{\"response\": \"Sure, I'll make you a coffee.\", \"emotion\": \"Happy\"}"),
-                    ChatCompletionMessage(role="user", content=user_prompt)
-                ],
+                messages=messages,
                 max_tokens=200,
                 temperature=0.7
             )
@@ -169,7 +201,7 @@ class LanguageModelProcessorNode(Node):
 
                 # Check if the response and emotion are valid
                 if not response_json.get('response') or not response_json.get('emotion'):
-                    self.get_logger().error("Invalid JSON response from Atoma")
+                    self.get_logger().error("Invalid JSON response from OpenAI")
                     return response
 
                 # Extract the response and emotion
@@ -182,14 +214,14 @@ class LanguageModelProcessorNode(Node):
 
                 return response
             except json.JSONDecodeError:
-                self.get_logger().error("Invalid JSON response from Atoma")
+                self.get_logger().error("Invalid JSON response from OpenAI")
                 return response
         except Exception as e:
             self.get_logger().error(f"Error in behavior response generation: {e}")
             return response
             
-    def atoma_chat_callback(self, request, response):
-        """Handle Atoma chat service requests."""
+    def chat_callback(self, request, response):
+        """Handle chat service requests."""
         try:
             self.get_logger().info(f"Received chat request with prompt: {request.prompt}")
             
@@ -202,35 +234,111 @@ class LanguageModelProcessorNode(Node):
             if len(self.conversation_history) > 13:
                 self.conversation_history = self.conversation_history[:1] + self.conversation_history[-12:]
             
-            # Convert conversation history to ChatCompletionMessage objects
-            messages = [ChatCompletionMessage(**msg) for msg in self.conversation_history]
-            
-            # Make API request to Atoma
-            self.get_logger().info(f"Making Atoma API request with model: {self.model}")
-            try:
-                api_response = self.atoma_client.chat.create(
-                    messages=messages,
-                    model=self.model,
-                    temperature=0.7,
-                    max_tokens=100
+            # Update system message with function calling info
+            system_message = {
+                "role": "system",
+                "content": (
+                    "You are BrewBot, a friendly coffee robot assistant. "
+                    "You're warm, conversational, and curious about people. "
+                    "Your responses should be natural, brief (1-2 sentences max), and conversational. "
+                    "Avoid long explanations or formal language. Talk like a person, not an assistant. "
+                    "Never mention that you're a robot or AI - just have a natural conversation. "
+                    "\n\n"
+                    "You have the ability to make espresso. If a user asks for coffee or espresso, "
+                    "you should use the make_espresso function to dispense espresso."
                 )
-                self.get_logger().info("Atoma API request successful")
+            }
+            
+            # Replace the system message
+            messages = [system_message] + self.conversation_history[1:]
+            
+            # Make API request to OpenAI with function calling
+            self.get_logger().info(f"Making OpenAI API request with model: {self.model}")
+            try:
+                api_response = self.openai_client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=200,
+                    tools=self.functions,
+                    tool_choice="auto"
+                )
+                self.get_logger().info("OpenAI API request successful")
             except Exception as api_error:
-                self.get_logger().error(f"Atoma API request failed with error: {str(api_error)}")
+                self.get_logger().error(f"OpenAI API request failed with error: {str(api_error)}")
                 raise
             
-            # Get response text
-            response_text = api_response.choices[0].message.content.strip()
+            # Get message from response
+            message = api_response.choices[0].message
+            response_text = message.content or ""
             
-            # Add assistant response to conversation history
-            self.conversation_history.append({"role": "assistant", "content": response_text})
+            self.get_logger().info(f"DEBUG: OpenAI response message: {message}")
             
-            # Set response
-            response.response = response_text
-            response.success = True
-            response.error = ""
+            # Check for function calls by inspecting tool_calls
+            if hasattr(message, 'tool_calls') and message.tool_calls:
+                self.get_logger().info(f"Function call detected in response")
+                for tool_call in message.tool_calls:
+                    if tool_call.function.name == "make_espresso":
+                        # Call the coffee dispenser service
+                        self.get_logger().info("Calling make_espresso function")
+                        
+                        # Create the request
+                        coffee_request = DispenseCoffee.Request()
+                        coffee_request.beverage_type = "espresso"
+                        
+                        # Call service
+                        coffee_future = self.coffee_client.call_async(coffee_request)
+                        
+                        # Wait for response (using a simple polling approach for now)
+                        import time
+                        for _ in range(5):  # Try for 5 seconds
+                            rclpy.spin_once(self, timeout_sec=1.0)
+                            if coffee_future.done():
+                                break
+                            time.sleep(1.0)
+                        
+                        # Check result
+                        if coffee_future.done():
+                            coffee_response = coffee_future.result()
+                            if coffee_response.success:
+                                # Espresso is being made
+                                if response_text:
+                                    response_text += " I'm making your espresso now."
+                                else:
+                                    response_text = "I'm making your espresso now."
+                                self.get_logger().info("Espresso dispensing started successfully")
+                            else:
+                                # Espresso couldn't be made
+                                if response_text:
+                                    response_text += f" I couldn't make your espresso: {coffee_response.message}"
+                                else:
+                                    response_text = f"I couldn't make your espresso: {coffee_response.message}"
+                                self.get_logger().error(f"Failed to dispense espresso: {coffee_response.message}")
+                        else:
+                            # Service call timed out
+                            if response_text:
+                                response_text += " I tried to make your espresso, but the coffee machine didn't respond."
+                            else:
+                                response_text = "I tried to make your espresso, but the coffee machine didn't respond."
+                            self.get_logger().error("Coffee dispenser service call timed out")
             
-            self.get_logger().info(f"Chat response generated: {response_text}")
+            # Get the final response text
+            if response_text.strip():
+                # Add assistant response to conversation history
+                self.conversation_history.append({"role": "assistant", "content": response_text})
+                
+                # Set response
+                response.response = response_text
+                response.success = True
+                response.error = ""
+                
+                self.get_logger().info(f"Chat response generated: {response_text}")
+            else:
+                # No response text, this shouldn't happen
+                response.response = "I'm not sure how to respond to that."
+                response.success = False
+                response.error = "Empty response from language model"
+                self.get_logger().error("Empty response from language model")
             
         except Exception as e:
             self.get_logger().error(f"Error in chat response generation: {e}")

@@ -1,0 +1,7 @@
+# Request - beverage type to dispense
+string beverage_type  # Currently only "espresso" is supported
+
+---
+# Response - result of dispensing operation
+bool success          # Whether dispensing was successful
+string message        # Additional information or error message 

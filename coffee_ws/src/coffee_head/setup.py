@@ -29,6 +29,7 @@ setup(
             'eye_tracking = coffee_head.eye_tracking:main',
             'face_recognition = coffee_head.face_recognition_node:main',
             'read_write_coffee = coffee_head.read_write_coffee:main',
+            'coffee_dispenser_node = coffee_head.coffee_dispenser_node:main',
         ],
     },
 )
