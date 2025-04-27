@@ -20,7 +20,9 @@ setup(
     maintainer_email='kpatch@todo.todo',
     description='TODO: Package description',
     license='TODO: License declaration',
-    tests_require=['pytest'],
+    extras_require={
+        'test': ['pytest'],
+    },
     entry_points={
         'console_scripts': [
             'camera_node = coffee_head.camera_node:main',

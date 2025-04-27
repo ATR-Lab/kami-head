@@ -35,9 +35,9 @@ mosestokenizer==1.0.0
 regex==2024.11.6
 
 # UI and visualization 
-PyQt5==5.15.11
+# PyQt5==5.15.11
 pygame==2.6.1
-pyqtgraph==0.13.7
+# pyqtgraph==0.13.7
 
 # Utility libraries
 tqdm==4.67.1

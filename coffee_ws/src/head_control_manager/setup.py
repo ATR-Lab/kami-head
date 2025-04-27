@@ -17,7 +17,9 @@ setup(
     maintainer_email='irvsteve@gmail.com',
     description='Head control manager for coordinating servo access',
     license='TODO: License declaration',
-    tests_require=['pytest'],
+    extras_require={
+        'test': ['pytest'],
+    },
     entry_points={
         'console_scripts': [
             'control_manager = head_control_manager.control_manager_node:main',

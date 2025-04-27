@@ -1,0 +1,7 @@
+# Audio processing
+elevenlabs==1.57.0
+pyaudio==0.2.14
+sounddevice==0.4.6
+soundfile==0.13.1
+wave==0.0.2
+pulsectl==23.5.2 

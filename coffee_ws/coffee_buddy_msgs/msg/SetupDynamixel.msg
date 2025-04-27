@@ -1,0 +1,1 @@
+int8 id  # The ID of the Dynamixel motor to setup

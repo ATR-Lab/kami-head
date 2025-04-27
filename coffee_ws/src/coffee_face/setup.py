@@ -21,7 +21,9 @@ setup(
     maintainer_email='kpatch@todo.todo',
     description='Coffee robot face display package',
     license='TODO: License declaration',
-    tests_require=['pytest'],
+    extras_require={
+        'test': ['pytest'],
+    },
     entry_points={
         'console_scripts': [
             'coffee_eyes = coffee_face.coffee_eyes:main',

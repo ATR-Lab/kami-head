@@ -24,7 +24,9 @@ setup(
     maintainer_email='Marcus@opendive.io',
     description='Perception input nodes for Coffee-Buddy',
     license='Apache-2.0',
-    tests_require=['pytest'],
+    extras_require={
+        'test': ['pytest'],
+    },
     entry_points={
         'console_scripts': [
             'llm_sensor_node = perception_nodes.sensor_nodes.llm_sensor_node.node:main',

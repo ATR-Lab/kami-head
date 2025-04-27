@@ -1,0 +1,8 @@
+# Utility libraries
+tqdm==4.67.1
+urllib3==2.4.0
+requests==2.32.3
+certifi==2025.1.31
+coloredlogs==15.0.1
+jsonpath-python==1.0.6
+humanfriendly==10.0 

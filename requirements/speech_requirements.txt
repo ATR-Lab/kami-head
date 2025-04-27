@@ -1,0 +1,8 @@
+# Speech recognition
+faster-whisper==1.1.1
+openai-whisper==20240930
+whisper==1.1.10
+ctranslate2==4.6.0
+ffmpeg-python==0.2.0
+librosa==0.11.0
+scipy==1.15.2 
