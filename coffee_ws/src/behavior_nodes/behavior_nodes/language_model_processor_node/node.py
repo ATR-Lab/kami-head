@@ -191,8 +191,12 @@ class LanguageModelProcessorNode(Node):
     def atoma_chat_callback(self, request, response):
         """Handle Atoma chat service requests."""
         try:
+            self.get_logger().info(f"Received chat request with prompt: {request.prompt}")
+            
             # Add user message to conversation history
             self.conversation_history.append({"role": "user", "content": request.prompt})
+            
+            self.get_logger().info(f"Current conversation history length: {len(self.conversation_history)}")
             
             # Trim conversation history if too long
             if len(self.conversation_history) > 13:
@@ -202,12 +206,18 @@ class LanguageModelProcessorNode(Node):
             messages = [ChatCompletionMessage(**msg) for msg in self.conversation_history]
             
             # Make API request to Atoma
-            api_response = self.atoma_client.chat.create(
-                messages=messages,
-                model=self.model,
-                temperature=0.7,
-                max_tokens=100
-            )
+            self.get_logger().info(f"Making Atoma API request with model: {self.model}")
+            try:
+                api_response = self.atoma_client.chat.create(
+                    messages=messages,
+                    model=self.model,
+                    temperature=0.7,
+                    max_tokens=100
+                )
+                self.get_logger().info("Atoma API request successful")
+            except Exception as api_error:
+                self.get_logger().error(f"Atoma API request failed with error: {str(api_error)}")
+                raise
             
             # Get response text
             response_text = api_response.choices[0].message.content.strip()
