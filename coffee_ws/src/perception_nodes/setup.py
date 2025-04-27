@@ -14,7 +14,11 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
     ],
-    install_requires=['setuptools'],
+    install_requires=[
+        'setuptools',
+        'torch',
+        'silero-vad',
+    ],
     zip_safe=True,
     maintainer='opendive-technologies',
     maintainer_email='Marcus@opendive.io',

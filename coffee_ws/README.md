@@ -47,6 +47,11 @@ ros2 run coffee_expressions_test_ui expressions_test_ui
 ros2 launch coffee_expressions_state_manager state_manager.launch.py
 
 ros2 run coffee_expressions_state_ui state_ui
+
+# Without VAD (default):
+ros2 launch perception_nodes voice_intent.launch.py
+# With VAD:
+ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=500
 ```
 
 **NOTE:** We define the location of `expressions.json` in the `setup.py` file inside `coffee_expressions` directory.
