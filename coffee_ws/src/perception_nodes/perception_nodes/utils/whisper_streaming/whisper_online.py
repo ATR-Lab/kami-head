@@ -640,7 +640,7 @@ class VACOnlineASRProcessor(OnlineASRProcessor):
     def __init__(self, online_chunk_size, *a, **kw):
         self.online_chunk_size = online_chunk_size
 
-        self.online = OnlineASRProcessor(*a, **kw)
+        self.online = OnlineASRProcessor(*a, buffer_trimming=("segment", online_chunk_size), **kw)
 
         # VAC:
         import torch
@@ -648,7 +648,7 @@ class VACOnlineASRProcessor(OnlineASRProcessor):
             repo_or_dir='snakers4/silero-vad',
             model='silero_vad'
         )
-        from silero_vad_iterator import FixedVADIterator
+        from .silero_vad_iterator import FixedVADIterator
         self.vac = FixedVADIterator(model)  # we use the default options there: 500ms silence, 100ms padding, etc.  
 
         self.logfile = self.online.logfile
