@@ -13,7 +13,8 @@ It includes functionality for:
 from .whisper_online import (
     asr_factory, set_logging, add_shared_args, 
     load_audio_chunk, load_audio, ASRBase, OnlineASRProcessor,
-    WhisperTimestampedASR, FasterWhisperASR, MLXWhisper, OpenaiApiASR
+    WhisperTimestampedASR, FasterWhisperASR, MLXWhisper, OpenaiApiASR,
+    VACOnlineASRProcessor
 )
 
 # Import server functionality

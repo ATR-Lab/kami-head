@@ -12,6 +12,7 @@ import re
 import time
 import logging
 import sys
+from types import SimpleNamespace
 import argparse
 import numpy as np
 
@@ -26,6 +27,9 @@ try:
     WHISPER_STREAMING_AVAILABLE = True
 except ImportError:
     WHISPER_STREAMING_AVAILABLE = False
+
+import logging
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +87,46 @@ class ASRManager:
         # Initialize ASR components
         self.asr = None
         self.processor = None
+        self.init_asr()
+
+    def init_asr(self):
+        """Initialize or reinitialize the ASR processor."""
+        try:
+            from perception_nodes.utils.whisper_streaming import FasterWhisperASR, VACOnlineASRProcessor, OnlineASRProcessor
+            
+            # Create the ASR object first
+            asr = FasterWhisperASR(
+                lan=self.language,
+                modelsize=self.modelsize,
+                device_type=self.device_type,
+                compute_type=self.compute_type,
+                logfile=sys.stderr
+            )
+            
+            # Enable VAD in the ASR model if needed
+            if self.use_vad:
+                asr.use_vad()
+            
+            if self.use_vad:
+                # VACOnlineASRProcessor expects chunk_size as first positional arg
+                # Convert vad_silence_duration from ms to seconds for online_chunk_size
+                online_chunk_size = self.vad_silence_duration / 1000
+                self.processor = VACOnlineASRProcessor(
+                    online_chunk_size,  # online_chunk_size in seconds
+                    asr                 # asr as second arg
+                )
+            else:
+                # OnlineASRProcessor expects asr as first positional arg
+                self.processor = OnlineASRProcessor(
+                    asr,              # asr as first arg
+                    logfile=sys.stderr,
+                    buffer_trimming=("segment", 15)
+                )
+            self.asr = self.processor
+            return True
+        except Exception as e:
+            logger.error(f"Error initializing ASR processor: {str(e)}")
+            return False
         
         # Check if model exists and download if needed
         self.ensure_model_downloaded()
