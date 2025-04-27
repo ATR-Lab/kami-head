@@ -9,13 +9,13 @@ import torch
 class VADIterator:
     def __init__(self,
                  model,
-                 threshold: float = 0.5,
+                 threshold: float = 0.4,
                  sampling_rate: int = 16000,
                 #  min_silence_duration_ms: int = 500,  # original value
                 #  speech_pad_ms: int = 100          # original value
-                 min_silence_duration_ms: int = 1000,  # 1 second silence threshold for better responsiveness
-                 speech_pad_ms: int = 800             # increased padding to maintain better
-                 #  min_silence_duration_ms: int = 2000,  # 2 second silence threshold for natural pauses
+                #  min_silence_duration_ms: int = 1000,  # 1 second silence threshold for better responsiveness
+                 speech_pad_ms: int = 800,             # increased padding to maintain better
+                 min_silence_duration_ms: int = 2000,  # 2 second silence threshold for natural pauses
                  #  speech_pad_ms: int = 1000            # 1 second padding for better context
                  ):
 

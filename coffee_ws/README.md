@@ -48,6 +48,30 @@ ros2 launch coffee_expressions_state_manager state_manager.launch.py
 
 ros2 run coffee_expressions_state_ui state_ui
 
+#Run with VAD -- 
+ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=1500
+
+# NOTES:
+1. VAD Parameters (Speech Detection):
+  - min_silence_duration_ms (Currently 1000ms):
+    - Controls how long silence must be detected before ending a speech segment
+    - Lower values (e.g., 500ms) = More aggressive segmentation, might split sentences
+    - Higher values (e.g., 2000ms) = More natural pauses, better for conversational speech
+    - Ideal: 1000-1500ms for command-based systems, as it balances responsiveness with natural speech patterns
+  - speech_pad_ms (Currently 800ms):
+    - Adds padding before/after detected speech to prevent word clipping
+    - Lower values = Tighter segments but risk cutting words
+    - Higher values = Safer but may include unwanted audio
+    - Ideal: 600-800ms as it provides enough context without excessive padding
+2. ASR Buffer Parameter:
+  - vad_silence_duration (Your setting: 500ms):
+    - Controls how often the ASR attempts to process accumulated audio
+    - Impact of increasing:
+      - Higher values (e.g., 1000ms+) = Fewer processing attempts, potentially more complete thoughts but higher latency
+      - Lower values (e.g., 500ms) = More frequent processing, lower latency but might get partial phrases
+    - Ideal: Should be less than or equal to min_silence_duration_ms to ensure ASR processes complete speech segments
+
+
 # Voice Activity Detection (VAD)
 
 The voice intent node supports Voice Activity Detection (VAD) using Silero VAD. This helps improve transcription accuracy by only processing audio when speech is detected.
