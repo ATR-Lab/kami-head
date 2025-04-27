@@ -48,10 +48,52 @@ ros2 launch coffee_expressions_state_manager state_manager.launch.py
 
 ros2 run coffee_expressions_state_ui state_ui
 
+# Voice Activity Detection (VAD)
+
+The voice intent node supports Voice Activity Detection (VAD) using Silero VAD. This helps improve transcription accuracy by only processing audio when speech is detected.
+
+## Configuration
+
+VAD can be enabled with the following parameters:
+
+```bash
 # Without VAD (default):
 ros2 launch perception_nodes voice_intent.launch.py
+
 # With VAD:
 ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=500
+```
+
+### VAD Parameters
+
+- `use_vad` (bool, default: false): Enable/disable VAD
+- `vad_silence_duration` (int, default: 500): Duration of silence in milliseconds before considering speech segment complete
+
+### Advanced VAD Configuration
+
+The VAD system uses the following internal parameters which can be tuned if needed:
+
+- `threshold` (float, default: 0.5): Speech detection threshold
+  - Higher values (0.6-0.7): More conservative, less false positives but might miss soft speech
+  - Lower values (0.3-0.4): More sensitive, catches soft speech but might trigger on background noise
+  - Tune based on environment noise level
+
+- `speech_pad_ms` (int, default: 100): Padding around detected speech in milliseconds
+  - Helps prevent cutting off word beginnings/endings
+  - Can be increased to 150-200ms if word clipping occurs
+  - Higher values trade off with responsiveness
+
+- `sampling_rate` (int, default: 16000): Audio sampling rate in Hz
+  - Standard rate for speech processing
+  - Compatible with both Silero VAD and Whisper
+
+### Buffer Management
+
+The system uses segment-based buffer management with the same duration as the VAD silence threshold. This ensures:
+- Reliable speech detection based on acoustic features
+- Low latency processing
+- Proper synchronization between VAD and transcription
+- Language-independent operation
 ```
 
 **NOTE:** We define the location of `expressions.json` in the `setup.py` file inside `coffee_expressions` directory.
