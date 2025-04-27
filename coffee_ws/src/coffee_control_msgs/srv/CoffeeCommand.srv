@@ -1,0 +1,7 @@
+# Request
+string action        # "make", "cancel", "cuplight", "sound", "energy_save"
+string parameter     # Parameter depending on action (e.g., "espresso", "on", "off")
+---
+# Response
+bool success
+string message
