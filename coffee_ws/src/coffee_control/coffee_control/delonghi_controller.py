@@ -5,6 +5,8 @@ import enum
 import logging
 import uuid
 from binascii import hexlify
+import platform
+import re
 import sys
 
 from bleak import BleakClient, BleakScanner
@@ -48,6 +50,22 @@ AMERICANO_OFF = [0x0d, 0x08, 0x83, 0xf0, 0x06, 0x02, 0x06, 0x18, 0x71]
 ESPRESSO2_ON = [0x0d, 0x0f, 0x83, 0xf0, 0x04, 0x01, 0x01, 0x00, 0x28, 0x02, 0x02, 0x00, 0x00, 0x06, 0xab, 0x53]
 ESPRESSO2_OFF = [0x0d, 0x08, 0x83, 0xf0, 0x04, 0x02, 0x06, 0x76, 0x11]
 
+# Additional commands
+BYTES_AUTOPOWEROFF_COMMAND = [
+    0x0d, 0x0b, 0x90, 0x0f, 0x00, 0x3e,
+    0x00, 0x00, 0x00, 0x00, 0x81, 0xe3
+]
+
+BYTES_WATER_HARDNESS_COMMAND = [
+    0x0d, 0x0b, 0x90, 0x0f, 0x00, 0x32,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+]
+
+BYTES_WATER_TEMPERATURE_COMMAND = [
+    0x0d, 0x0b, 0x90, 0x0f, 0x00, 0x3d,
+    0x00, 0x00, 0x00, 0x00, 0x6f, 0x31
+]
+
 # Status codes
 NOZZLE_STATE = {
     -1: 'UNKNOWN',
@@ -64,6 +82,34 @@ DEVICE_STATUS = {
     13: 'COFFEE_GROUNDS_CONTAINER_DETACHED',
     21: 'WATER_TANK_DETACHED',
 }
+
+# Status response patterns
+DEVICE_READY = [0xd0, 0x12, 0x75, 0x0f, 0x01, 0x05, 0x00, 0x00,
+                0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x9d, 0x61]
+
+DEVICE_TURNOFF = [0xd0, 0x12, 0x75, 0x0f, 0x01, 0x01, 0x00, 0x00,
+                  0x00, 0x00, 0x03, 0x64, 0x00, 0x00, 0x00, 0x00,
+                  0x00, 0xd6, 0x96]
+
+WATER_TANK_DETACHED = [0xd0, 0x12, 0x75, 0x0f, 0x01, 0x15, 0x00, 0x00,
+                       0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0xaa, 0x31]
+
+WATER_SHORTAGE = [0xd0, 0x12, 0x75, 0x0f, 0x01, 0x45, 0x00, 0x01, 0x00,
+                  0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2f, 0x64]
+
+COFFEE_GROUNDS_CONTAINER_DETACHED = [0xd0, 0x12, 0x75, 0x0f, 0x01, 0x0d, 0x00,
+                                     0x00, 0x00, 0x07, 0x00, 0x00,
+                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x86, 0xc9]
+
+COFFEE_GROUNDS_CONTAINER_FULL = [0xd0, 0x12, 0x75, 0x0f, 0x01, 0x05, 0x00,
+                                 0x02, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00,
+                                 0x00, 0x00, 0x00, 0x43, 0xd0]
+
+START_COFFEE = [0xd0, 0x12, 0x75, 0x0f, 0x01, 0x05, 0x00, 0x00,
+                0x00, 0x07, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x5c, 0xa7]
 
 
 class AvailableBeverage(enum.StrEnum):
@@ -353,3 +399,209 @@ class DelongiPrimadonna:
             self.connected = False
             _LOGGER.error('Unexpected error while sending command: %s', error, exc_info=True)
             return False
+
+
+async def main():
+    """Main function to demonstrate usage"""
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("Usage: python delonghi_controller.py <MAC_ADDRESS> [command] [option]")
+        print("Available commands: status, power, espresso, coffee, americano, long, doppio, hotwater, steam, cancel")
+        print("For power command, you can specify 'on' or 'off' as an option")
+        sys.exit(1)
+    
+    device_id = sys.argv[1]
+    command = sys.argv[2] if len(sys.argv) > 2 else "status"
+    option = sys.argv[3] if len(sys.argv) > 3 else None
+    
+    _LOGGER.info("Starting Delonghi controller with device ID: %s, command: %s, option: %s", 
+                device_id, command, option)
+    
+    # Create the coffee machine controller
+    coffee_machine = DelongiPrimadonna(device_id)
+    
+    try:
+        if command == "help":
+            print("Usage: python delonghi_controller.py <MAC_ADDRESS> [command] [option]")
+            print("Available commands:")
+            print("  status    - Get the current status of the coffee machine")
+            print("  power     - Toggle power (use 'on' or 'off' as option)")
+            print("  espresso  - Make an espresso")
+            print("  coffee    - Make a coffee")
+            print("  americano - Make an americano")
+            print("  long      - Make a long coffee")
+            print("  doppio    - Make a doppio")
+            print("  hotwater  - Dispense hot water")
+            print("  steam     - Activate steam")
+            print("  cancel    - Cancel current brewing")
+            return
+            
+        elif command == "status":
+            print(f"Attempting to connect to device: {device_id}")
+            
+            # Try to connect and get device name
+            connection_attempts = 0
+            max_attempts = 3
+            while connection_attempts < max_attempts:
+                connection_attempts += 1
+                try:
+                    print(f"Connection attempt {connection_attempts}/{max_attempts}...")
+                    name = await coffee_machine.get_device_name()
+                    if name:
+                        print(f"✓ Connected successfully to: {name}")
+                        break
+                    else:
+                        print("× Connection failed, retrying...")
+                        await asyncio.sleep(1)
+                except Exception as e:
+                    print(f"× Connection error: {e}")
+                    if connection_attempts < max_attempts:
+                        print("Retrying connection...")
+                        await asyncio.sleep(2)
+            
+            if not coffee_machine.connected:
+                print("Failed to connect to the coffee machine after multiple attempts.")
+                print("Please check:")
+                print("- The MAC address is correct")
+                print("- The coffee machine is powered on")
+                print("- Bluetooth is enabled on your device")
+                print("- You have the necessary permissions (try running with sudo on Linux)")
+                return
+            
+            # Request status update
+            print("Requesting device status...")
+            await coffee_machine.debug()
+            
+            # Wait for status updates to be received via notifications
+            print("Waiting for status updates (up to 60 seconds)...")
+            
+            # Wait up to 60 seconds for a response
+            max_wait_time = 60  # seconds
+            wait_interval = 2   # check every 2 seconds
+            waited_time = 0
+            
+            while waited_time < max_wait_time:
+                if coffee_machine._device_status:  # If we've received status data
+                    break
+                
+                # Print a waiting message every 10 seconds
+                if waited_time % 10 == 0 and waited_time > 0:
+                    print(f"Still waiting for response... ({waited_time} seconds elapsed)")
+                
+                await asyncio.sleep(wait_interval)
+                waited_time += wait_interval
+            
+            # Only display status information if we received data
+            if coffee_machine._device_status:
+                print("\n=== COFFEE MACHINE STATUS ===")
+                print(f"Device name: {coffee_machine.hostname}")
+                print(f"MAC address: {coffee_machine.mac}")
+                print(f"Model: {coffee_machine.model}")
+                print(f"Power state: {'ON' if coffee_machine.switches.is_on else 'OFF'}")
+                print(f"Machine status: {coffee_machine.status}")
+                print(f"Steam nozzle state: {coffee_machine.steam_nozzle}")
+                print(f"Currently brewing: {coffee_machine.cooking}")
+                print(f"Service value: {coffee_machine.service}")
+                print("\n=== SETTINGS ===")
+                print(f"Cup light: {'ON' if coffee_machine.switches.cup_light else 'OFF'}")
+                print(f"Energy save mode: {'ON' if coffee_machine.switches.energy_save else 'OFF'}")
+                print(f"Sound alerts: {'ON' if coffee_machine.switches.sounds else 'OFF'}")
+                print(f"\nRaw status data: {coffee_machine._device_status}")
+            else:
+                print("\nNo status data received after waiting 60 seconds.")
+                print("The machine may be powered off, in deep sleep mode, or not responding.")
+                print("Try sending a power command first: python delonghi_controller.py <MAC_ADDRESS> power")
+        
+        elif command == "power":
+            if option == "off":
+                # Power off is not directly supported, but we can cancel any brewing
+                await coffee_machine.beverage_cancel()
+                print("Cancelled brewing (note: machine may still be powered on)")
+            else:
+                await coffee_machine.power_on()
+                print("Power on command sent")
+                # Wait for status update
+                await asyncio.sleep(2)
+        
+        elif command == "espresso":
+            await coffee_machine.beverage_start(AvailableBeverage.ESPRESSO)
+            print("Making espresso")
+            coffee_machine.cooking = AvailableBeverage.ESPRESSO  # Update local state
+            # Wait for status update
+            await asyncio.sleep(2)
+        
+        elif command == "coffee":
+            await coffee_machine.beverage_start(AvailableBeverage.COFFEE)
+            print("Making coffee")
+            coffee_machine.cooking = AvailableBeverage.COFFEE  # Update local state
+            # Wait for status update
+            await asyncio.sleep(2)
+        
+        elif command == "americano":
+            await coffee_machine.beverage_start(AvailableBeverage.AMERICANO)
+            print("Making americano")
+            coffee_machine.cooking = AvailableBeverage.AMERICANO  # Update local state
+            # Wait for status update
+            await asyncio.sleep(2)
+        
+        elif command == "long":
+            await coffee_machine.beverage_start(AvailableBeverage.LONG)
+            print("Making long coffee")
+            coffee_machine.cooking = AvailableBeverage.LONG  # Update local state
+            # Wait for status update
+            await asyncio.sleep(2)
+        
+        elif command == "doppio":
+            await coffee_machine.beverage_start(AvailableBeverage.DOPIO)
+            print("Making doppio")
+            coffee_machine.cooking = AvailableBeverage.DOPIO  # Update local state
+            # Wait for status update
+            await asyncio.sleep(2)
+        
+        elif command == "hotwater":
+            await coffee_machine.beverage_start(AvailableBeverage.HOTWATER)
+            print("Dispensing hot water")
+            coffee_machine.cooking = AvailableBeverage.HOTWATER  # Update local state
+            # Wait for status update
+            await asyncio.sleep(2)
+        
+        elif command == "steam":
+            await coffee_machine.beverage_start(AvailableBeverage.STEAM)
+            print("Activating steam")
+            coffee_machine.cooking = AvailableBeverage.STEAM  # Update local state
+            # Wait for status update
+            await asyncio.sleep(2)
+        
+        elif command == "cancel":
+            await coffee_machine.beverage_cancel()
+            print("Cancelled brewing")
+            coffee_machine.cooking = AvailableBeverage.NONE  # Update local state
+            # Wait for status update
+            await asyncio.sleep(2)
+        
+        else:
+            print(f"Unknown command: {command}")
+            print("Available commands: status, power, espresso, coffee, americano, long, doppio, hotwater, steam, cancel")
+            print("Use 'help' command for more information")
+    
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        print("Use 'help' command for usage information")
+    
+    finally:
+        print("Disconnecting from coffee machine...")
+        await coffee_machine.disconnect()
+        print("Disconnected")
+
+
+if __name__ == "__main__":
+    # Set higher log level for debugging if needed
+    if len(sys.argv) > 1 and sys.argv[1] == "--debug":
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger('bleak').setLevel(logging.DEBUG)
+        sys.argv.pop(1)  # Remove the debug flag
+        
+    asyncio.run(main())
