@@ -46,6 +46,9 @@ ros2 run coffee_face coffee_eyes
 ros2 run coffee_expressions_test_ui expressions_test_ui
 ros2 launch coffee_expressions_state_manager state_manager.launch.py
 
+ros2 run dynamixel_sdk_examples read_write_node
+
+
 ros2 run coffee_expressions_state_ui state_ui
 
 #Run with VAD -- 
@@ -60,6 +63,26 @@ ros2 run coffee_control coffee_control_node --ros-args -p mac_address:=<your_mac
 # Or use the launch file (recommended)
 ros2 launch coffee_control coffee_control.launch.py  # Uses default MAC: 9C:95:6E:61:B6:2C
 ros2 launch coffee_control coffee_control.launch.py mac_address:=<your_machine_mac>
+```
+
+```
+# Make coffee
+ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'make', parameter: 'espresso'}"
+ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'make', parameter: 'coffee'}"
+ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'make', parameter: 'americano'}"
+
+# Cancel brewing
+ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'cancel', parameter: ''}"
+
+# Control cup light
+ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'cuplight', parameter: 'on'}"
+ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'cuplight', parameter: 'off'}"
+
+# Control sound
+ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'sound', parameter: 'on'}"
+
+# Get ALL Status
+ros2 service call /coffee_machine/get_status coffee_control_msgs/srv/MachineStatusRequest "{}"
 ```
 
 # NOTES:
