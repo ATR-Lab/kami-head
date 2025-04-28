@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """ROS2 node for controlling the Delonghi coffee machine"""
 import asyncio
+import concurrent.futures
+import threading
 from functools import partial
 import rclpy
 from rclpy.node import Node
@@ -48,8 +50,8 @@ class CoffeeControlNode(Node):
             callback_group=cb_group
         )
         
-        # Initialize event loop for async operations
-        self.loop = asyncio.get_event_loop()
+        # Thread pool for running async operations
+        self._thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         
         self.get_logger().info('Coffee control node is ready')
 
@@ -57,18 +59,24 @@ class CoffeeControlNode(Node):
         """Handle incoming coffee command service requests"""
         self.get_logger().info(f'Received command: {request.action} with parameter: {request.parameter}')
         
-        # Run the command asynchronously
-        future = asyncio.run_coroutine_threadsafe(
-            self._execute_command(request.action, request.parameter),
-            self.loop
-        )
-        
         try:
+            # Create a new event loop for this command
+            loop = asyncio.new_event_loop()
+            
+            # Run the command in a separate thread with its own event loop
+            future = self._thread_pool.submit(
+                self._run_command,
+                loop,
+                request.action,
+                request.parameter
+            )
+            
             # Wait for command completion with timeout
-            success, message = future.result(timeout=10.0)
+            success, message = future.result(timeout=30.0)
             response.success = success
             response.message = message
-        except asyncio.TimeoutError:
+            
+        except concurrent.futures.TimeoutError:
             self.get_logger().error('Command timed out')
             response.success = False
             response.message = "Command timed out"
@@ -210,10 +218,20 @@ class CoffeeControlNode(Node):
             
         except BleakError as e:
             self.get_logger().debug(f'Bluetooth error during status check: {e}')
-            raise
-        except Exception as e:
-            self.get_logger().warning(f'Error getting status: {e}')
-            raise
+
+    def _run_command(self, loop, action, parameter):
+        """Run a command in its own event loop"""
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(self._execute_command(action, parameter))
+        finally:
+            loop.close()
+
+    def destroy_node(self):
+        """Clean up node resources"""
+        if hasattr(self, '_thread_pool'):
+            self._thread_pool.shutdown(wait=True)
+        super().destroy_node()
 
 def main(args=None):
     rclpy.init(args=args)
@@ -229,16 +247,6 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        # Clean up
-        future = asyncio.run_coroutine_threadsafe(
-            node.controller.disconnect(),
-            node.loop
-        )
-        try:
-            future.result(timeout=5.0)
-        except Exception as e:
-            node.get_logger().error(f'Error during disconnect: {e}')
-            
         node.destroy_node()
         rclpy.shutdown()
 
