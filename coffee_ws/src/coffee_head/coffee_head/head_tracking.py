@@ -7,7 +7,8 @@ import time
 import sys
 import cv2
 import json
-import math  # Added for vector calculations
+import math
+from enum import Enum, auto
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from coffee_expressions_msgs.msg import AffectiveState
@@ -74,6 +75,14 @@ class PIDController:
         
         return output
 
+
+class HeadState(Enum):
+    """Enum for head movement states"""
+    INITIALIZING = auto()
+    IDLE = auto()
+    TRACKING = auto()
+    SCANNING = auto()
+    MOVING = auto()
 
 class HeadTrackingSystem(QObject):
     """Head tracking system that controls pan/tilt motors to keep faces centered"""
@@ -214,11 +223,13 @@ class HeadTrackingSystem(QObject):
         self.last_pan_update_time = time.time()
         self.last_tilt_update_time = time.time()
         
-        # Read initial motor positions
-        self.read_motor_positions()
+        # State management
+        self.head_state = HeadState.INITIALIZING
+        self.previous_state = HeadState.IDLE
+        self.initialization_complete = False
         
-        # Set tilt to default position at startup
-        self.set_tilt_to_default()
+        # Read initial motor positions and wait for callback
+        self.read_motor_positions()
         
         # Last time we received face data
         self.last_face_data_time = time.time()
@@ -310,22 +321,39 @@ class HeadTrackingSystem(QObject):
     
     def enable_tracking(self, enabled):
         """Enable or disable tracking"""
+        if not self.initialization_complete:
+            self.node.get_logger().warn("Cannot enable tracking during initialization")
+            return
+            
         if enabled and not self.tracking_enabled:
+            if self.head_state == HeadState.MOVING:
+                self.node.get_logger().warn("Cannot enable tracking during movement")
+                return
+                
             # Reset PIDs when starting tracking
             self.pan_pid.reset()
             self.tilt_pid.reset()
             self.tracking_status.emit("Tracking enabled - waiting for face data")
+            self.head_state = HeadState.TRACKING
             # Start scanning if no faces detected
             self.start_scanning()
+            
         elif not enabled and self.tracking_enabled:
             self.tracking_status.emit("Tracking disabled")
             self.target_face = None
             self.stop_scanning()
+            self.head_state = HeadState.IDLE
         
         self.tracking_enabled = enabled
     
     def start_scanning(self):
         """Start scanning motion when no face is detected"""
+        if not self.initialization_complete:
+            return
+            
+        if self.head_state == HeadState.MOVING:
+            return
+            
         if not self.scanning and self.tracking_enabled:
             # Calculate initial phase offset based on current position
             center_angle = (self.pan_max_angle + self.pan_min_angle) / 2
@@ -427,18 +455,28 @@ class HeadTrackingSystem(QObject):
         """Process the response from the get_position service"""
         try:
             response = future.result()
-            position = response.position
-            angle = (position * self.degrees_per_position) % 360
+            positions_updated = False
             
             if motor_id == self.pan_motor_id:
-                self.current_pan_position = position
-                self.current_scan_angle = angle  # Update scan angle based on current position
-                self.node.get_logger().info(f'Pan motor position: {position} (angle: {angle:.1f}°)')
+                self.current_pan_position = response.position
+                self.node.get_logger().debug(f"Current pan position: {self.current_pan_position}")
+                positions_updated = True
             elif motor_id == self.tilt_motor_id:
-                self.current_tilt_position = position
-                self.node.get_logger().info(f'Tilt motor position: {position} (angle: {angle:.1f}°)')
-                
+                self.current_tilt_position = response.position
+                self.node.get_logger().debug(f"Current tilt position: {self.current_tilt_position}")
+                positions_updated = True
+            
+            # If we're initializing and both positions are read, start smooth movement
+            if positions_updated and self.head_state == HeadState.INITIALIZING:
+                if hasattr(self, 'current_pan_position') and hasattr(self, 'current_tilt_position'):
+                    self.initialization_complete = True
+                    self.start_smooth_movement(
+                        target_pan=self.default_pan_angle,
+                        target_tilt=self.default_tilt_angle,
+                        movement_duration=1.0
+                    )
         except Exception as e:
+            self.node.get_logger().error(f'Service call failed {e}')
             self.node.get_logger().error(f'Service call failed: {e}')
     
     def send_motor_command(self, motor_id, position):
@@ -934,17 +972,106 @@ class HeadTrackingSystem(QObject):
         self.frame_processed.emit(frame)
         return frame
     
+    def start_smooth_movement(self, target_pan=None, target_tilt=None, movement_duration=1.0):
+        """Start smooth movement to target position using timer-based updates"""
+        # Store previous state if not already moving
+        if self.head_state != HeadState.MOVING:
+            self.previous_state = self.head_state
+        
+        # Update current state
+        self.head_state = HeadState.MOVING
+        
+        # Stop any existing movement timer
+        if hasattr(self, 'movement_timer') and self.movement_timer:
+            self.movement_timer.cancel()
+            self.movement_timer.destroy()
+            self.movement_timer = None
+
+        # Store movement parameters
+        self.movement_start_time = time.time()
+        self.movement_duration = movement_duration
+        
+        # Get current angles
+        current_pan = (self.current_pan_position * self.degrees_per_position) % 360
+        current_tilt = (self.current_tilt_position * self.degrees_per_position) % 360
+        
+        # Store start and target positions
+        self.movement_start_pan = current_pan
+        self.movement_start_tilt = current_tilt
+        self.movement_target_pan = target_pan if target_pan is not None else current_pan
+        self.movement_target_tilt = target_tilt if target_tilt is not None else current_tilt
+        
+        # Create timer for smooth updates
+        self.movement_timer = self.node.create_timer(
+            0.02,  # 50Hz updates for smooth motion
+            self.update_smooth_movement
+        )
+        
+        self.node.get_logger().info(f"Starting smooth movement to pan:{target_pan}, tilt:{target_tilt}")
+
+    def update_smooth_movement(self):
+        """Update position during smooth movement using sine interpolation"""
+        current_time = time.time()
+        elapsed_time = current_time - self.movement_start_time
+        progress = min(1.0, elapsed_time / self.movement_duration)
+        
+        # Use sine interpolation for smooth acceleration/deceleration
+        smoothed_progress = (1 - math.cos(progress * math.pi)) / 2
+        
+        # Calculate current target angles
+        if self.movement_target_pan is not None:
+            current_pan = self.movement_start_pan + (self.movement_target_pan - self.movement_start_pan) * smoothed_progress
+            pan_position = int(current_pan * self.positions_per_degree)
+            self.send_motor_command(self.pan_motor_id, pan_position)
+        
+        if self.movement_target_tilt is not None:
+            current_tilt = self.movement_start_tilt + (self.movement_target_tilt - self.movement_start_tilt) * smoothed_progress
+            tilt_position = int(current_tilt * self.positions_per_degree)
+            self.send_motor_command(self.tilt_motor_id, tilt_position)
+        
+        # Check if movement is complete
+        if progress >= 1.0:
+            if self.movement_timer:
+                self.movement_timer.cancel()
+                self.movement_timer.destroy()
+                self.movement_timer = None
+            
+            # Restore previous state unless we're still initializing
+            if self.head_state == HeadState.MOVING:
+                if self.previous_state == HeadState.TRACKING:
+                    self.head_state = HeadState.TRACKING
+                    if not self.target_face:
+                        self.start_scanning()
+                elif self.previous_state == HeadState.SCANNING:
+                    self.head_state = HeadState.SCANNING
+                    self.start_scanning()
+                else:
+                    self.head_state = HeadState.IDLE
+            
+            self.node.get_logger().info(f"Smooth movement completed, restored state: {self.head_state.name}")
+
     def reset_head_position(self):
-        """Reset head to default position"""
-        # Convert default angles to positions
-        pan_position = int(self.default_pan_angle * self.positions_per_degree)
-        tilt_position = int(self.default_tilt_angle * self.positions_per_degree)
+        """Reset head to default position using smooth movement"""
+        if not self.initialization_complete:
+            self.node.get_logger().warn("Cannot reset position during initialization")
+            return
+            
+        # Store the current state before transitioning to moving
+        self.previous_state = self.head_state
         
-        # Send commands
-        self.send_motor_command(self.pan_motor_id, pan_position)
-        self.send_motor_command(self.tilt_motor_id, tilt_position)
+        # Stop any ongoing movement or scanning
+        if hasattr(self, 'movement_timer') and self.movement_timer:
+            self.movement_timer.cancel()
+            self.movement_timer.destroy()
+            self.movement_timer = None
         
-        # Reset scan angle
+        # Temporarily disable tracking and scanning
+        was_tracking = self.tracking_enabled
+        if was_tracking:
+            self.tracking_enabled = False
+        self.stop_scanning()
+        
+        # Reset internal targets
         self.current_scan_angle = self.default_pan_angle
         self.target_pan_angle = self.default_pan_angle
         self.target_tilt_angle = self.default_tilt_angle
@@ -953,7 +1080,19 @@ class HeadTrackingSystem(QObject):
         self.pan_pid.reset()
         self.tilt_pid.reset()
         
-        self.tracking_status.emit("Head position reset")
+        # Start smooth movement to default position
+        # Previous state will be restored in update_smooth_movement completion
+        self.start_smooth_movement(
+            target_pan=self.default_pan_angle,
+            target_tilt=self.default_tilt_angle,
+            movement_duration=1.0
+        )
+        
+        # Re-enable tracking if it was enabled
+        if was_tracking:
+            self.tracking_enabled = True
+        
+        self.tracking_status.emit("Moving to default position...")
 
 
 class HeadTrackingUI(QMainWindow):
