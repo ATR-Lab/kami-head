@@ -6,9 +6,11 @@ import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
+from bleak.exc import BleakError
 
 from coffee_control_msgs.srv import CoffeeCommand
 from coffee_control_msgs.msg import FunctionCall
+from coffee_control_msgs.srv import CoffeeCommand, MachineStatusRequest
 
 from coffee_control.delonghi_controller import DelongiPrimadonna, AvailableBeverage
 
@@ -38,27 +40,18 @@ class CoffeeControlNode(Node):
             callback_group=cb_group
         )
 
-        # Create status check timer
-        self.create_timer(5.0, self.check_status, callback_group=cb_group)
+        # Status service
+        self.status_srv = self.create_service(
+            MachineStatusRequest,
+            'coffee_machine/get_status',
+            self.handle_status_request,
+            callback_group=cb_group
+        )
         
         # Initialize event loop for async operations
         self.loop = asyncio.get_event_loop()
         
         self.get_logger().info('Coffee control node is ready')
-
-    async def connect(self):
-        """Connect to the coffee machine"""
-        try:
-            name = await self.controller.get_device_name()
-            if name:
-                self.get_logger().info(f'Connected to coffee machine: {name}')
-                return True
-            else:
-                self.get_logger().error('Failed to connect to coffee machine')
-                return False
-        except Exception as e:
-            self.get_logger().error(f'Error connecting to coffee machine: {e}')
-            return False
 
     def handle_command(self, request, response):
         """Handle incoming coffee command service requests"""
@@ -71,13 +64,16 @@ class CoffeeControlNode(Node):
         )
         
         try:
+            # Wait for command completion with timeout
             success, message = future.result(timeout=10.0)
             response.success = success
             response.message = message
         except asyncio.TimeoutError:
+            self.get_logger().error('Command timed out')
             response.success = False
             response.message = "Command timed out"
         except Exception as e:
+            self.get_logger().error(f'Error executing command: {e}')
             response.success = False
             response.message = f"Error executing command: {str(e)}"
         
@@ -86,75 +82,138 @@ class CoffeeControlNode(Node):
     async def _execute_command(self, action, parameter):
         """Execute a coffee machine command"""
         try:
-            # Ensure connection
-            if not self.controller.connected:
-                if not await self.connect():
-                    return False, "Failed to connect to coffee machine"
-
-            # Handle different commands
+            # Map ROS2 service actions to controller commands
             if action == "make":
                 try:
                     beverage = AvailableBeverage[parameter.upper()]
                     await self.controller.beverage_start(beverage)
+                    # Update local state
+                    self.controller.cooking = beverage
                     return True, f"Started making {parameter}"
                 except KeyError:
                     return False, f"Unknown beverage type: {parameter}"
+                except BleakError as e:
+                    return False, f"Failed to start {parameter}: {str(e)}"
                 
             elif action == "cancel":
-                await self.controller.beverage_cancel()
-                return True, "Cancelled brewing"
+                try:
+                    await self.controller.beverage_cancel()
+                    # Update local state
+                    self.controller.cooking = AvailableBeverage.NONE
+                    return True, "Cancelled brewing"
+                except BleakError as e:
+                    return False, f"Failed to cancel brewing: {str(e)}"
                 
             elif action == "cuplight":
-                if parameter == "on":
-                    await self.controller.cup_light_on()
-                    return True, "Cup light turned on"
-                elif parameter == "off":
-                    await self.controller.cup_light_off()
-                    return True, "Cup light turned off"
-                else:
-                    return False, "Invalid cup light parameter (use 'on' or 'off')"
+                try:
+                    if parameter == "on":
+                        await self.controller.cup_light_on()
+                        return True, "Cup light turned on"
+                    elif parameter == "off":
+                        await self.controller.cup_light_off()
+                        return True, "Cup light turned off"
+                    else:
+                        return False, "Invalid cup light parameter (use 'on' or 'off')"
+                except BleakError as e:
+                    return False, f"Failed to control cup light: {str(e)}"
                 
             elif action == "sound":
-                if parameter == "on":
-                    await self.controller.sound_alarm_on()
-                    return True, "Sound alerts enabled"
-                elif parameter == "off":
-                    await self.controller.sound_alarm_off()
-                    return True, "Sound alerts disabled"
-                else:
-                    return False, "Invalid sound parameter (use 'on' or 'off')"
+                try:
+                    if parameter == "on":
+                        await self.controller.sound_alarm_on()
+                        return True, "Sound alerts enabled"
+                    elif parameter == "off":
+                        await self.controller.sound_alarm_off()
+                        return True, "Sound alerts disabled"
+                    else:
+                        return False, "Invalid sound parameter (use 'on' or 'off')"
+                except BleakError as e:
+                    return False, f"Failed to control sound: {str(e)}"
                 
             elif action == "energy_save":
-                if parameter == "on":
-                    await self.controller.energy_save_on()
-                    return True, "Energy save mode enabled"
-                elif parameter == "off":
-                    await self.controller.energy_save_off()
-                    return True, "Energy save mode disabled"
-                else:
-                    return False, "Invalid energy save parameter (use 'on' or 'off')"
+                try:
+                    if parameter == "on":
+                        await self.controller.energy_save_on()
+                        return True, "Energy save mode enabled"
+                    elif parameter == "off":
+                        await self.controller.energy_save_off()
+                        return True, "Energy save mode disabled"
+                    else:
+                        return False, "Invalid energy save parameter (use 'on' or 'off')"
+                except BleakError as e:
+                    return False, f"Failed to control energy save mode: {str(e)}"
+            
+            elif action == "power":
+                try:
+                    if parameter == "off":
+                        await self.controller.beverage_cancel()
+                        # Update local state
+                        self.controller.cooking = AvailableBeverage.NONE
+                        return True, "Cancelled brewing (note: machine may still be powered on)"
+                    else:
+                        await self.controller.power_on()
+                        return True, "Power on command sent"
+                except BleakError as e:
+                    return False, f"Failed to control power: {str(e)}"
                     
             else:
                 return False, f"Unknown action: {action}"
                 
         except Exception as e:
-            self.get_logger().error(f'Error executing command: {e}')
+            self.get_logger().error(f'Unexpected error executing command: {e}')
             return False, str(e)
 
-    def check_status(self):
-        """Periodically check coffee machine status"""
-        if not self.controller.connected:
-            return
-            
+    def handle_status_request(self, request, response):
+        """Handle status request service calls"""
+        self.get_logger().info('Received status request')
+        
         # Run status check asynchronously
         future = asyncio.run_coroutine_threadsafe(
-            self.controller.debug(),
+            self._get_status(),
             self.loop
         )
+        
         try:
-            future.result(timeout=5.0)
+            # Wait for status with timeout
+            future.result(timeout=4.0)
+            
+            # Fill response with current state
+            response.device_name = self.controller.hostname
+            response.model = self.controller.model
+            response.status = self.controller.status
+            response.steam_nozzle = self.controller.steam_nozzle
+            response.current_beverage = self.controller.cooking
+            response.cup_light = self.controller.switches.cup_light
+            response.energy_save = self.controller.switches.energy_save
+            response.sound_enabled = self.controller.switches.sounds
+            
+        except asyncio.TimeoutError:
+            self.get_logger().error('Status request timed out')
         except Exception as e:
-            self.get_logger().warning(f'Status check failed: {e}')
+            self.get_logger().error(f'Error getting status: {e}')
+            
+        return response
+    
+    async def _get_status(self):
+        """Get current status from the coffee machine"""
+        try:
+            # Try to get device name first if we don't have it
+            if not self.controller.hostname:
+                name = await self.controller.get_device_name()
+                if name:
+                    self.get_logger().info(f'Connected to device: {name}')
+                else:
+                    self.get_logger().warning('Could not get device name')
+            
+            # Send debug command to get status
+            await self.controller.debug()
+            
+        except BleakError as e:
+            self.get_logger().debug(f'Bluetooth error during status check: {e}')
+            raise
+        except Exception as e:
+            self.get_logger().warning(f'Error getting status: {e}')
+            raise
 
 def main(args=None):
     rclpy.init(args=args)
