@@ -167,15 +167,18 @@ class CoffeeControlNode(Node):
         """Handle status request service calls"""
         self.get_logger().info('Received status request')
         
-        # Run status check asynchronously
-        future = asyncio.run_coroutine_threadsafe(
-            self._check_status(),
-            self.loop
-        )
-        
         try:
+            # Create a new event loop for this status request
+            loop = asyncio.new_event_loop()
+            
+            # Run the status check in a separate thread with its own event loop
+            future = self._thread_pool.submit(
+                self._run_status_check,
+                loop
+            )
+            
             # Wait for status with timeout
-            status = future.result(timeout=4.0)
+            status = future.result(timeout=10.0)
             
             # Fill response with current state
             if status:
@@ -188,17 +191,12 @@ class CoffeeControlNode(Node):
                 response.energy_save = status['energy_save']
                 response.sound_enabled = status['sound_enabled']
             else:
-                response.success = False
-                response.message = "Failed to get status"
+                self.get_logger().warning('Failed to get machine status')
                 
-        except asyncio.TimeoutError:
+        except concurrent.futures.TimeoutError:
             self.get_logger().error('Status request timed out')
-            response.success = False
-            response.message = "Status request timed out"
         except Exception as e:
             self.get_logger().error(f'Error getting status: {e}')
-            response.success = False
-            response.message = f"Error getting status: {str(e)}"
             
         return response
     
@@ -235,6 +233,14 @@ class CoffeeControlNode(Node):
         asyncio.set_event_loop(loop)
         try:
             return loop.run_until_complete(self._execute_command(action, parameter))
+        finally:
+            loop.close()
+            
+    def _run_status_check(self, loop):
+        """Run a status check in its own event loop"""
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(self._check_status())
         finally:
             loop.close()
 
