@@ -1,0 +1,8 @@
+string device_name
+string model
+string status
+string steam_nozzle
+string current_beverage
+bool cup_light
+bool energy_save
+bool sound_enabled
