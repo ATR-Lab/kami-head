@@ -1040,6 +1040,10 @@ class HeadTrackingSystem(QObject):
             if self.head_state == HeadState.MOVING:
                 if self.previous_state == HeadState.TRACKING:
                     self.head_state = HeadState.TRACKING
+                    # Re-enable tracking if it was previously enabled
+                    if hasattr(self, '_was_tracking') and self._was_tracking:
+                        self.tracking_enabled = True
+                        delattr(self, '_was_tracking')  # Clean up temp attribute
                     if not self.target_face:
                         self.start_scanning()
                 elif self.previous_state == HeadState.SCANNING:
@@ -1056,8 +1060,9 @@ class HeadTrackingSystem(QObject):
             self.node.get_logger().warn("Cannot reset position during initialization")
             return
             
-        # Store the current state before transitioning to moving
+        # Store the current state and tracking state before transitioning to moving
         self.previous_state = self.head_state
+        self._was_tracking = self.tracking_enabled
         
         # Stop any ongoing movement or scanning
         if hasattr(self, 'movement_timer') and self.movement_timer:
@@ -1066,8 +1071,7 @@ class HeadTrackingSystem(QObject):
             self.movement_timer = None
         
         # Temporarily disable tracking and scanning
-        was_tracking = self.tracking_enabled
-        if was_tracking:
+        if self.tracking_enabled:
             self.tracking_enabled = False
         self.stop_scanning()
         
@@ -1081,16 +1085,12 @@ class HeadTrackingSystem(QObject):
         self.tilt_pid.reset()
         
         # Start smooth movement to default position
-        # Previous state will be restored in update_smooth_movement completion
+        # Previous state and tracking will be restored in update_smooth_movement completion
         self.start_smooth_movement(
             target_pan=self.default_pan_angle,
             target_tilt=self.default_tilt_angle,
             movement_duration=1.0
         )
-        
-        # Re-enable tracking if it was enabled
-        if was_tracking:
-            self.tracking_enabled = True
         
         self.tracking_status.emit("Moving to default position...")
 
