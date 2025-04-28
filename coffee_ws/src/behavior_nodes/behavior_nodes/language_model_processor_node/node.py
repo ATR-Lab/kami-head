@@ -172,16 +172,11 @@ class LanguageModelProcessorNode(Node):
                 # Call service
                 coffee_future = self.coffee_client.call_async(coffee_request)
                 
-                # Wait for response (using a simple polling approach for now)
-                import time
-                for _ in range(5):  # Try for 5 seconds
-                    rclpy.spin_once(self, timeout_sec=1.0)
-                    if coffee_future.done():
-                        break
-                    time.sleep(1.0)
+                # Wait for response
+                rclpy.spin_until_future_complete(self, coffee_future, timeout_sec=10.0)
                 
                 # Check result
-                if coffee_future.done():
+                if coffee_future.result() is not None:
                     coffee_response = coffee_future.result()
                     if coffee_response.success:
                         # Espresso is being made
@@ -285,6 +280,7 @@ def main(args=None):
             pass
         finally:
             language_model_processor_node.destroy_node()
+            rclpy.shutdown()
     except Exception as e:
         logging.error(f"Failed to initialize language model processor node: {e}")
     finally:

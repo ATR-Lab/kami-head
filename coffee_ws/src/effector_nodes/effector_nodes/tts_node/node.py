@@ -30,7 +30,7 @@ class TTSNode(Node):
         
         self.eleven_labs_client = ElevenLabs(api_key=api_key)
 
-        self.voice_id = "EXAVITQu4vr4xnSDxMaL"
+        self.voice_id = "KTPVrSVAEUSJRClDzBw7" # https://elevenlabs.io/app/voice-library/collections/HXn5AetPOJgAHd2D60mP?voiceId=KTPVrSVAEUSJRClDzBw7
         self.model_id = "eleven_multilingual_v2"
 
         self.get_logger().info("Eleven Labs SDK initialized")

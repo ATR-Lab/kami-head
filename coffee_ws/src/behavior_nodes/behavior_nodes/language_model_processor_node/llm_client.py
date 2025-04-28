@@ -283,7 +283,8 @@ class AtomaClient(LLMClient):
             temperature=temperature,
             max_tokens=max_tokens,
             tools=functions,
-            tool_choice="auto"
+            tool_choice="auto",
+            stream=False
         )
         
         # Process the streaming response to extract tool calls and content

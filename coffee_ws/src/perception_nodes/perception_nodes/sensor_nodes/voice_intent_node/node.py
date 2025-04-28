@@ -18,6 +18,7 @@ from rcl_interfaces.msg import ParameterDescriptor, ParameterType
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 import time
 import json
+import noisereduce as nr
 
 # Import ROS2 message types
 from coffee_buddy_msgs.msg import IntentClassification
@@ -36,7 +37,7 @@ from shared_configs import (
 )
 
 from coffee_buddy_msgs.srv import GenerateBehaviorResponse, TTSQuery
-from coffee_interfaces.srv import AtomaChatService
+from coffee_interfaces.srv import ChatService
 from std_msgs.msg import String
 
 class VoiceIntentNode(Node):
@@ -72,7 +73,7 @@ class VoiceIntentNode(Node):
             
         # Create Atoma chat service client
         self.atoma_chat_client = self.create_client(
-            AtomaChatService, 'atoma_chat', callback_group=self.service_group)
+            ChatService, 'chat', callback_group=self.service_group)
 
         # Check for CUDA availability if device_type is cuda
         self._setup_gpu()
@@ -113,6 +114,22 @@ class VoiceIntentNode(Node):
             ParameterDescriptor(
                 type=ParameterType.PARAMETER_INTEGER,
                 description='Milliseconds of silence to consider speech ended'
+            )
+        )
+        self.declare_parameter(
+            'use_noise_reduction',
+            True,
+            ParameterDescriptor(
+                type=ParameterType.PARAMETER_BOOL,
+                description='Enable noise reduction preprocessing before ASR'
+            )
+        )
+        self.declare_parameter(
+            'noise_reduction_amount',
+            0.75,
+            ParameterDescriptor(
+                type=ParameterType.PARAMETER_DOUBLE,
+                description='Amount of noise to reduce (0.0-1.0)'
             )
         )
         self.declare_parameter(
@@ -217,6 +234,10 @@ class VoiceIntentNode(Node):
         self.vad_silence_duration = self.get_parameter('vad_silence_duration').value
         self.chunk_size = self.get_parameter('chunk_size').value
         self.wake_phrase = self.get_parameter('wake_phrase').value
+        
+        # Noise reduction parameters
+        self.use_noise_reduction = self.get_parameter('use_noise_reduction').value
+        self.noise_reduction_amount = self.get_parameter('noise_reduction_amount').value
 
         self.get_logger().info(f"Parameters loaded: model_size={self.model_size}, language={self.language}, " +
                               f"device_type={self.device_type}, compute_type={self.compute_type}, " +
@@ -322,16 +343,26 @@ class VoiceIntentNode(Node):
                 # Process the audio chunk with timing
                 start_time = time.time()
                 try:
+                    # The sampling rate is fixed at 16000Hz as per the AudioProcessor
+                    self.get_logger().info("Applying noise reduction to audio chunk")
+                    audio_chunk = nr.reduce_noise(
+                        y=audio_chunk,
+                        sr=16000,
+                        stationary=True,
+                        prop_decrease=self.noise_reduction_amount
+                    )
+                    self.get_logger().info("Noise reduction complete")
+
                     transcription = self.asr_manager.process_audio_chunk(audio_chunk)
                     if transcription:
                         # Complete utterance received from VAD
                         self.get_logger().info(f">> UTTERANCE text: {transcription}")
                         
-                        # Call Atoma chat service
-                        request = AtomaChatService.Request()
+                        # Call Chat service
+                        request = ChatService.Request()
                         request.prompt = transcription
                         
-                        self.get_logger().info("Calling Atoma chat service...")
+                        self.get_logger().info("Calling chat service...")
                         future = self.atoma_chat_client.call_async(request)
                         
                         # Wait for response
@@ -340,7 +371,7 @@ class VoiceIntentNode(Node):
                         if future.result() is not None:
                             response = future.result()
                             if response.success:
-                                self.get_logger().info(f"Atoma response: {response.response}")
+                                self.get_logger().info(f"Processor response: {response.response}")
                                 
                                 # Send response to TTS
                                 tts_request = TTSQuery.Request()
@@ -348,9 +379,9 @@ class VoiceIntentNode(Node):
                                 future = self.tts_client.call_async(tts_request)
                                 rclpy.spin_until_future_complete(self, future, timeout_sec=7.0)
                             else:
-                                self.get_logger().error(f"Atoma service error: {response.error}")
+                                self.get_logger().error(f"Processor service error: {response.error}")
                         else:
-                            self.get_logger().error("Failed to get response from Atoma service")
+                            self.get_logger().error("Failed to get response from Processor service")
                 except Exception as e:
                     self.get_logger().error(f"ASR processing error: {e}")
                     transcription = None
