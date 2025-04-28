@@ -28,10 +28,8 @@ class CoffeeControlNode(Node):
         if not self.mac_address:
             self.get_logger().error('No MAC address provided! Please set mac_address parameter')
             return
-
-        # Initialize controller
-        self.controller = DelongiPrimadonna(self.mac_address)
-        self.get_logger().info(f'Initialized coffee controller for device: {self.mac_address}')
+            
+        self.get_logger().info(f'Coffee control node initialized for device: {self.mac_address}')
 
         # Create services with reentrant callback group to allow async calls
         cb_group = ReentrantCallbackGroup()
@@ -89,14 +87,15 @@ class CoffeeControlNode(Node):
 
     async def _execute_command(self, action, parameter):
         """Execute a coffee machine command"""
+        # Create a new controller instance for this command
+        controller = DelongiPrimadonna(self.mac_address)
+        
         try:
             # Map ROS2 service actions to controller commands
             if action == "make":
                 try:
                     beverage = AvailableBeverage[parameter.upper()]
-                    await self.controller.beverage_start(beverage)
-                    # Update local state
-                    self.controller.cooking = beverage
+                    await controller.beverage_start(beverage)
                     return True, f"Started making {parameter}"
                 except KeyError:
                     return False, f"Unknown beverage type: {parameter}"
@@ -105,61 +104,48 @@ class CoffeeControlNode(Node):
                 
             elif action == "cancel":
                 try:
-                    await self.controller.beverage_cancel()
-                    # Update local state
-                    self.controller.cooking = AvailableBeverage.NONE
+                    await controller.beverage_cancel()
                     return True, "Cancelled brewing"
                 except BleakError as e:
                     return False, f"Failed to cancel brewing: {str(e)}"
                 
             elif action == "cuplight":
                 try:
-                    if parameter == "on":
-                        await self.controller.cup_light_on()
-                        return True, "Cup light turned on"
-                    elif parameter == "off":
-                        await self.controller.cup_light_off()
-                        return True, "Cup light turned off"
+                    if parameter.lower() == "on":
+                        await controller.cup_light_on()
                     else:
-                        return False, "Invalid cup light parameter (use 'on' or 'off')"
+                        await controller.cup_light_off()
+                    return True, f"Cup light turned {parameter}"
                 except BleakError as e:
-                    return False, f"Failed to control cup light: {str(e)}"
+                    return False, f"Failed to set cup light: {str(e)}"
                 
             elif action == "sound":
                 try:
-                    if parameter == "on":
-                        await self.controller.sound_alarm_on()
-                        return True, "Sound alerts enabled"
-                    elif parameter == "off":
-                        await self.controller.sound_alarm_off()
-                        return True, "Sound alerts disabled"
+                    if parameter.lower() == "on":
+                        await controller.sound_alarm_on()
                     else:
-                        return False, "Invalid sound parameter (use 'on' or 'off')"
+                        await controller.sound_alarm_off()
+                    return True, f"Sound turned {parameter}"
                 except BleakError as e:
-                    return False, f"Failed to control sound: {str(e)}"
+                    return False, f"Failed to set sound: {str(e)}"
                 
             elif action == "energy_save":
                 try:
-                    if parameter == "on":
-                        await self.controller.energy_save_on()
-                        return True, "Energy save mode enabled"
-                    elif parameter == "off":
-                        await self.controller.energy_save_off()
-                        return True, "Energy save mode disabled"
+                    if parameter.lower() == "on":
+                        await controller.energy_save_on()
                     else:
-                        return False, "Invalid energy save parameter (use 'on' or 'off')"
+                        await controller.energy_save_off()
+                    return True, f"Energy save mode turned {parameter}"
                 except BleakError as e:
-                    return False, f"Failed to control energy save mode: {str(e)}"
-            
+                    return False, f"Failed to set energy save mode: {str(e)}"
+                
             elif action == "power":
                 try:
                     if parameter == "off":
-                        await self.controller.beverage_cancel()
-                        # Update local state
-                        self.controller.cooking = AvailableBeverage.NONE
+                        await controller.beverage_cancel()
                         return True, "Cancelled brewing (note: machine may still be powered on)"
                     else:
-                        await self.controller.power_on()
+                        await controller.power_on()
                         return True, "Power on command sent"
                 except BleakError as e:
                     return False, f"Failed to control power: {str(e)}"
@@ -168,8 +154,14 @@ class CoffeeControlNode(Node):
                 return False, f"Unknown action: {action}"
                 
         except Exception as e:
-            self.get_logger().error(f'Unexpected error executing command: {e}')
+            self.get_logger().error(f'Error executing command: {e}')
             return False, str(e)
+        finally:
+            # Always try to disconnect the controller
+            try:
+                await controller.disconnect()
+            except Exception as e:
+                self.get_logger().warning(f'Error disconnecting controller: {e}')
 
     def handle_status_request(self, request, response):
         """Handle status request service calls"""
@@ -177,47 +169,66 @@ class CoffeeControlNode(Node):
         
         # Run status check asynchronously
         future = asyncio.run_coroutine_threadsafe(
-            self._get_status(),
+            self._check_status(),
             self.loop
         )
         
         try:
             # Wait for status with timeout
-            future.result(timeout=4.0)
+            status = future.result(timeout=4.0)
             
             # Fill response with current state
-            response.device_name = self.controller.hostname
-            response.model = self.controller.model
-            response.status = self.controller.status
-            response.steam_nozzle = self.controller.steam_nozzle
-            response.current_beverage = self.controller.cooking
-            response.cup_light = self.controller.switches.cup_light
-            response.energy_save = self.controller.switches.energy_save
-            response.sound_enabled = self.controller.switches.sounds
-            
+            if status:
+                response.device_name = status['device_name']
+                response.model = status['model']
+                response.status = status['status']
+                response.steam_nozzle = status['steam_nozzle']
+                response.current_beverage = status['current_beverage']
+                response.cup_light = status['cup_light']
+                response.energy_save = status['energy_save']
+                response.sound_enabled = status['sound_enabled']
+            else:
+                response.success = False
+                response.message = "Failed to get status"
+                
         except asyncio.TimeoutError:
             self.get_logger().error('Status request timed out')
+            response.success = False
+            response.message = "Status request timed out"
         except Exception as e:
             self.get_logger().error(f'Error getting status: {e}')
+            response.success = False
+            response.message = f"Error getting status: {str(e)}"
             
         return response
     
-    async def _get_status(self):
-        """Get current status from the coffee machine"""
+    async def _check_status(self):
+        """Check coffee machine status"""
+        # Create a new controller instance for status check
+        controller = DelongiPrimadonna(self.mac_address)
+        
         try:
-            # Try to get device name first if we don't have it
-            if not self.controller.hostname:
-                name = await self.controller.get_device_name()
-                if name:
-                    self.get_logger().info(f'Connected to device: {name}')
-                else:
-                    self.get_logger().warning('Could not get device name')
-            
-            # Send debug command to get status
-            await self.controller.debug()
+            await controller.debug()
+            return {
+                'device_name': controller.hostname,
+                'model': controller.model,
+                'status': controller.status,
+                'steam_nozzle': controller.steam_nozzle,
+                'current_beverage': controller.cooking,
+                'cup_light': controller.switches.cup_light,
+                'energy_save': controller.switches.energy_save,
+                'sound_enabled': controller.switches.sounds
+            }
             
         except BleakError as e:
             self.get_logger().debug(f'Bluetooth error during status check: {e}')
+            return None
+        finally:
+            # Always try to disconnect the controller
+            try:
+                await controller.disconnect()
+            except Exception as e:
+                self.get_logger().warning(f'Error disconnecting controller: {e}')
 
     def _run_command(self, loop, action, parameter):
         """Run a command in its own event loop"""
