@@ -38,15 +38,53 @@ Commands to launch separate nodes:
 source ../ros-source.sh
 colcon build
 ros-source
+```
+
+```
+# Run for Launching Camera
+
 ros2 run coffee_head camera_node
-ros2 run coffee_head head_tracking
-ros2 run coffee_head eye_tracking
+```   
+
+```
+# Run to launch Eye Interface
+
 ros2 run coffee_expressions plaipin_expressive_eyes
-ros2 run coffee_face coffee_eyes
-ros2 run coffee_expressions_test_ui expressions_test_ui
-ros2 launch coffee_expressions_state_manager state_manager.launch.py
+```
+
+```
+# Run to launch Dynamixel Read Write Node
 
 ros2 run dynamixel_sdk_examples read_write_node
+```
+
+```
+# Run to launch the proxy node that send data out
+
+ros2 launch coffee_expressions_state_manager state_manager.launch.py
+```
+
+```
+# Run to launch node that receives data from the proxy node and sends it to the head motors via Dynamixel Read Write
+
+ros2 run coffee_head head_tracking
+```
+
+```
+# Run MicroROS Agent for Ear Movement
+sudo docker run -it --rm -v /dev:/dev --privileged --net=host microros/micro-ros-agent:jazzy serial --dev /dev/ttyUSB1 -v6
+```
+
+```
+# Run Joystick Head Control
+
+ros2 run coffee_joystick joystick_control
+```
+
+```
+ros2 run coffee_head eye_tracking
+ros2 run coffee_face coffee_eyes
+ros2 run coffee_expressions_test_ui expressions_test_ui
 
 
 ros2 run coffee_expressions_state_ui state_ui
@@ -63,9 +101,8 @@ ros2 run coffee_control coffee_control_node --ros-args -p mac_address:=<your_mac
 # Or use the launch file (recommended)
 ros2 launch coffee_control coffee_control.launch.py  # Uses default MAC: 9C:95:6E:61:B6:2C
 ros2 launch coffee_control coffee_control.launch.py mac_address:=<your_machine_mac>
-```
 
-```
+
 # Make coffee
 ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'make', parameter: 'espresso'}"
 ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'make', parameter: 'coffee'}"
