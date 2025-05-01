@@ -9,12 +9,120 @@ from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from bleak.exc import BleakError
+import time
 
 from coffee_control_msgs.srv import CoffeeCommand
 from coffee_control_msgs.msg import FunctionCall
 from coffee_control_msgs.srv import CoffeeCommand, MachineStatusRequest
 
 from coffee_control.delonghi_controller import DelongiPrimadonna, AvailableBeverage
+
+class MockCoffeeMachine:
+    """
+    Mock implementation of the Delonghi coffee machine for testing without a real machine.
+    """
+    def __init__(self, device_id="MOCK_MACHINE"):
+        self.mac = device_id
+        self.name = "Mock Coffee Machine"
+        self.hostname = "MockDelonghi"
+        self.model = "Prima Donna"
+        self.cooking = AvailableBeverage.NONE
+        self.connected = True
+        self.is_brewing = False
+        self.brew_start_time = None
+        self.brew_duration = 25  # seconds
+        self.status = "ready"
+        self.steam_nozzle = "off"
+        self.switches = type('Switches', (), {
+            'cup_light': False,
+            'energy_save': False,
+            'sounds': True
+        })()
+        
+    async def get_device_name(self):
+        """Simulate getting the device name"""
+        return self.hostname
+        
+    async def beverage_start(self, beverage_type):
+        """Simulate starting a beverage"""
+        self.cooking = beverage_type
+        self.is_brewing = True
+        self.brew_start_time = time.time()
+        print(f"[MOCK] Starting beverage: {beverage_type}")
+        return True
+        
+    async def beverage_cancel(self):
+        """Simulate canceling a beverage"""
+        if self.cooking != AvailableBeverage.NONE:
+            self.cooking = AvailableBeverage.NONE
+            self.is_brewing = False
+            print(f"[MOCK] Cancelling beverage")
+            return True
+        return False
+    
+    async def cup_light_on(self):
+        """Simulate turning cup light on"""
+        self.switches.cup_light = True
+        print("[MOCK] Cup light turned on")
+        return True
+        
+    async def cup_light_off(self):
+        """Simulate turning cup light off"""
+        self.switches.cup_light = False
+        print("[MOCK] Cup light turned off")
+        return True
+        
+    async def sound_alarm_on(self):
+        """Simulate turning sound on"""
+        self.switches.sounds = True
+        print("[MOCK] Sound turned on")
+        return True
+        
+    async def sound_alarm_off(self):
+        """Simulate turning sound off"""
+        self.switches.sounds = False
+        print("[MOCK] Sound turned off")
+        return True
+        
+    async def energy_save_on(self):
+        """Simulate turning energy save on"""
+        self.switches.energy_save = True
+        print("[MOCK] Energy save turned on")
+        return True
+        
+    async def energy_save_off(self):
+        """Simulate turning energy save off"""
+        self.switches.energy_save = False
+        print("[MOCK] Energy save turned off")
+        return True
+        
+    async def power_on(self):
+        """Simulate power on"""
+        print("[MOCK] Power on")
+        return True
+    
+    async def disconnect(self):
+        """Simulate disconnecting from the machine"""
+        self.connected = False
+        print(f"[MOCK] Disconnected from coffee machine")
+        return True
+        
+    async def debug(self):
+        """Simulate debug info retrieval"""
+        print(f"[MOCK] Debug info requested")
+        return True
+        
+    def check_brewing_status(self):
+        """Check if brewing is complete based on time elapsed"""
+        if not self.is_brewing or self.brew_start_time is None:
+            return False
+            
+        elapsed = time.time() - self.brew_start_time
+        if elapsed >= self.brew_duration:
+            self.is_brewing = False
+            self.cooking = AvailableBeverage.NONE
+            return True
+        return False
 
 class CoffeeControlNode(Node):
     """Node that handles coffee machine control via Bluetooth"""
@@ -24,8 +132,15 @@ class CoffeeControlNode(Node):
         
         # Parameters
         self.declare_parameter('mac_address', '')
+        self.declare_parameter('use_mock_machine', False)
+        
         self.mac_address = self.get_parameter('mac_address').value
-        if not self.mac_address:
+        self.use_mock = self.get_parameter('use_mock_machine').value
+        
+        if self.use_mock:
+            self.get_logger().info('Using mock coffee machine')
+            self.mac_address = "MOCK_COFFEE_MACHINE"
+        elif not self.mac_address:
             self.get_logger().error('No MAC address provided! Please set mac_address parameter')
             return
             
@@ -88,7 +203,10 @@ class CoffeeControlNode(Node):
     async def _execute_command(self, action, parameter):
         """Execute a coffee machine command"""
         # Create a new controller instance for this command
-        controller = DelongiPrimadonna(self.mac_address)
+        if self.use_mock:
+            controller = MockCoffeeMachine(self.mac_address)
+        else:
+            controller = DelongiPrimadonna(self.mac_address)
         
         try:
             # Map ROS2 service actions to controller commands
@@ -203,10 +321,22 @@ class CoffeeControlNode(Node):
     async def _check_status(self):
         """Check coffee machine status"""
         # Create a new controller instance for status check
-        controller = DelongiPrimadonna(self.mac_address)
+        if self.use_mock:
+            controller = MockCoffeeMachine(self.mac_address)
+            # For mock, no need to call debug() as the values are already set
+        else:
+            controller = DelongiPrimadonna(self.mac_address)
+            try:
+                await controller.debug()
+            except BleakError as e:
+                self.get_logger().debug(f'Bluetooth error during status check: {e}')
+                return None
         
         try:
-            await controller.debug()
+            # For mock, check if brewing has completed based on time
+            if self.use_mock:
+                controller.check_brewing_status()
+                
             return {
                 'device_name': controller.hostname,
                 'model': controller.model,
@@ -218,8 +348,8 @@ class CoffeeControlNode(Node):
                 'sound_enabled': controller.switches.sounds
             }
             
-        except BleakError as e:
-            self.get_logger().debug(f'Bluetooth error during status check: {e}')
+        except Exception as e:
+            self.get_logger().error(f'Error getting status details: {e}')
             return None
         finally:
             # Always try to disconnect the controller
