@@ -1164,7 +1164,7 @@ class CameraViewer(QMainWindow):
         # Convert colors - BGR to RGB (optimized)
         rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
-        # Scale image to fit label if needed
+        # Scale image to fit label
         label_width = self.image_label.width()
         label_height = self.image_label.height()
         
@@ -1176,11 +1176,11 @@ class CameraViewer(QMainWindow):
             scale_h = label_height / h
             scale = min(scale_w, scale_h)
             
-            # Only scale if necessary (smaller than label)
-            if scale < 1.0:
-                # Use NEAREST for fastest scaling
-                new_size = (int(w * scale), int(h * scale))
-                rgb_image = cv2.resize(rgb_image, new_size, interpolation=cv2.INTER_NEAREST)
+            # Always scale to fit the label
+            new_size = (int(w * scale), int(h * scale))
+            # Use INTER_LINEAR for better quality when upscaling, INTER_AREA for downscaling
+            interpolation = cv2.INTER_LINEAR if scale > 1.0 else cv2.INTER_AREA
+            rgb_image = cv2.resize(rgb_image, new_size, interpolation=interpolation)
         
         # Convert to QImage and display (reusing objects when possible)
         h, w, ch = rgb_image.shape
