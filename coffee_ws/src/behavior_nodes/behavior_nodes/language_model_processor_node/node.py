@@ -17,6 +17,9 @@ from shared_configs import (
     LANGUAGE_MODEL_PROCESSOR_STATUS_TOPIC
 )
 from coffee_interfaces.srv import ChatService, DispenseCoffee
+from coffee_control_msgs.srv import CoffeeCommand
+import concurrent.futures
+import asyncio
 
 # Import the LLM client abstraction
 from .llm_client import create_llm_client
@@ -98,10 +101,10 @@ class LanguageModelProcessorNode(Node):
             self.get_logger().error(f"Failed to initialize LLM client for provider: {self.api_provider}")
             raise RuntimeError(f"Failed to initialize LLM client for provider: {self.api_provider}")
 
-        # Create coffee dispenser service client
+        # Create coffee control service client instead of dispense_coffee
         self.coffee_client = self.create_client(
-            DispenseCoffee, 
-            'dispense_coffee',
+            CoffeeCommand, 
+            'coffee_command',
             callback_group=self.service_group
         )
 
@@ -162,36 +165,97 @@ class LanguageModelProcessorNode(Node):
         
         for tool_call in tool_calls:
             if tool_call["name"] == "make_espresso":
-                # Call the coffee dispenser service
+                # Call the coffee command service
                 self.get_logger().info("Calling make_espresso function")
                 
                 # Create the request
-                coffee_request = DispenseCoffee.Request()
-                coffee_request.beverage_type = "espresso"
+                coffee_request = CoffeeCommand.Request()
+                coffee_request.action = "make"
+                coffee_request.parameter = "espresso"
                 
-                # Call service
-                coffee_future = self.coffee_client.call_async(coffee_request)
-                
-                # Wait for response
-                rclpy.spin_until_future_complete(self, coffee_future, timeout_sec=10.0)
-                
-                # Check result
-                if coffee_future.result() is not None:
-                    coffee_response = coffee_future.result()
-                    if coffee_response.success:
-                        # Espresso is being made
-                        response_text = "I'm making your espresso now."
-                        self.get_logger().info("Espresso dispensing started successfully")
-                    else:
-                        # Espresso couldn't be made
-                        response_text = f"I couldn't make your espresso: {coffee_response.message}"
-                        self.get_logger().error(f"Failed to dispense espresso: {coffee_response.message}")
-                else:
-                    # Service call timed out
-                    response_text = "I tried to make your espresso, but the coffee machine didn't respond."
-                    self.get_logger().error("Coffee dispenser service call timed out")
+                # Create a thread pool executor for handling the async call
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(self._run_make_espresso, coffee_request)
+                    
+                    try:
+                        # Wait for the result with a timeout
+                        success, message = future.result(timeout=15.0)
+                        
+                        if success:
+                            response_text = "I'm making your espresso now."
+                            self.get_logger().info("Espresso dispensing started successfully")
+                        else:
+                            response_text = f"I couldn't make your espresso: {message}"
+                            self.get_logger().error(f"Failed to dispense espresso: {message}")
+                    except concurrent.futures.TimeoutError:
+                        response_text = "I tried to make your espresso, but the coffee machine didn't respond in time."
+                        self.get_logger().error("Coffee dispenser service call timed out")
+                    except Exception as e:
+                        response_text = f"I couldn't make your espresso due to an error: {str(e)}"
+                        self.get_logger().error(f"Error in make_espresso execution: {e}")
         
         return response_text
+    
+    def _run_make_espresso(self, coffee_request):
+        """Run the espresso service call in a separate thread with its own event loop
+        
+        Args:
+            coffee_request: The CoffeeCommand.Request object
+            
+        Returns:
+            Tuple of (success, message)
+        """
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            # Run the async operation in this thread's event loop
+            return loop.run_until_complete(self._async_make_espresso(coffee_request))
+        finally:
+            loop.close()
+    
+    async def _async_make_espresso(self, coffee_request):
+        """Async function to call the coffee command service
+        
+        Args:
+            coffee_request: The CoffeeCommand.Request object
+            
+        Returns:
+            Tuple of (success, message)
+        """
+        try:
+            # Create a Future to store the service response
+            response_future = self.coffee_client.call_async(coffee_request)
+            
+            # Convert the ROS2 future to an asyncio future
+            # This allows us to wait on it in an async context
+            loop = asyncio.get_event_loop()
+            asyncio_future = loop.create_future()
+            
+            # Set a callback on the ROS2 future to resolve the asyncio future
+            def callback(ros_future):
+                if asyncio_future.cancelled():
+                    return
+                exception = ros_future.exception()
+                if exception is not None:
+                    asyncio_future.set_exception(exception)
+                else:
+                    asyncio_future.set_result(ros_future.result())
+            
+            response_future.add_done_callback(callback)
+            
+            # Set a timeout
+            try:
+                response = await asyncio.wait_for(asyncio_future, timeout=10.0)
+                return response.success, response.message
+            except asyncio.TimeoutError:
+                asyncio_future.cancel()
+                return False, "Request timed out"
+            
+        except Exception as e:
+            self.get_logger().error(f"Error in async espresso request: {e}")
+            return False, str(e)
     
     def chat_callback(self, request, response):
         """Handle chat service requests."""
