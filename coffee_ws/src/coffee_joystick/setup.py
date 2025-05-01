@@ -19,8 +19,10 @@ setup(
     license='TODO: License declaration',
     tests_require=['pytest'],
     entry_points={
+        'ros2launch.launch_file_data': [],
         'console_scripts': [
-            'joystick_control = coffee_joystick.joystick_control_node:main',
+            'joystick_control = coffee_joystick.joystick_control_node:main'
         ],
     },
+    python_executable='/home/kpatch/Github/coffee-budy/coffee_buddy_venv/bin/python3'
 )
