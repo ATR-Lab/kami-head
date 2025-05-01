@@ -11,7 +11,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 REPO_ROOT="$( dirname "$SCRIPT_DIR" )"
 
 # Default virtual environment directory
-DEFAULT_VENV_DIR="$REPO_ROOT/coffee_budy_venv"
+DEFAULT_VENV_DIR="$REPO_ROOT/coffee_buddy_venv"
 
 # Initialize variables
 VENV_DIR="$DEFAULT_VENV_DIR"

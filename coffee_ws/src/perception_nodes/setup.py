@@ -31,6 +31,7 @@ setup(
         'console_scripts': [
             'voice_intent_node = perception_nodes.sensor_nodes.voice_nodes.voice_intent_node.node:main',
             'vision_node = perception_nodes.sensor_nodes.vision_nodes.vision_node:main',
+            'vision_face_position_node = perception_nodes.sensor_nodes.vision_nodes.vision_face_position_node.node:main',
         ],
     },
 )

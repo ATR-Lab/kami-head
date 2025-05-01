@@ -5,4 +5,4 @@ This package contains modules for detecting and classifying facial expressions
 and emotions from visual input.
 """
 
-# from .node import VisionFacePositionNode
+from .node import VisionFacePositionNode
