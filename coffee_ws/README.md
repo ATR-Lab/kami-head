@@ -104,13 +104,22 @@ ros2 run coffee_joystick joystick_control
 ```
 
 ## Launching Coffee Control Node
+
+### Launch Coffee Control with Actual Machine
 ```
 ros2 run coffee_control coffee_control_node --ros-args -p mac_address:=<your_machine_mac>
 ```
 
 Or use the launch file (recommended)
+```
 ros2 launch coffee_control coffee_control.launch.py  # Uses default MAC: 9C:95:6E:61:B6:2C
 ros2 launch coffee_control coffee_control.launch.py mac_address:=<your_machine_mac>
+```
+
+### Launch Coffee Control with Mock Machine
+```
+ros2 run coffee_control coffee_control_node --ros-args -p use_mock_machine:=true -p "mac_address:=''"
+```
 
 ## Launching Dialogue System
 
