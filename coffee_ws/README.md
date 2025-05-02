@@ -1,5 +1,11 @@
-Commands to launch all of the nodes:
+# Table of Contents
 
+- [Overview](#overview)
+- [Running the System](#running-the-system)
+
+# Overview
+
+Commands to launch all of the nodes:
 ```
 source ../ros-source.sh
 colcon build
@@ -18,7 +24,7 @@ ros2 launch coffee_head all_nodes.launch.py
 - Coffee Expressions State UI shows the state of the robot's expressions (`src/coffee_expressions_state_ui/coffee_expressions_state_ui/coffee_expressions_state_ui.py`).
 
 
-# Topics
+## Topics
 
 - `/vision/emotion` - Vision emotion   
 
@@ -32,20 +38,32 @@ ros2 launch coffee_head all_nodes.launch.py
 
 - `/robot/state_manager/diagnostics` - Diagnostics
 
+# Running the System
+
 Commands to launch separate nodes:
 
+## Sourcing Environment
 ```
+# OLD
 source ../ros-source.sh
 colcon build
 ros-source
 ```
 
 ```
+# NEW
+# In root of the repo
+source ./script/setup_env.sh
+```
+
+## Launching Camera
+```
 # Run for Launching Camera
 
 ros2 run coffee_head camera_node
 ```   
 
+## Launching Eye Interface
 ```
 # Run to launch Eye Interface
 
@@ -58,29 +76,69 @@ ros2 run coffee_expressions plaipin_expressive_eyes
 ros2 run dynamixel_sdk_examples read_write_node
 ```
 
+## Launching State Manager
 ```
 # Run to launch the proxy node that send data out
 
 ros2 launch coffee_expressions_state_manager state_manager.launch.py
 ```
 
+## Launching Head Tracking
 ```
 # Run to launch node that receives data from the proxy node and sends it to the head motors via Dynamixel Read Write
 
 ros2 run coffee_head head_tracking
 ```
 
+## Launching MicroROS Agent for Ear Movement
 ```
 # Run MicroROS Agent for Ear Movement
 sudo docker run -it --rm -v /dev:/dev --privileged --net=host microros/micro-ros-agent:jazzy serial --dev /dev/ttyUSB1 -v6
 ```
 
+## Launching Joystick Head Control
 ```
 # Run Joystick Head Control
 
 ros2 run coffee_joystick joystick_control
 ```
 
+
+## Launching Dialogue System
+
+### TTS Node
+Receives text to be spoken and sends it to the TTS engine.   
+In the LLM flow, all it does is receive the output from the LLM and send it to the TTS engine.
+```
+ros2 run effector_nodes tts_node
+```
+
+`tts_node` explicitly handles the calls to Eleven Labs or Fish Audio. It run a `ROS2 Service` that makes a synchronous call to the server. An example service call is provided here:
+
+```
+ros2 service call /system/effector/tts/tts_query coffee_buddy_msgs/srv/TTSQuery "{text: 'Hey, would you like a cup of coffee?'}
+```
+
+### Large Language Model (LLM) Processor Node
+In the LLM flow, this node receives the transcribed text from the voice intent node and sends it to the LLM (on Atoma Network or OpenAI).  
+
+NOTE: Current Atoma Network is not supported.
+```
+ros2 run behavior_nodes language_model_processor_node
+```
+
+
+
+### Voice Intent Node
+Open up an ongoing audio stream and employs Voice Activity Detection (VAD) to detect when speech is present and Audio-to-Text (ASR) to transcribe the speech into text. 
+
+The transcribed text is then sent to the LLM processor node.
+```
+ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=1500
+```
+
+
+## Miscellaneous
 ```
 ros2 run coffee_head eye_tracking
 ros2 run coffee_face coffee_eyes
@@ -121,6 +179,35 @@ ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action
 # Get ALL Status
 ros2 service call /coffee_machine/get_status coffee_control_msgs/srv/MachineStatusRequest "{}"
 ```
+
+## Run Joystick
+```
+$(ros2 pkg prefix coffee_joystick)/bin/joystick_control
+```
+
+## Sourcing Environment
+```
+sudo apt update
+
+sudo apt install portaudio19-dev
+
+# Run the first three in each terminal (except the pip install, run in only one)
+python3 -m venv coffee_buddy_venv  # run at root of repo
+
+source ./coffee_buddy_venv/bin/activate
+
+pip install -r requirements.txt
+
+source ./scripts/ros2_venv.sh enable ./coffee_buddy_venv
+
+# Run each in separate windows
+ros2 run perception_nodes voice_intent_node
+
+ros2 run behavior_nodes language_model_processor_node
+
+ros2 run effector_nodes tts_node
+```
+
 
 # NOTES:
 1. VAD Parameters (Speech Detection):
