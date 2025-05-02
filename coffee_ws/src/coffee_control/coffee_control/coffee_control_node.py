@@ -134,8 +134,8 @@ class CoffeeControlNode(Node):
         self.declare_parameter('mac_address', '')
         self.declare_parameter('use_mock_machine', False)
         
-        self.mac_address = self.get_parameter('mac_address').value
         self.use_mock = self.get_parameter('use_mock_machine').value
+        self.mac_address = self.get_parameter('mac_address').value
         
         if self.use_mock:
             self.get_logger().info('Using mock coffee machine')
