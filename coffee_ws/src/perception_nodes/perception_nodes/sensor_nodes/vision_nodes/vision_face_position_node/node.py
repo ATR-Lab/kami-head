@@ -109,17 +109,16 @@ class VisionFacePositionNode(Node):
                     # Create a Face message
                     face_msg = Face()
                     
-                    # Initialize face_landmarks with 468 Point objects
-                    for i in range(468):
+                    # Initialize face_landmarks with 1500 Point objects
+                    for i in range(1500):
                         face_msg.face_landmarks.append(Point())
                     
                     # Populate face landmarks
                     for i, landmark in enumerate(face_landmarks.landmark):
-                        if i < 468:  # Ensure we don't try to access beyond the array size
-                            point = face_msg.face_landmarks[i]
-                            point.x = landmark.x * img_w
-                            point.y = landmark.y * img_h
-                            point.z = landmark.z
+                        point = face_msg.face_landmarks[i]
+                        point.x = landmark.x * img_w
+                        point.y = landmark.y * img_h
+                        point.z = landmark.z
                     
                     # Calculate head pose estimation
                     face_rotation, direction, distance = self.calculate_head_pose(face_landmarks, img_w, img_h)
@@ -162,7 +161,7 @@ class VisionFacePositionNode(Node):
                 face_2d.append([x, y])
                 
                 # Get the 3D coordinates
-                face_3d.append([x, y, lm.z * 3000])
+                face_3d.append([x, y, lm.z])
         
         # Convert to NumPy arrays
         face_2d = np.array(face_2d, dtype=np.float64)
