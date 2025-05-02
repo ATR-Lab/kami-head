@@ -21,6 +21,11 @@ class TTSNode(Node):
 
         self.service_group = MutuallyExclusiveCallbackGroup()
         self.timer_group = MutuallyExclusiveCallbackGroup()
+        
+        # Cooldown settings
+        self.cooldown_timer = None
+        self.in_cooldown = False
+        self.COOLDOWN_DURATION = 1.0  # seconds
 
         # Initialize Eleven Labs SDK client
         api_key = os.environ.get('ELEVEN_LABS_API_KEY')
@@ -78,13 +83,18 @@ class TTSNode(Node):
         self.status_pub.publish(msg)
 
     def tts_query_callback(self, request, response):
-        """
-        Generate a behavior response based on the user's intent and prompt.
-        """
-        text = request.text
-        self.get_logger().info(f"Streaming audio for text: {text}")
-        
+        """Handle TTS query service requests."""
         try:
+            # Check if we're already playing audio or in cooldown
+            if self.is_playing or self.in_cooldown:
+                state = "playing" if self.is_playing else "cooling down"
+                self.get_logger().warn(f"TTS is {state}, request rejected")
+                response.success = False
+                return response
+
+            text = request.text
+            self.get_logger().info(f"Streaming audio for text: {text}")
+            
             # Start a new thread for audio streaming and playback
             playback_thread = threading.Thread(
                 target=self.stream_audio_playback,
@@ -166,8 +176,38 @@ class TTSNode(Node):
             except Exception as e:
                 self.get_logger().error(f"Error publishing completion state: {str(e)}")
             
+            # Start cooldown period
+            self.in_cooldown = True
+            msg = String()
+            msg.data = 'cooldown'
+            self.audio_state_pub.publish(msg)
+            
+            if self.cooldown_timer:
+                self.cooldown_timer.cancel()
+            self.cooldown_timer = self.create_timer(
+                self.COOLDOWN_DURATION,
+                self._end_cooldown,
+                callback_group=self.timer_group
+            )
+            
+            self.get_logger().info(f"Starting {self.COOLDOWN_DURATION}s cooldown")
             self.is_playing = False
+            
             self.get_logger().info("Audio playback completed")
+
+    def _end_cooldown(self):
+        """End the cooldown period and signal that the system is ready."""
+        self.in_cooldown = False
+        if self.cooldown_timer:
+            self.cooldown_timer.cancel()
+            self.cooldown_timer = None
+        
+        # Publish completion state
+        msg = String()
+        msg.data = 'done'
+        self.audio_state_pub.publish(msg)
+        
+        self.get_logger().info("Cooldown complete, system ready")
 
 
 def main(args=None):
