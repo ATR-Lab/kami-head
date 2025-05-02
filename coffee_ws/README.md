@@ -186,8 +186,39 @@ We can make a call to the service as follows:
 ros2 service call /chat coffee_interfaces/srv/ChatService "{prompt: 'Hello there, what are you doing here?'}"
 ```
 
+# Terminal Window set up
 
-## Miscellaneous
+## Window 1
+
+```
+ros2 run coffee_head camera_node
+
+ros2 run coffee_expressions plaipin_expressive_eyes
+
+ros2 run dynamixel_sdk_examples read_write_node
+
+ros2 launch coffee_expressions_state_manager state_manager.launch.py
+
+ros2 run coffee_head head_tracking
+
+sudo docker run -it --rm -v /dev:/dev --privileged --net=host microros/micro-ros-agent:jazzy serial --dev /dev/ttyUSB1 -v6
+
+```
+
+## Window 2
+
+```
+ros2 run effector_nodes tts_node
+
+ros2 run coffee_control coffee_control_node --ros-args -p use_mock_machine:=true -p "mac_address:=''"
+
+ros2 run behavior_nodes language_model_processor_node
+
+ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=1500
+```
+
+
+# Miscellaneous
 ```
 ros2 run coffee_head eye_tracking
 ros2 run coffee_face coffee_eyes
