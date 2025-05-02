@@ -9,6 +9,7 @@ It uses the OpenAI API or Atoma API to generate a response via the LLM client ab
 import os
 import json
 import logging
+import time
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
@@ -165,97 +166,43 @@ class LanguageModelProcessorNode(Node):
         
         for tool_call in tool_calls:
             if tool_call["name"] == "make_espresso":
-                # Call the coffee command service
                 self.get_logger().info("Calling make_espresso function")
                 
-                # Create the request
+                # Create and send the coffee request
                 coffee_request = CoffeeCommand.Request()
                 coffee_request.action = "make"
                 coffee_request.parameter = "espresso"
                 
-                # Create a thread pool executor for handling the async call
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(self._run_make_espresso, coffee_request)
+                try:
+                    # Make async service call
+                    self.get_logger().info("Calling coffee command service...")
+                    future = self.coffee_client.call_async(coffee_request)
                     
-                    try:
-                        # Wait for the result with a timeout
-                        success, message = future.result(timeout=15.0)
-                        
-                        if success:
-                            response_text = "I'm making your espresso now."
-                            self.get_logger().info("Espresso dispensing started successfully")
-                        else:
-                            response_text = f"I couldn't make your espresso: {message}"
-                            self.get_logger().error(f"Failed to dispense espresso: {message}")
-                    except concurrent.futures.TimeoutError:
+                    # Wait for the future to complete with timeout
+                    start_time = self.get_clock().now()
+                    while (self.get_clock().now() - start_time).nanoseconds / 1e9 < 15.0:
+                        if future.done():
+                            response = future.result()
+                            if response.success:
+                                response_text = "I'm making your espresso now."
+                                self.get_logger().info("Espresso dispensing started successfully")
+                            else:
+                                response_text = f"I couldn't make your espresso: {response.message}"
+                                self.get_logger().error(f"Failed to dispense espresso: {response.message}")
+                            break
+                        # Small sleep to prevent busy waiting
+                        time.sleep(0.1)
+                    else:
+                        # Timeout occurred
+                        future.cancel()
                         response_text = "I tried to make your espresso, but the coffee machine didn't respond in time."
                         self.get_logger().error("Coffee dispenser service call timed out")
-                    except Exception as e:
-                        response_text = f"I couldn't make your espresso due to an error: {str(e)}"
-                        self.get_logger().error(f"Error in make_espresso execution: {e}")
+                        
+                except Exception as e:
+                    response_text = f"I couldn't make your espresso due to an error: {str(e)}"
+                    self.get_logger().error(f"Error in make_espresso execution: {e}")
         
         return response_text
-    
-    def _run_make_espresso(self, coffee_request):
-        """Run the espresso service call in a separate thread with its own event loop
-        
-        Args:
-            coffee_request: The CoffeeCommand.Request object
-            
-        Returns:
-            Tuple of (success, message)
-        """
-        # Create a new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            # Run the async operation in this thread's event loop
-            return loop.run_until_complete(self._async_make_espresso(coffee_request))
-        finally:
-            loop.close()
-    
-    async def _async_make_espresso(self, coffee_request):
-        """Async function to call the coffee command service
-        
-        Args:
-            coffee_request: The CoffeeCommand.Request object
-            
-        Returns:
-            Tuple of (success, message)
-        """
-        try:
-            # Create a Future to store the service response
-            response_future = self.coffee_client.call_async(coffee_request)
-            
-            # Convert the ROS2 future to an asyncio future
-            # This allows us to wait on it in an async context
-            loop = asyncio.get_event_loop()
-            asyncio_future = loop.create_future()
-            
-            # Set a callback on the ROS2 future to resolve the asyncio future
-            def callback(ros_future):
-                if asyncio_future.cancelled():
-                    return
-                exception = ros_future.exception()
-                if exception is not None:
-                    asyncio_future.set_exception(exception)
-                else:
-                    asyncio_future.set_result(ros_future.result())
-            
-            response_future.add_done_callback(callback)
-            
-            # Set a timeout
-            try:
-                response = await asyncio.wait_for(asyncio_future, timeout=10.0)
-                return response.success, response.message
-            except asyncio.TimeoutError:
-                asyncio_future.cancel()
-                return False, "Request timed out"
-            
-        except Exception as e:
-            self.get_logger().error(f"Error in async espresso request: {e}")
-            return False, str(e)
     
     def chat_callback(self, request, response):
         """Handle chat service requests."""
@@ -302,16 +249,25 @@ class LanguageModelProcessorNode(Node):
                     response_text = tool_response
             
             # Get the final response text
+            # Process the response
+            final_response = ""
             if response_text and response_text.strip():
+                final_response = response_text
+            elif tool_calls:
+                # If we only have tool call results but no LLM response text,
+                # use the tool call result as the response
+                final_response = "I'm making your espresso now."
+            
+            if final_response:
                 # Add assistant response to conversation history
-                self.conversation_history.append({"role": "assistant", "content": response_text})
+                self.conversation_history.append({"role": "assistant", "content": final_response})
                 
                 # Set response
-                response.response = response_text
+                response.response = final_response
                 response.success = True
                 response.error = ""
                 
-                self.get_logger().info(f"Chat response generated: {response_text}")
+                self.get_logger().info(f"Chat response generated: {final_response}")
             else:
                 # No response text, this shouldn't happen
                 response.response = "I'm not sure how to respond to that."
