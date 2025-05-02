@@ -116,18 +116,10 @@ ros2 run effector_nodes tts_node
 `tts_node` explicitly handles the calls to Eleven Labs or Fish Audio. It run a `ROS2 Service` that makes a synchronous call to the server. An example service call is provided here:
 
 ```
-ros2 service call /system/effector/tts/tts_query coffee_buddy_msgs/srv/TTSQuery "{text: 'Hey, would you like a cup of coffee?'}
+ros2 service call /system/effector/tts/tts_query coffee_buddy_msgs/srv/TTSQuery "{text: 'Hey, would you like a cup of coffee?'}"
+
+ros2 service call /tts_query coffee_buddy_msgs/srv/TTSQuery "{text: 'Your text prompt here'}"
 ```
-
-### Large Language Model (LLM) Processor Node
-In the LLM flow, this node receives the transcribed text from the voice intent node and sends it to the LLM (on Atoma Network or OpenAI).  
-
-NOTE: Current Atoma Network is not supported.
-```
-ros2 run behavior_nodes language_model_processor_node
-```
-
-
 
 ### Voice Intent Node
 Open up an ongoing audio stream and employs Voice Activity Detection (VAD) to detect when speech is present and Audio-to-Text (ASR) to transcribe the speech into text. 
@@ -135,6 +127,25 @@ Open up an ongoing audio stream and employs Voice Activity Detection (VAD) to de
 The transcribed text is then sent to the LLM processor node.
 ```
 ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=1500
+```
+
+### Large Language Model (LLM) Processor Node
+In the LLM flow, this node receives the transcribed text from the voice intent node and sends it to the LLM (on Atoma Network or OpenAI).  
+
+NOTE: Current Atoma Network is not supported.
+```
+# This defaults to OpenAI
+#   by line: `self.declare_parameter('api_provider', 'openai')  # Options: 'openai' or 'atoma'`
+# `behavior_nodes/behavior_nodes/language_model_processor_node/node.py`
+
+ros2 run behavior_nodes language_model_processor_node
+```
+
+We can make a call to the service as follows:
+```
+# NOTE: This currently attempts to make a function call whenever it receives the "coffee" trigger word
+
+ros2 service call /chat coffee_interfaces/srv/ChatService "{prompt: 'Hello there, what are you doing here?'}"
 ```
 
 
