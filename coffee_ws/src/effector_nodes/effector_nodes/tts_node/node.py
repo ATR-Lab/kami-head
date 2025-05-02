@@ -103,6 +103,7 @@ class TTSNode(Node):
 
     def stream_audio_playback(self, text):
         """Stream audio directly from ElevenLabs API to PyAudio"""
+        stream = None
         try:
             with self.stream_lock:
                 self.is_playing = True
@@ -117,9 +118,6 @@ class TTSNode(Node):
                 msg = String()
                 msg.data = 'playing'
                 self.audio_state_pub.publish(msg)
-                
-                # Set up audio buffer for processing
-                audio_buffer = bytearray()
                 
                 # Generate and stream audio
                 audio_stream = self.eleven_labs_client.generate(
@@ -143,26 +141,33 @@ class TTSNode(Node):
                 
                 # Process and play each chunk as it arrives
                 for chunk in audio_stream:
+                    if not self.is_playing:  # Check if we should stop playing
+                        break
                     if chunk:  # Skip empty chunks
                         # For PCM format, we can write directly to the stream
                         stream.write(chunk)
                 
-                # Close the audio stream
-                stream.stop_stream()
-                stream.close()
-                
-                # Publish audio completion state
+        except Exception as e:
+            self.get_logger().error(f"Error in audio streaming: {str(e)}")
+        finally:
+            # Always clean up resources and update state
+            if stream:
+                try:
+                    stream.stop_stream()
+                    stream.close()
+                except Exception as e:
+                    self.get_logger().error(f"Error closing audio stream: {str(e)}")
+            
+            # Publish completion state
+            try:
                 msg = String()
                 msg.data = 'done'
                 self.audio_state_pub.publish(msg)
-                
-                self.get_logger().info("Audio playback completed")
-                
-                self.is_playing = False
-                
-        except Exception as e:
-            self.get_logger().error(f"Error in audio streaming: {str(e)}")
+            except Exception as e:
+                self.get_logger().error(f"Error publishing completion state: {str(e)}")
+            
             self.is_playing = False
+            self.get_logger().info("Audio playback completed")
 
 
 def main(args=None):
