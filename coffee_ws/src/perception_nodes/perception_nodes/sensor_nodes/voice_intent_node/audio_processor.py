@@ -33,6 +33,10 @@ class AudioProcessor:
             audio_device_id (int): ID of the audio input device to use
             buffer_size (int): Maximum size of the audio processing queue
         """
+        self._stream = None
+        self._is_paused = False
+        self._stream_lock = threading.Lock()
+        
         self.FORMAT = pyaudio.paInt16
         self.CHANNELS = 1
         self.RATE = 16000  # Whisper requires 16kHz
@@ -49,6 +53,22 @@ class AudioProcessor:
         
         # Get and validate audio device
         self.list_audio_devices()
+        
+    def pause_stream(self):
+        """Pause the audio input stream to prevent processing while TTS is active."""
+        with self._stream_lock:
+            if self._stream and not self._is_paused:
+                self._stream.stop_stream()
+                self._is_paused = True
+                logger.info('Audio input stream paused')
+                
+    def resume_stream(self):
+        """Resume the audio input stream after TTS is complete."""
+        with self._stream_lock:
+            if self._stream and self._is_paused:
+                self._stream.start_stream()
+                self._is_paused = False
+                logger.info('Audio input stream resumed')
     
     def list_audio_devices(self):
         """

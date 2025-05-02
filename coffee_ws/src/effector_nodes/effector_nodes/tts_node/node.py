@@ -47,8 +47,13 @@ class TTSNode(Node):
             callback_group=self.service_group
         )
 
+        # Publisher for general status
         self.status_pub = self.create_publisher(
             String, TTS_STATUS_TOPIC, 10)
+            
+        # Publisher for audio playback state
+        self.audio_state_pub = self.create_publisher(
+            String, 'tts/audio_state', 10)
 
         # Status update timer (1Hz)
         self.status_timer = self.create_timer(
@@ -108,6 +113,11 @@ class TTSNode(Node):
                 
                 self.get_logger().info(f"Starting audio streaming with format: {output_format}")
                 
+                # Publish audio start state
+                msg = String()
+                msg.data = 'playing'
+                self.audio_state_pub.publish(msg)
+                
                 # Set up audio buffer for processing
                 audio_buffer = bytearray()
                 
@@ -137,11 +147,18 @@ class TTSNode(Node):
                         # For PCM format, we can write directly to the stream
                         stream.write(chunk)
                 
-                # Clean up
+                # Close the audio stream
                 stream.stop_stream()
                 stream.close()
+                
+                # Publish audio completion state
+                msg = String()
+                msg.data = 'done'
+                self.audio_state_pub.publish(msg)
+                
+                self.get_logger().info("Audio playback completed")
+                
                 self.is_playing = False
-                self.get_logger().info("Audio streaming completed")
                 
         except Exception as e:
             self.get_logger().error(f"Error in audio streaming: {str(e)}")

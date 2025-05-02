@@ -71,6 +71,13 @@ class VoiceIntentNode(Node):
         self.tts_client = self.create_client(
             TTSQuery, TTS_SERVICE, callback_group=self.service_group)
             
+        # Subscribe to TTS audio state
+        self.create_subscription(
+            String,
+            'tts/audio_state',
+            self.audio_state_callback,
+            10)
+            
         # Create Atoma chat service client
         self.atoma_chat_client = self.create_client(
             ChatService, 'chat', callback_group=self.service_group)
@@ -86,6 +93,21 @@ class VoiceIntentNode(Node):
         self._start_threads()
         
         self.get_logger().info('Voice Intent Node started successfully')
+        
+    def audio_state_callback(self, msg):
+        """Handle TTS audio state changes to control microphone input."""
+        state = msg.data
+        
+        if state == 'playing':
+            # Pause microphone input while TTS is playing
+            if hasattr(self, 'audio_processor'):
+                self.audio_processor.pause_stream()
+                self.get_logger().info('Paused microphone input for TTS playback')
+        elif state == 'done':
+            # Resume microphone input after TTS is done
+            if hasattr(self, 'audio_processor'):
+                self.audio_processor.resume_stream()
+                self.get_logger().info('Resumed microphone input after TTS playback')
     
     def _declare_parameters(self):
         """Declare all ROS2 parameters for this node."""
