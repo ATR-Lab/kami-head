@@ -6,6 +6,9 @@ pydantic_core==2.27.2
 setuptools==79.0.1
 typing_extensions==4.13.2
 
+# ROS2 compatibility
+empy==3.3.4  # Required for ROS2 Jazzy package creation (newer versions cause AttributeError)
+
 # Audio processing
 elevenlabs==1.57.0
 pyaudio==0.2.14
