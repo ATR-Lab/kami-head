@@ -53,7 +53,7 @@ ros-source
 ```
 # NEW
 # In root of the repo
-source ./script/setup_env.sh
+source ./scripts/setup_env.sh
 ```
 
 ## Launching Camera
@@ -270,6 +270,46 @@ ros2 run behavior_nodes language_model_processor_node
 ros2 run effector_nodes tts_node
 ```
 
+# ROS2 Package Creation Compatibility
+
+## empy Version Issue
+
+When creating new ROS2 packages using `ros2 pkg create`, you may encounter the following error:
+
+```
+AttributeError: module 'em' has no attribute 'BUFFERED_OPT'
+```
+
+This is a known compatibility issue between ROS2 Jazzy and newer versions of the `empy` package (version 4.2+).
+
+### Solution
+
+Downgrade empy to version 3.3.4:
+
+```bash
+pip install empy==3.3.4
+```
+
+### Why This Happens
+
+- ROS2 Jazzy expects `empy` version 3.3.4 for template processing
+- Newer versions of `empy` (4.2+) have removed the `BUFFERED_OPT` attribute
+- This affects the `ros2 pkg create` command which uses empy for template expansion
+
+### Alternative Workaround
+
+If you need to use a newer version of empy for other purposes, you can temporarily downgrade just for package creation:
+
+```bash
+# Before creating packages
+pip install empy==3.3.4
+
+# Create your package
+ros2 pkg create --build-type ament_python your_package_name
+
+# Restore newer version if needed
+pip install empy==4.2
+```
 
 # NOTES:
 1. VAD Parameters (Speech Detection):
