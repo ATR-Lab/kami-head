@@ -142,7 +142,43 @@ ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action
 ros2 service call /coffee_machine/get_status coffee_control_msgs/srv/MachineStatusRequest "{}"
 ```
 
-## Launching Dialogue System
+## Launching Voice Agent (NEW)
+
+### Coffee Voice Agent ROS2 Node
+The new integrated voice agent that combines LiveKit voice communication with ROS2:
+
+```bash
+# Build the voice agent package
+colcon build --packages-select coffee_voice_agent
+source install/setup.bash
+
+# Run the voice agent
+ros2 launch coffee_voice_agent voice_agent.launch.py
+
+# Or run directly
+ros2 run coffee_voice_agent voice_agent_node
+```
+
+**Features:**
+- Wake word detection ("hey barista")
+- Full voice conversation (STT, LLM, TTS)
+- Emotion-aware responses
+- Coffee menu and recommendations
+- ROS2 integration with Coffee Buddy system
+- Virtual request handling
+
+**Topics:**
+- `/coffee_voice_agent/state` - Agent state
+- `/coffee_voice_agent/emotion` - Current emotion
+- `/coffee_voice_agent/user_input` - User speech
+- `/coffee_voice_agent/agent_response` - Agent responses
+- `/coffee_voice_agent/virtual_request` - External requests
+
+**Requirements:**
+- `OPENAI_API_KEY` environment variable
+- `PORCUPINE_ACCESS_KEY` for wake word (optional)
+
+## Launching Dialogue System (Legacy)
 
 ### TTS Node
 Receives text to be spoken and sends it to the TTS engine.   
