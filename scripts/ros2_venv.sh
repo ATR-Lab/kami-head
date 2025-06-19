@@ -6,7 +6,7 @@
 #   source ros2_venv.sh disable               - Revert to system Python
 
 # Default venv path
-DEFAULT_VENV_PATH="$HOME/Documents/GitHub/coffee-budy/coffee_budy_venv"
+DEFAULT_VENV_PATH="$HOME/Github/coffee-budy/coffee_buddy_venv"
 ROS_DISTRO="jazzy"  # Change this if using a different ROS2 distribution
 
 # Check if script is being sourced
@@ -43,8 +43,8 @@ enable_venv() {
     export PYTHONPATH="$VENV_SITE_PACKAGES:$PYTHONPATH"
     
     # Source workspace setup if it exists
-    if [ -f "$HOME/Documents/GitHub/coffee-budy/coffee_ws/install/setup.bash" ]; then
-        source "$HOME/Documents/GitHub/coffee-budy/coffee_ws/install/setup.bash"
+    if [ -f "$HOME/Github/coffee-budy/coffee_ws/install/setup.bash" ]; then
+        source "$HOME/Github/coffee-budy/coffee_ws/install/setup.bash"
     fi
     
     echo "ROS2 is now using Python virtual environment at $venv_path"
@@ -70,8 +70,8 @@ disable_venv() {
         source "/opt/ros/$ROS_DISTRO/setup.bash"
         
         # Source workspace setup if it exists
-        if [ -f "$HOME/Documents/GitHub/coffee-budy/coffee_ws/install/setup.bash" ]; then
-            source "$HOME/Documents/GitHub/coffee-budy/coffee_ws/install/setup.bash"
+        if [ -f "$HOME/Github/coffee-budy/coffee_ws/install/setup.bash" ]; then
+            source "$HOME/Github/coffee-budy/coffee_ws/install/setup.bash"
         fi
         
         # Clear the flag
