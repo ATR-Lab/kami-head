@@ -44,6 +44,19 @@ class MockRoom:
     
     def __init__(self):
         self.name = "ros2_coffee_room"
+        self._connected = True
+    
+    def isconnected(self):
+        """Mock connection status"""
+        return self._connected
+    
+    async def disconnect(self):
+        """Mock disconnect"""
+        self._connected = False
+    
+    def on(self, event, handler):
+        """Mock event handler registration"""
+        pass
 
 
 class CoffeeVoiceAgentNode(Node):
@@ -61,6 +74,7 @@ class CoffeeVoiceAgentNode(Node):
         self.voice_agent = None
         self.mock_ctx = None
         self.agent_task = None
+        self.voice_agent_loop = None
         
         # Set up ROS2 interface
         self.setup_ros_interface()
@@ -155,7 +169,24 @@ class CoffeeVoiceAgentNode(Node):
     def _run_voice_agent_sync(self):
         """Synchronous wrapper for running the voice agent"""
         try:
-            asyncio.run(self.run_voice_agent())
+            # Create a persistent event loop that stays alive
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self.voice_agent_loop = loop  # Store reference for shutdown
+            
+            try:
+                # Start the voice agent
+                loop.run_until_complete(self.run_voice_agent())
+                
+                # Keep loop alive for wake word callbacks
+                self.get_logger().info("Voice agent event loop staying alive for wake word detection")
+                loop.run_forever()
+                
+            except Exception as e:
+                self.get_logger().error(f"Voice agent error in event loop: {e}")
+            finally:
+                loop.close()
+                
         except Exception as e:
             self.get_logger().error(f"Voice agent sync wrapper error: {e}")
     
@@ -263,6 +294,11 @@ class CoffeeVoiceAgentNode(Node):
     
     def destroy_node(self):
         """Clean up when shutting down"""
+        
+        # Stop the voice agent event loop
+        if hasattr(self, 'voice_agent_loop') and self.voice_agent_loop:
+            self.voice_agent_loop.call_soon_threadsafe(self.voice_agent_loop.stop)
+            self.get_logger().info("Stopping voice agent event loop")
         
         if self.agent_task and not self.agent_task.done():
             self.agent_task.cancel()
