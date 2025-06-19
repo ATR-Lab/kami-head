@@ -126,10 +126,38 @@ class CoffeeVoiceAgentNode(Node):
         # Create mock context for integration
         self.mock_ctx = MockLiveKitContext()
         
-        # Start the voice agent task
-        self.agent_task = asyncio.create_task(self.run_voice_agent())
+        # Create a one-time timer to start the async task after ROS2 is fully initialized
+        self.startup_timer = self.create_timer(0.1, self.start_voice_agent_task)
         
-        self.get_logger().info("Voice agent task started")
+        self.get_logger().info("Voice agent startup scheduled")
+    
+    def start_voice_agent_task(self):
+        """Timer callback to start the voice agent async task"""
+        
+        # Cancel the timer after first run
+        self.startup_timer.cancel()
+        
+        # Start the voice agent using asyncio.ensure_future which works better with executors
+        try:
+            self.agent_task = asyncio.ensure_future(self.run_voice_agent())
+            self.get_logger().info("Voice agent task started with ensure_future")
+        except Exception as e:
+            self.get_logger().error(f"Failed to start voice agent task: {e}")
+            # Try alternative approach
+            try:
+                import concurrent.futures
+                executor = concurrent.futures.ThreadPoolExecutor()
+                self.agent_task = executor.submit(self._run_voice_agent_sync)
+                self.get_logger().info("Voice agent started in thread executor")
+            except Exception as e2:
+                self.get_logger().error(f"Failed to start voice agent in thread: {e2}")
+    
+    def _run_voice_agent_sync(self):
+        """Synchronous wrapper for running the voice agent"""
+        try:
+            asyncio.run(self.run_voice_agent())
+        except Exception as e:
+            self.get_logger().error(f"Voice agent sync wrapper error: {e}")
     
     async def run_voice_agent(self):
         """Run the original voice agent with ROS2 integration hooks"""
