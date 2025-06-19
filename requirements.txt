@@ -53,3 +53,15 @@ humanfriendly==10.0
 
 # Serial communication (for Dynamixel)
 pyserial==3.5
+
+# Livekit
+setuptools
+typeguard
+python-dotenv
+pvporcupine==3.0.5
+pvrecorder==1.2.7
+livekit
+livekit-agents>=1.1.1
+livekit-plugins-openai
+livekit-plugins-silero
+livekit-plugins-noise-cancellation
