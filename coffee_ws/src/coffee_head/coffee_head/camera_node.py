@@ -11,9 +11,9 @@ import subprocess
 import json
 import collections
 from rclpy.node import Node
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QHBoxLayout, QCheckBox, QMessageBox
-from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
+from python_qt_binding.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QHBoxLayout, QCheckBox, QMessageBox
+from python_qt_binding.QtGui import QImage, QPixmap
+from python_qt_binding.QtCore import Qt, QTimer, pyqtSignal, QObject
 from std_msgs.msg import Float32MultiArray, String
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Point

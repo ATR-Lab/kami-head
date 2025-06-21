@@ -16,11 +16,11 @@ from std_msgs.msg import String, Float32
 from geometry_msgs.msg import Vector3
 from dynamixel_sdk_custom_interfaces.msg import SetPosition
 from dynamixel_sdk_custom_interfaces.srv import GetPosition
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+from python_qt_binding.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                             QLabel, QPushButton, QCheckBox, QSlider, QComboBox, QGroupBox,
                             QDoubleSpinBox, QScrollArea)
-from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer
+from python_qt_binding.QtGui import QImage, QPixmap
+from python_qt_binding.QtCore import Qt, pyqtSignal, QObject, QTimer
 
 # PID controller class for smooth motor control
 class PIDController:
