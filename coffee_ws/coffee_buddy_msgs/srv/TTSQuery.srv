@@ -1,3 +1,0 @@
-string text   # The text to have the TTS model inference with
----
-bool success  # If the TTS query was successful or not
