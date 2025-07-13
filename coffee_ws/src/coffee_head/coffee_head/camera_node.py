@@ -112,68 +112,13 @@ class FrameGrabber(QObject):
             self.face_image_pub = node.create_publisher(Image, 'face_images', 10)
             self.bridge = CvBridge()
             
-            # TODO: REMOVE
-            # Face recognition subscription
-            self.face_recognition_sub = node.create_subscription(
-                String,
-                'face_recognition_data',
-                self.face_recognition_callback,
-                10
-            )
-            
         # Face recognition data
         self.face_ids = {}  # Map of face index to recognized face ID
         self.last_recognition_time = 0
         self.recognition_timeout = 3.0  # Clear recognition data after 3 seconds
         
         self.init_face_detector()
-    
-    # TODO: REMOVE
-    def face_recognition_callback(self, msg):
-        """Process face recognition data from face recognition node"""
-        try:
-            recognition_data = json.loads(msg.data)
-            self.last_recognition_time = time.time()
-            
-            # Clear existing face IDs
-            self.face_ids = {}
-            
-            # Process each recognized face
-            for face in recognition_data.get('faces', []):
-                face_id = face.get('id')
-                position = face.get('position', {})
-                center_x = int(position.get('center_x', 0))
-                center_y = int(position.get('center_y', 0))
-                
-                # Find the corresponding detected face
-                # Match based on position
-                best_match_idx = -1
-                best_match_dist = float('inf')
-                
-                for i, detected_face in enumerate(self.prev_faces[-1] if self.prev_faces else []):
-                    # Calculate distance between centers
-                    dx = float(detected_face.get('center_x', 0)) - center_x
-                    dy = float(detected_face.get('center_y', 0)) - center_y
-                    dist = (dx**2 + dy**2)**0.5
-                    
-                    if dist < best_match_dist and dist < 100:  # Max 100px distance for a match
-                        best_match_dist = dist
-                        best_match_idx = i
-                
-                if best_match_idx >= 0:
-                    # Store the ID with this face index
-                    self.face_ids[best_match_idx] = {
-                        'id': str(face_id),
-                        'confidence': float(face.get('confidence', 0.0)),
-                        'is_new': bool(face.get('is_new', False))
-                    }
-            
-        except Exception as e:
-            if self.node:
-                self.node.get_logger().error(f"Error processing face recognition data: {e}")
-                import traceback
-                traceback.print_exc()
-    
+     
     def publish_face_data(self, faces):
         """Publish face detection data for other nodes"""
         if not self.node:
