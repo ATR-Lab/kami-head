@@ -54,5 +54,5 @@ def generate_launch_description():
         camera_index_arg,
         confidence_threshold_arg,
         camera_node,
-        face_detection_node
+        # face_detection_node
     ]) 
