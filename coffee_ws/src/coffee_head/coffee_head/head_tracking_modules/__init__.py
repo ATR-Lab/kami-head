@@ -1,1 +1,0 @@
-# Head tracking module for pan/tilt motor control 
