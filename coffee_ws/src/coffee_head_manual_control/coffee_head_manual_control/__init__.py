@@ -1,1 +1,1 @@
-from coffee_joystick.joystick_control_node import JoystickControlNode
+from coffee_head_manual_control.joystick_control_node import JoystickControlNode
