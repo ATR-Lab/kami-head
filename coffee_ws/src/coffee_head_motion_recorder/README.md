@@ -1,6 +1,13 @@
-# Motion Recorder
+# Coffee Head Motion Recorder
 
 A ROS2 package for recording and playing back motion sequences for Dynamixel servo-controlled robot head. This package allows you to manually position your robot's head and record the motion for later playback.
+
+## Package Structure
+
+This functionality is split into two packages following ROS2 best practices:
+
+- **`coffee_head_motion_recorder`**: Main implementation package containing the recorder node and UI
+- **`coffee_head_motion_recorder_msgs`**: Interface package containing service definitions
 
 ## Features
 
@@ -20,11 +27,12 @@ A ROS2 package for recording and playing back motion sequences for Dynamixel ser
 
 ## Installation
 
-1. Clone this repository into your ROS2 workspace:
+1. Ensure both packages are in your ROS2 workspace:
 
    ```bash
    cd /path/to/your/workspace/src
-   git clone https://github.com/yourusername/motion_recorder.git
+   # coffee_head_motion_recorder/
+   # coffee_head_motion_recorder_msgs/
    ```
 
 2. Install dependencies:
@@ -34,11 +42,12 @@ A ROS2 package for recording and playing back motion sequences for Dynamixel ser
    pip3 install dynamixel-sdk
    ```
 
-3. Build the package:
+3. Build the packages (interface package first):
 
    ```bash
    cd /path/to/your/workspace
-   colcon build --packages-select motion_recorder
+   colcon build --packages-select coffee_head_motion_recorder_msgs
+   colcon build --packages-select coffee_head_motion_recorder
    ```
 
 4. Source the workspace:
@@ -52,7 +61,7 @@ A ROS2 package for recording and playing back motion sequences for Dynamixel ser
 ### Launch the Motion Recorder
 
 ```bash
-ros2 launch motion_recorder motion_recorder.launch.py
+ros2 launch coffee_head_motion_recorder motion_recorder.launch.py
 ```
 
 ### Launch Parameters
@@ -67,7 +76,7 @@ The launch file accepts several parameters:
 Example with custom parameters:
 
 ```bash
-ros2 launch motion_recorder motion_recorder.launch.py serial_port:=/dev/ttyUSB1 baudrate:=57600
+ros2 launch coffee_head_motion_recorder motion_recorder.launch.py serial_port:=/dev/ttyUSB1 baudrate:=57600
 ```
 
 ### Recording Motion
@@ -86,6 +95,25 @@ ros2 launch motion_recorder motion_recorder.launch.py serial_port:=/dev/ttyUSB1 
 2. Select a motion from the "Motion Library" tab or load a motion
 3. Click "Play Motion" to play back the recorded motion
 4. Click "Stop Playback" to stop the motion
+
+## ROS2 Services
+
+The package provides several ROS2 services for programmatic control:
+
+### Recording Services
+- `motion_recorder/start_recording` (std_srvs/Trigger)
+- `motion_recorder/stop_recording` (std_srvs/Trigger)
+- `motion_recorder/mark_keyframe` (std_srvs/Trigger)
+- `motion_recorder/toggle_torque` (std_srvs/SetBool)
+
+### Playback Services
+- `motion_recorder/play_motion` (std_srvs/Trigger)
+- `motion_recorder/stop_playback` (std_srvs/Trigger)
+
+### File Management Services
+- `motion_recorder/save_motion` (coffee_head_motion_recorder_msgs/SaveMotion)
+- `motion_recorder/load_motion` (coffee_head_motion_recorder_msgs/LoadMotion)
+- `motion_recorder/list_motions` (coffee_head_motion_recorder_msgs/ListMotions)
 
 ## License
 
