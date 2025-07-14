@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <n>coffee_vision</n>
+  <name>coffee_vision</name>
   <version>0.0.0</version>
   <description>Computer vision package for camera capture, face detection, and basic visual processing</description>
   <maintainer email="irvsteve@gmail.com">kpatch</maintainer>
