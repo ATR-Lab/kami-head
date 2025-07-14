@@ -20,7 +20,7 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger, SetBool
 
 # Import custom service types
-from motion_recorder_msgs.srv import SaveMotion, LoadMotion, ListMotions
+from coffee_head_motion_recorder_msgs.srv import SaveMotion, LoadMotion, ListMotions
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
