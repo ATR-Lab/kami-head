@@ -24,7 +24,6 @@ setup(
     entry_points={
         'console_scripts': [
             'camera_node = coffee_head.camera_node:main',
-            'camera_node_simple = coffee_head.camera_node_simple:main',
             'head_tracking = coffee_head.head_tracking:main',
             'eye_tracking = coffee_head.eye_tracking:main',
             'face_recognition = coffee_head.face_recognition_node:main',
