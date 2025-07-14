@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <n>coffee_head_motion_recorder_msgs</n>
+  <name>coffee_head_motion_recorder_msgs</name>
   <version>0.0.0</version>
   <description>Service definitions for coffee head motion recorder package</description>
   <maintainer email="Marcus.Arnett10@gmail.com">kpatch</maintainer>
