@@ -3,7 +3,7 @@
 <package format="3">
   <name>coffee_vision</name>
   <version>0.0.0</version>
-  <description>Computer vision package for camera capture, face detection, and basic visual processing</description>
+  <description>Computer vision package with camera capture, face detection, and GUI interface</description>
   <maintainer email="irvsteve@gmail.com">kpatch</maintainer>
   <license>TODO: License declaration</license>
 
@@ -18,8 +18,9 @@
   <depend>python3-opencv</depend>
   <depend>python3-numpy</depend>
 
-  <!-- Optional computer vision libraries -->
-  <depend>python3-dlib</depend>
+  <!-- Qt GUI dependencies -->
+  <depend>python_qt_binding</depend>
+  <depend>python3-pyqt5</depend>
 
   <!-- Test dependencies -->
   <test_depend>ament_copyright</test_depend>

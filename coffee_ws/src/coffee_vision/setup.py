@@ -18,16 +18,17 @@ setup(
         'setuptools',
         'opencv-python',
         'numpy',
+        'PyQt5',
     ],
     zip_safe=True,
     maintainer='kpatch',
     maintainer_email='irvsteve@gmail.com',
-    description='Computer vision package for camera capture, face detection, and basic visual processing',
+    description='Computer vision package with camera capture, face detection, and GUI interface',
     license='TODO: License declaration',
     entry_points={
         'console_scripts': [
             'camera_node = coffee_vision.camera_node:main',
-            'face_detection_node = coffee_vision.face_detection_node:main',
+            # 'face_detection_node = coffee_vision.face_detection_node:main',
         ],
     },
 )
