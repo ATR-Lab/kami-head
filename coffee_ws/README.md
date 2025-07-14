@@ -105,41 +105,41 @@ ros2 run coffee_joystick joystick_control
 
 ## Launching Coffee Control Node
 
-### Launch Coffee Control with Actual Machine
+### Launch Coffee Machine Control with Actual Machine
 ```
-ros2 run coffee_control coffee_control_node --ros-args -p mac_address:=<your_machine_mac>
+ros2 run coffee_machine_control coffee_machine_control_node --ros-args -p mac_address:=<your_machine_mac>
 ```
 
 Or use the launch file (recommended)
 ```
-ros2 launch coffee_control coffee_control.launch.py  # Uses default MAC: 9C:95:6E:61:B6:2C
-ros2 launch coffee_control coffee_control.launch.py mac_address:=<your_machine_mac>
+ros2 launch coffee_machine_control coffee_machine_control.launch.py  # Uses default MAC: 9C:95:6E:61:B6:2C
+ros2 launch coffee_machine_control coffee_machine_control.launch.py mac_address:=<your_machine_mac>
 ```
 
-### Launch Coffee Control with Mock Machine
+### Launch Coffee Machine Control with Mock Machine
 ```
-ros2 run coffee_control coffee_control_node --ros-args -p use_mock_machine:=true -p "mac_address:=''"
+ros2 run coffee_machine_control coffee_machine_control_node --ros-args -p use_mock_machine:=true -p "mac_address:=''"
 ```
 
 ### Sending Coffee Commands
 ```
 # Make coffee
-ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'make', parameter: 'espresso'}"
-ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'make', parameter: 'coffee'}"
-ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'make', parameter: 'americano'}"
+ros2 service call /coffee_command coffee_machine_control_msgs/srv/CoffeeCommand "{action: 'make', parameter: 'espresso'}"
+ros2 service call /coffee_command coffee_machine_control_msgs/srv/CoffeeCommand "{action: 'make', parameter: 'coffee'}"
+ros2 service call /coffee_command coffee_machine_control_msgs/srv/CoffeeCommand "{action: 'make', parameter: 'americano'}"
 
 # Cancel brewing
-ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'cancel', parameter: ''}"
+ros2 service call /coffee_command coffee_machine_control_msgs/srv/CoffeeCommand "{action: 'cancel', parameter: ''}"
 
 # Control cup light
-ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'cuplight', parameter: 'on'}"
-ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'cuplight', parameter: 'off'}"
+ros2 service call /coffee_command coffee_machine_control_msgs/srv/CoffeeCommand "{action: 'cuplight', parameter: 'on'}"
+ros2 service call /coffee_command coffee_machine_control_msgs/srv/CoffeeCommand "{action: 'cuplight', parameter: 'off'}"
 
 # Control sound
-ros2 service call /coffee_command coffee_control_msgs/srv/CoffeeCommand "{action: 'sound', parameter: 'on'}"
+ros2 service call /coffee_command coffee_machine_control_msgs/srv/CoffeeCommand "{action: 'sound', parameter: 'on'}"
 
 # Get ALL Status
-ros2 service call /coffee_machine/get_status coffee_control_msgs/srv/MachineStatusRequest "{}"
+ros2 service call /coffee_machine/get_status coffee_machine_control_msgs/srv/MachineStatusRequest "{}"
 ```
 
 ## Launching Voice Agent (NEW)
@@ -246,7 +246,7 @@ sudo docker run -it --rm -v /dev:/dev --privileged --net=host microros/micro-ros
 ```
 ros2 run effector_nodes tts_node
 
-ros2 run coffee_control coffee_control_node --ros-args -p use_mock_machine:=true -p "mac_address:=''"
+ros2 run coffee_machine_control coffee_machine_control_node --ros-args -p use_mock_machine:=true -p "mac_address:=''"
 
 ros2 run behavior_nodes language_model_processor_node
 
@@ -269,12 +269,12 @@ ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_du
 # Use with threshold: float = 0.4, min_silence_duration_ms: int = 2000, speech_pad_ms: int = 1000
 ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=2000
 
-# Run coffee control node directly
-ros2 run coffee_control coffee_control_node --ros-args -p mac_address:=<your_machine_mac>
+# Run coffee machine control node directly
+ros2 run coffee_machine_control coffee_machine_control_node --ros-args -p mac_address:=<your_machine_mac>
 
 # Or use the launch file (recommended)
-ros2 launch coffee_control coffee_control.launch.py  # Uses default MAC: 9C:95:6E:61:B6:2C
-ros2 launch coffee_control coffee_control.launch.py mac_address:=<your_machine_mac>
+ros2 launch coffee_machine_control coffee_machine_control.launch.py  # Uses default MAC: 9C:95:6E:61:B6:2C
+ros2 launch coffee_machine_control coffee_machine_control.launch.py mac_address:=<your_machine_mac>
 
 ```
 
