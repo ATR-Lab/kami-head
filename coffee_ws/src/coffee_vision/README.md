@@ -1,74 +1,77 @@
 # Coffee Vision Package
 
-A ROS2 package providing computer vision capabilities for camera capture and face detection in the Coffee Buddy robot system.
+A ROS2 package providing comprehensive computer vision capabilities including camera capture, face detection, and GUI visualization for the Coffee Buddy robot system.
 
 ## Overview
 
-The `coffee_vision` package is a focused computer vision module that handles:
-- Camera capture and image streaming
+The `coffee_vision` package provides an integrated computer vision solution that combines:
+- Camera capture and streaming
 - Real-time face detection using OpenCV DNN
-- Face position tracking and data publishing
+- Interactive Qt-based GUI for camera control
+- Face position tracking and coordinate transformation
+- Multi-threaded performance optimization
+- Camera diagnostics and quality controls
 
-This package follows the single responsibility principle, focusing only on low-level computer vision tasks. Face recognition and memory management are handled by separate packages.
+This package contains a single, comprehensive `camera_node` that handles all computer vision tasks with an integrated GUI interface.
 
 ## Architecture
 
 ```
-┌─────────────────┐    /camera/image_raw    ┌──────────────────────┐
-│   Camera Node   ├────────────────────────►│ Face Detection Node  │
-│                 │                         │                      │
-├─────────────────┤                         ├──────────────────────┤
-│ - Camera setup  │                         │ - OpenCV DNN         │
-│ - Frame capture │                         │ - Face detection     │
-│ - Image publish │                         │ - Position tracking  │
-└─────────────────┘                         └──────────────────────┘
-                                                        │
-                                                        ▼
-                                            /vision/face_detection_data
-                                            /vision/face_position
+┌─────────────────────────────────────────────────────────────────┐
+│                        Camera Node                              │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
+│  │   Qt GUI        │  │  FrameGrabber   │  │  Face Detection │  │
+│  │ - Camera select │  │ - Multi-thread  │  │ - OpenCV DNN    │  │
+│  │ - Quality ctrl  │  │ - Frame buffer  │  │ - Face tracking │  │
+│  │ - Diagnostics   │  │ - Rate control  │  │ - Smoothing     │  │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+                          ROS2 Publishers:
+                          • /camera_frame (sensor_msgs/Image)
+                          • /face_detection_data (std_msgs/String)
+                          • /vision/face_position (geometry_msgs/Point)
+                          • /vision/face_position_v2 (std_msgs/String)
+                          • /face_images (sensor_msgs/Image)
 ```
 
-## Nodes
+## Components
 
 ### Camera Node (`camera_node`)
 
-Handles camera initialization, frame capture, and image publishing.
+A comprehensive ROS2 node that provides camera capture, face detection, and GUI control in a single integrated package.
+
+**Key Features:**
+- **Multi-threaded Architecture**: Separate threads for capture, processing, publishing, and UI
+- **Interactive GUI**: Qt-based interface for camera selection and control
+- **Built-in Face Detection**: OpenCV DNN-based face detection with temporal smoothing
+- **Performance Optimization**: Adaptive frame rates and quality controls
+- **Eye Coordinate Transformation**: Converts face positions to robot eye coordinates
 
 **Publishers:**
-- `/camera/image_raw` (sensor_msgs/Image): Raw camera frames
-- `/camera/status` (std_msgs/String): Camera status
+- `/camera_frame` (sensor_msgs/Image): Raw camera frames
+- `/face_detection_data` (std_msgs/String): JSON-formatted face detection results
+- `/vision/face_position` (geometry_msgs/Point): Eye-coordinate transformed face position
+- `/vision/face_position_v2` (std_msgs/String): Extended face position data
+- `/face_images` (sensor_msgs/Image): Extracted face image regions
 
-**Parameters:**
-- `camera_index` (int, default: 0): Camera device index
-- `frame_width` (int, default: 640): Frame width in pixels
-- `frame_height` (int, default: 480): Frame height in pixels
-- `target_fps` (int, default: 30): Target frames per second
-
-### Face Detection Node (`face_detection_node`)
-
-Subscribes to camera images and performs face detection using OpenCV DNN.
-
-**Subscribers:**
-- `/camera/image_raw` (sensor_msgs/Image): Camera frames
-
-**Publishers:**
-- `/vision/face_detection_data` (std_msgs/String): JSON-formatted face detection results
-- `/vision/face_position` (geometry_msgs/Vector3): Position of largest detected face
-- `/vision/face_detection_status` (std_msgs/String): Detection status
-
-**Parameters:**
-- `confidence_threshold` (double, default: 0.5): Minimum confidence for face detection
-- `nms_threshold` (double, default: 0.4): Non-maximum suppression threshold
-- `enable_smoothing` (bool, default: true): Enable temporal smoothing of detections
+**GUI Controls:**
+- Camera device selection and refresh
+- Quality toggle (480p/720p)
+- Face detection enable/disable
+- Camera diagnostics display
+- Real-time video preview with face overlays
 
 ## Installation
 
 ### Dependencies
 
-The package requires the following dependencies:
-- OpenCV with DNN support
-- NumPy
-- Standard ROS2 packages (rclpy, sensor_msgs, etc.)
+The package requires:
+- **Qt5/PyQt5**: For GUI interface (`python_qt_binding`)
+- **OpenCV**: With DNN support for face detection
+- **NumPy**: For numerical operations
+- **Standard ROS2**: rclpy, sensor_msgs, geometry_msgs, cv_bridge
 
 ### Build Instructions
 
@@ -85,48 +88,89 @@ source install/setup.bash
 
 ## Usage
 
-### Launch All Vision Nodes
+### Running the Camera Node
+
+The camera node provides both command-line and GUI interfaces:
 
 ```bash
-# Launch camera and face detection nodes together
-ros2 launch coffee_vision vision_nodes.launch.py
-
-# Launch with custom parameters
-ros2 launch coffee_vision vision_nodes.launch.py camera_index:=1 confidence_threshold:=0.7
-```
-
-### Run Individual Nodes
-
-```bash
-# Camera node only
+# Run with GUI (default)
 ros2 run coffee_vision camera_node
 
-# Face detection node only (requires camera feed)
-ros2 run coffee_vision face_detection_node
+# The node will automatically:
+# - Scan for available cameras
+# - Launch the Qt GUI
+# - Start publishing camera data
+# - Begin face detection
 ```
 
-### Monitor Topics
+### GUI Interface
+
+The camera node launches with an interactive GUI that provides:
+
+1. **Camera Selection**: Dropdown to choose between detected cameras
+2. **Quality Control**: Toggle between standard (640x480) and high quality (1280x720)
+3. **Face Detection**: Enable/disable real-time face detection
+4. **Diagnostics**: View system information and camera capabilities
+5. **Live Preview**: Real-time camera feed with face detection overlays
+
+### ROS2 Topics
+
+Monitor the published data:
 
 ```bash
-# View camera feed
-ros2 topic echo /camera/image_raw
+# View camera frames
+ros2 topic echo /camera_frame
 
-# Monitor face detection results
-ros2 topic echo /vision/face_detection_data
+# Monitor face detection results (JSON format)
+ros2 topic echo /face_detection_data
 
-# Watch face positions
+# Watch face positions (eye coordinates)
 ros2 topic echo /vision/face_position
+
+# Extended face position data
+ros2 topic echo /vision/face_position_v2
+
+# Face image extractions
+ros2 topic echo /face_images
 ```
+
+## Configuration
+
+### Camera Settings
+
+The node automatically detects and configures cameras with optimal settings:
+- **Resolution**: 640x480 (standard) or 1280x720 (high quality)
+- **Frame Rate**: 30 FPS (standard) or 24 FPS (high quality)
+- **Backend**: Automatically selects V4L2, GStreamer, or OpenCV backends
+
+### Face Detection Parameters
+
+Built-in face detection with the following characteristics:
+- **Model**: OpenCV DNN face detector (auto-downloaded)
+- **Confidence Threshold**: 0.5 (configurable in code)
+- **Detection Rate**: Adaptive (3-6 FPS) based on performance
+- **Smoothing**: Temporal smoothing to reduce detection jitter
+- **Coordinate System**: Transforms to robot eye coordinates (-1.0 to 1.0 range)
+
+### Performance Optimization
+
+The node includes several performance optimizations:
+- **Adaptive Frame Skipping**: Reduces face detection frequency under load
+- **Multi-threading**: Separate threads for capture, processing, and publishing
+- **Frame Buffering**: Manages memory efficiently with frame locks
+- **Rate Limiting**: Controls UI updates and ROS publishing rates
 
 ## Data Formats
 
-### Face Detection Data
+### Face Detection Data (`/face_detection_data`)
 
-Published on `/vision/face_detection_data` as JSON:
+Published as JSON string:
 
 ```json
 {
-  "timestamp": 1672531200,
+  "timestamp": 1672531200.123,
+  "frame_width": 640,
+  "frame_height": 480,
   "faces": [
     {
       "x1": 100,
@@ -135,109 +179,148 @@ Published on `/vision/face_detection_data` as JSON:
       "y2": 220,
       "center_x": 150,
       "center_y": 170,
-      "confidence": 0.85
+      "confidence": 0.85,
+      "id": "Unknown"
     }
-  ],
-  "count": 1
+  ]
 }
 ```
 
-### Face Position
+### Face Position (`/vision/face_position`)
 
-Published on `/vision/face_position` as Vector3:
-- `x`: Center X coordinate of largest face
-- `y`: Center Y coordinate of largest face  
-- `z`: Confidence score
-
-## Configuration
-
-### Camera Settings
-
-The camera node automatically configures optimal settings but can be customized:
-
-```bash
-ros2 run coffee_vision camera_node --ros-args \
-  -p camera_index:=0 \
-  -p frame_width:=1280 \
-  -p frame_height:=720 \
-  -p target_fps:=30
-```
-
-### Face Detection Tuning
-
-Adjust detection sensitivity and performance:
-
-```bash
-ros2 run coffee_vision face_detection_node --ros-args \
-  -p confidence_threshold:=0.7 \
-  -p nms_threshold:=0.3 \
-  -p enable_smoothing:=true
-```
+Published as geometry_msgs/Point with eye coordinates:
+- `x`: Horizontal eye position (-1.0 to 1.0)
+- `y`: Vertical eye position (-1.0 to 1.0)
+- `z`: Reserved (usually 0.0)
 
 ## Models
 
-The face detection node automatically downloads OpenCV's pre-trained face detection models:
-- `opencv_face_detector_uint8.pb`
-- `opencv_face_detector.pbtxt`
+The face detection system automatically downloads required models:
+- **opencv_face_detector_uint8.pb**: DNN model weights
+- **opencv_face_detector.pbtxt**: Model configuration
 
-Models are stored in `coffee_vision/models/` directory.
+Models are stored in: `coffee_vision/models/` directory
 
-## Performance
-
-### GPU Acceleration
-
-The face detection node automatically attempts to use CUDA acceleration if available, falling back to CPU processing otherwise.
-
-### Optimization Tips
-
-1. **Lower resolution** for better performance: Set smaller `frame_width` and `frame_height`
-2. **Adjust confidence threshold**: Higher values reduce false positives but may miss faces
-3. **Disable smoothing** for faster processing: Set `enable_smoothing:=false`
+**GPU Acceleration**: Automatically uses CUDA if available, falls back to CPU
 
 ## Integration
 
-This package is designed to integrate with other Coffee Buddy packages:
+This package integrates with other Coffee Buddy components:
 
-- **coffee_recognition**: Subscribes to face detection data for recognition tasks
-- **coffee_head_control**: Uses face positions for head tracking
+- **coffee_head_control**: Subscribes to `/vision/face_position` for head tracking
+- **coffee_recognition**: Uses `/face_detection_data` and `/face_images` for recognition
 - **coffee_expressions**: Responds to face detection for emotional expressions
+- **coffee_face**: May use face position data for eye animations
+
+## Performance Notes
+
+### Threading Architecture
+
+The node uses a sophisticated multi-threading approach:
+1. **Capture Thread**: Dedicated camera frame capture
+2. **Process Thread**: Face detection and image processing
+3. **Publish Thread**: ROS message publishing at controlled rates
+4. **UI Thread**: Qt GUI updates and user interaction
+
+### Adaptive Performance
+
+- **Dynamic Frame Skipping**: Adjusts detection frequency based on processing time
+- **Quality Scaling**: Automatic resolution adjustment for performance
+- **Rate Limiting**: Prevents overwhelming ROS topics with high-frequency data
+
+### Memory Management
+
+- **Frame Buffering**: Efficient shared memory for multi-threading
+- **GPU Memory**: Automatic cleanup and management for DNN models
+- **Resource Cleanup**: Proper camera release on shutdown
 
 ## Troubleshooting
 
 ### Camera Issues
 
 ```bash
-# List available cameras
+# Check available cameras
 ls /dev/video*
 
-# Test camera directly
-ros2 run coffee_vision camera_node --ros-args -p camera_index:=1
+# View camera diagnostics in GUI
+# Click "Camera Diagnostics" button
+
+# Test different camera indices
+# Use GUI dropdown to select cameras
 ```
 
-### Detection Issues
+### Performance Issues
+
+1. **Low Frame Rate**: Try disabling face detection or reducing quality
+2. **High CPU Usage**: Face detection is CPU-intensive; consider GPU acceleration
+3. **Memory Issues**: The node uses significant memory for image processing
+
+### GUI Issues
 
 ```bash
-# Lower confidence threshold for more detections
-ros2 run coffee_vision face_detection_node --ros-args -p confidence_threshold:=0.3
+# Ensure Qt5 is properly installed
+sudo apt install python3-pyqt5
 
-# Check model download
-ls coffee_ws/src/coffee_vision/coffee_vision/models/
+# Check X11 forwarding if using SSH
+echo $DISPLAY
 ```
+
+### Face Detection Issues
+
+1. **No Faces Detected**: 
+   - Check lighting conditions
+   - Adjust confidence threshold in code
+   - Ensure camera is properly focused
+
+2. **Model Download Fails**:
+   - Check internet connection
+   - Manually download models to `coffee_vision/models/`
+
+3. **Poor Detection Accuracy**:
+   - Increase resolution (use High Quality mode)
+   - Improve lighting conditions
+   - Ensure face is clearly visible
 
 ## Development
 
-### Adding New Detection Models
+### Code Structure
 
-1. Place model files in `coffee_vision/models/`
-2. Update `initialize_face_detector()` in `face_detection_node.py`
-3. Test with various lighting conditions
+- **FrameGrabber**: Core camera capture and processing logic
+- **CameraViewer**: Qt GUI interface and controls  
+- **CameraNode**: ROS2 node wrapper and coordination
+- **Face Detection**: OpenCV DNN integration with smoothing
 
 ### Extending Functionality
 
-This package is designed to be minimal and focused. For additional computer vision features:
-- Create separate specialized packages
-- Use the same topic interfaces for compatibility
-- Follow the modular architecture pattern
+To add new features:
+1. **New Publishers**: Add to FrameGrabber class
+2. **GUI Controls**: Extend CameraViewer interface
+3. **Detection Models**: Update `init_face_detector()` method
+4. **Processing Pipeline**: Modify `_process_loop()` thread
+
+### Performance Tuning
+
+Key parameters for optimization:
+- `min_detection_interval`: Face detection frequency
+- `detection_skip_frames`: Frame skipping for performance
+- `smoothing_factor`: Temporal smoothing strength
+- `face_confidence_threshold`: Detection sensitivity
+
+## Known Limitations
+
+1. **Single Camera**: Currently supports one camera at a time
+2. **Qt Dependency**: Requires GUI environment (not headless friendly)
+3. **Memory Usage**: High memory consumption due to image processing
+4. **CPU Intensive**: Face detection requires significant computational resources
+
+## Future Improvements
+
+Potential enhancements:
+- Headless mode without GUI
+- Multiple camera support
+- Advanced face tracking algorithms
+- Custom face detection models
+- WebRTC streaming capabilities
 
 ## License
 
