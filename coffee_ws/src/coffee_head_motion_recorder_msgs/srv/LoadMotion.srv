@@ -1,0 +1,4 @@
+string name    # Motion name to load
+---
+bool success   # Whether the operation was successful
+string message # Additional information or error message 
