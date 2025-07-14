@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 import os
 from glob import glob
 
-package_name = 'motion_recorder'
+package_name = 'coffee_head_motion_recorder'
 
 setup(
     name=package_name,
@@ -23,8 +23,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'recorder_node = motion_recorder.recorder_node:main',
-            'recorder_ui = motion_recorder.recorder_ui:main',
+            'recorder_node = coffee_head_motion_recorder.recorder_node:main',
+            'recorder_ui = coffee_head_motion_recorder.recorder_ui:main',
         ],
     },
 )

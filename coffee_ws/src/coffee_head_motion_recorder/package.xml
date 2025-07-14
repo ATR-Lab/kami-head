@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>motion_recorder</name>
+  <name>coffee_head_motion_recorder</name>
   <version>0.0.0</version>
   <description>Motion recorder and playback for Dynamixel servo-controlled robot head</description>
   <maintainer email="Marcus.Arnett10@gmail.com">kpatch</maintainer>
@@ -13,7 +13,7 @@
   <depend>std_srvs</depend>
   <depend>python3-pyqt5</depend>
   <depend>dynamixel_sdk</depend>
-  <depend>motion_recorder_msgs</depend>
+  <depend>coffee_head_motion_recorder_msgs</depend>
 
 
   <test_depend>ament_copyright</test_depend>
