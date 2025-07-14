@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>coffee_control</name>
+  <name>coffee_machine_control</name>
   <version>0.0.1</version>
   <description>ROS2 node for controlling the Delonghi coffee machine via Bluetooth</description>
   <maintainer email="user@todo.todo">user</maintainer>
@@ -13,7 +13,7 @@
   <test_depend>python3-pytest</test_depend>
 
   <depend>rclpy</depend>
-  <depend>coffee_control_msgs</depend>
+  <depend>coffee_machine_control_msgs</depend>
 
   <export>
     <build_type>ament_python</build_type>

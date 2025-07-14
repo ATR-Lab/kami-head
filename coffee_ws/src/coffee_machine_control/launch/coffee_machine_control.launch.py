@@ -11,11 +11,11 @@ def generate_launch_description():
         description='MAC address of the Delonghi coffee machine'
     )
 
-    # Create coffee control node
-    coffee_control_node = Node(
-        package='coffee_control',
-        executable='coffee_control_node',
-        name='coffee_control_node',
+    # Create coffee machine control node
+    coffee_machine_control_node = Node(
+        package='coffee_machine_control',
+        executable='coffee_machine_control_node',
+        name='coffee_machine_control_node',
         parameters=[{
             'mac_address': LaunchConfiguration('mac_address')
         }],
@@ -24,5 +24,5 @@ def generate_launch_description():
 
     return LaunchDescription([
         mac_address_arg,
-        coffee_control_node
+        coffee_machine_control_node
     ])

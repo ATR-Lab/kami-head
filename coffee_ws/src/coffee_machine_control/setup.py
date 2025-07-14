@@ -2,14 +2,14 @@ from setuptools import setup, find_packages
 import os
 from glob import glob
 
-package_name = 'coffee_control'
+package_name = 'coffee_machine_control'
 
 setup(
     name=package_name,
     version='0.0.1',
-    packages=find_packages(include=['coffee_control', 'coffee_control.*']),
+    packages=find_packages(include=['coffee_machine_control', 'coffee_machine_control.*']),
     data_files=[
-        ('lib/coffee_control', ['scripts/coffee_control_node']),
+        ('lib/coffee_machine_control', ['scripts/coffee_machine_control_node']),
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
@@ -24,7 +24,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'coffee_control_node = coffee_control.coffee_control_node:main',
+            'coffee_machine_control_node = coffee_machine_control.coffee_machine_control_node:main',
         ],
     },
 )

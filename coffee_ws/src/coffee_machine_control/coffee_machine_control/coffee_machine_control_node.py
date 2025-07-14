@@ -11,11 +11,11 @@ from rclpy.executors import MultiThreadedExecutor
 from bleak.exc import BleakError
 import time
 
-from coffee_control_msgs.srv import CoffeeCommand
-from coffee_control_msgs.msg import FunctionCall
-from coffee_control_msgs.srv import CoffeeCommand, MachineStatusRequest
+from coffee_machine_control_msgs.srv import CoffeeCommand
+from coffee_machine_control_msgs.msg import FunctionCall
+from coffee_machine_control_msgs.srv import CoffeeCommand, MachineStatusRequest
 
-from coffee_control.delonghi_controller import DelongiPrimadonna, AvailableBeverage
+from coffee_machine_control.delonghi_controller import DelongiPrimadonna, AvailableBeverage
 
 class MockCoffeeMachine:
     """
