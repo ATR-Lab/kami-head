@@ -1,10 +1,10 @@
-# Coffee Control
+# Coffee Machine Control
 
 A ROS2 package for controlling Delonghi Prima Donna coffee machines via Bluetooth Low Energy (BLE).
 
 ## Overview
 
-The `coffee_control` package provides a ROS2 interface to remotely control Delonghi coffee machines using Bluetooth connectivity. It supports brewing various beverages, controlling machine settings, and monitoring machine status through standardized ROS2 services and messages.
+The `coffee_machine_control` package provides a ROS2 interface to remotely control Delonghi coffee machines using Bluetooth connectivity. It supports brewing various beverages, controlling machine settings, and monitoring machine status through standardized ROS2 services and messages.
 
 ## Features
 
@@ -37,7 +37,7 @@ The `coffee_control` package provides a ROS2 interface to remotely control Delon
 └─────────────────┬───────────────────────┘
                   │ ROS2 Services/Messages
 ┌─────────────────▼───────────────────────┐
-│         CoffeeControlNode               │
+│       CoffeeMachineControlNode          │
 │    - Service handlers                   │
 │    - Async command execution            │
 │    - Status monitoring                  │
@@ -70,7 +70,7 @@ The `coffee_control` package provides a ROS2 interface to remotely control Delon
 pip install bleak
 
 # Build the workspace (from coffee_ws directory)
-colcon build --packages-select coffee_control coffee_control_msgs
+colcon build --packages-select coffee_machine_control coffee_machine_control_msgs
 source install/setup.bash
 ```
 
@@ -81,10 +81,10 @@ source install/setup.bash
 #### With Physical Coffee Machine
 ```bash
 # Launch with default MAC address
-ros2 launch coffee_control coffee_control.launch.py
+ros2 launch coffee_machine_control coffee_machine_control.launch.py
 
 # Launch with specific MAC address
-ros2 launch coffee_control coffee_control.launch.py mac_address:="YOUR_MACHINE_MAC"
+ros2 launch coffee_machine_control coffee_machine_control.launch.py mac_address:="YOUR_MACHINE_MAC"
 ```
 
 #### Mock Mode (for Testing)
@@ -95,26 +95,26 @@ The node automatically falls back to mock mode if no physical machine is detecte
 #### Coffee Commands
 ```bash
 # Make an espresso
-ros2 service call /coffee_control/command coffee_control_msgs/srv/CoffeeCommand \
+ros2 service call /coffee_command coffee_machine_control_msgs/srv/CoffeeCommand \
   "{action: 'make', parameter: 'espresso'}"
 
 # Cancel current operation
-ros2 service call /coffee_control/command coffee_control_msgs/srv/CoffeeCommand \
+ros2 service call /coffee_command coffee_machine_control_msgs/srv/CoffeeCommand \
   "{action: 'cancel', parameter: ''}"
 
 # Turn cup light on
-ros2 service call /coffee_control/command coffee_control_msgs/srv/CoffeeCommand \
+ros2 service call /coffee_command coffee_machine_control_msgs/srv/CoffeeCommand \
   "{action: 'cuplight', parameter: 'on'}"
 
 # Enable energy save mode
-ros2 service call /coffee_control/command coffee_control_msgs/srv/CoffeeCommand \
+ros2 service call /coffee_command coffee_machine_control_msgs/srv/CoffeeCommand \
   "{action: 'energy_save', parameter: 'on'}"
 ```
 
 #### Status Requests
 ```bash
 # Get machine status
-ros2 service call /coffee_control/status coffee_control_msgs/srv/MachineStatusRequest
+ros2 service call /coffee_machine/get_status coffee_machine_control_msgs/srv/MachineStatusRequest
 ```
 
 ### Available Commands
@@ -194,7 +194,7 @@ For development and testing without a physical machine, the node includes a mock
 To add new beverages or commands:
 1. Add entries to `AvailableBeverage` enum in `delonghi_controller.py`
 2. Define command bytes in the same file
-3. Update the command handler in `coffee_control_node.py`
+3. Update the command handler in `coffee_machine_control_node.py`
 4. Add documentation to this README
 
 ## Troubleshooting
