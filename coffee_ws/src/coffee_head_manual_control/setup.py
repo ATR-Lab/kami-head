@@ -1,6 +1,6 @@
 from setuptools import setup
 
-package_name = 'coffee_joystick'
+package_name = 'coffee_head_manual_control'
 
 setup(
     name=package_name,
@@ -13,15 +13,15 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='todo',
-    maintainer_email='todo@todo.com',
-    description='Joystick control for Coffee Buddy robot head',
+    maintainer='kpatch',
+    maintainer_email='irvsteve@gmail.com',
+    description='Manual control for Coffee Buddy robot head (joystick, keyboard, etc.)',
     license='TODO: License declaration',
     tests_require=['pytest'],
     entry_points={
         'ros2launch.launch_file_data': [],
         'console_scripts': [
-            'joystick_control = coffee_joystick.joystick_control_node:main'
+            'joystick_control = coffee_head_manual_control.joystick_control_node:main'
         ],
     },
     python_executable='/home/kpatch/Github/coffee-budy/coffee_buddy_venv/bin/python3'

@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>coffee_joystick</name>
+  <name>coffee_head_manual_control</name>
   <version>0.0.1</version>
-  <description>Joystick control for Coffee Buddy robot head</description>
-  <maintainer email="todo@todo.com">todo</maintainer>
+  <description>Manual control for Coffee Buddy robot head (joystick, keyboard, etc.)</description>
+  <maintainer email="todo@todo.todo">todo</maintainer>
   <license>TODO: License declaration</license>
 
   <depend>rclpy</depend>
