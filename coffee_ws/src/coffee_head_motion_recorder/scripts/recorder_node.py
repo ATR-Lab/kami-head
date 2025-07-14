@@ -20,7 +20,7 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from std_msgs.msg import Float32MultiArray, String, Bool
 from std_srvs.srv import Trigger, SetBool
 
-from motion_recorder.dynamixel_interface import DynamixelInterface
+from coffee_head_motion_recorder.dynamixel_interface import DynamixelInterface
 
 class MotionRecorder(Node):
     """
