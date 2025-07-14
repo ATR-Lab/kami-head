@@ -24,7 +24,6 @@ setup(
     maintainer_email='irvsteve@gmail.com',
     description='Computer vision package for camera capture, face detection, and basic visual processing',
     license='TODO: License declaration',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'camera_node = coffee_vision.camera_node:main',
