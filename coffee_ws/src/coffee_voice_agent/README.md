@@ -38,7 +38,7 @@ export VOICE_AGENT_TEMPERATURE="0.7"              # Optional LLM temperature
 ### ROS2 Dependencies
 - `rclpy`
 - `std_msgs`
-- `coffee_control_msgs`
+- `coffee_machine_control_msgs`
 - `coffee_expressions_msgs`
 
 ### Python Dependencies
@@ -80,7 +80,7 @@ ros2 run coffee_voice_agent voice_agent_node
 
 ### Integration Topics
 - Publishes to `/robot/affective_state` for expression system
-- Can subscribe to `/coffee_control/status` for machine updates
+- Can subscribe to `/coffee_machine/get_status` for machine updates
 
 ## Virtual Requests
 

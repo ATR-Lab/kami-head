@@ -18,7 +18,7 @@ from shared_configs import (
     LANGUAGE_MODEL_PROCESSOR_STATUS_TOPIC
 )
 from coffee_interfaces.srv import ChatService, DispenseCoffee
-from coffee_control_msgs.srv import CoffeeCommand
+from coffee_machine_control_msgs.srv import CoffeeCommand
 import concurrent.futures
 import asyncio
 
