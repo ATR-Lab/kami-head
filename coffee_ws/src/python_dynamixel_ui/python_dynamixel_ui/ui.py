@@ -41,42 +41,136 @@ class MotorControlWidget(QWidget):
         self.angle = default_angle  # Angle in degrees
         self.position = int(default_angle * POSITIONS_PER_DEGREE)  # Position in Dynamixel units
         self.radius = 100
-        self.circle_center = QPoint(self.radius + 20, self.radius + 20)
+        self.circle_center = QPoint(self.radius + 10, self.radius + 10)  # Adjusted for new layout
         self.dragging = False
         self.torque_enabled = False
         self.motor_connected = False  # Track motor connection status
-        self.setMinimumSize(2 * (self.radius + 40), 2 * (self.radius + 60))
+        self.setMinimumSize(2 * (self.radius + 60), 2 * (self.radius + 120))  # Larger for card design
         
-        # Create layout for the control buttons
+        # Card styling with shadow effect
+        self.setStyleSheet("""
+            MotorControlWidget {
+                background-color: #ffffff;
+                border-radius: 15px;
+                border: 1px solid #e1e8ed;
+                margin: 10px;
+            }
+            MotorControlWidget:hover {
+                border: 1px solid #3498db;
+                box-shadow: 0 4px 12px rgba(52, 152, 219, 0.1);
+            }
+        """)
+        
+        # Create layout for the card content
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setContentsMargins(20, 20, 20, 20)  # Card padding
+        self.main_layout.setSpacing(15)  # Space between card sections
+        
+        # Card header with motor name and ID
+        header_layout = QHBoxLayout()
+        
+        # Motor name
+        self.name_label = QLabel(self.motor_name)
+        self.name_label.setFont(QFont('Segoe UI', 16, QFont.Bold))
+        self.name_label.setStyleSheet("color: #2c3e50; margin-bottom: 5px;")
+        header_layout.addWidget(self.name_label)
+        
+        # Motor ID badge
+        self.id_badge = QLabel(f"ID: {self.motor_id}")
+        self.id_badge.setFont(QFont('Segoe UI', 10, QFont.Medium))
+        self.id_badge.setStyleSheet("""
+            QLabel {
+                background-color: #3498db;
+                color: white;
+                border-radius: 10px;
+                padding: 4px 8px;
+                max-width: 50px;
+            }
+        """)
+        self.id_badge.setAlignment(Qt.AlignCenter)
+        header_layout.addWidget(self.id_badge)
+        
+        self.main_layout.addLayout(header_layout)
         
         # Widget for drawing the circle
         self.circle_widget = QWidget()
-        self.circle_widget.setMinimumSize(2 * (self.radius + 40), 2 * (self.radius + 40))
+        self.circle_widget.setMinimumSize(2 * (self.radius + 20), 2 * (self.radius + 20))  # Smaller since we have header
         self.circle_widget.paintEvent = self.paintCircleWidget
         self.circle_widget.mousePressEvent = self.circleMousePressEvent
         self.circle_widget.mouseMoveEvent = self.circleMouseMoveEvent
         self.circle_widget.mouseReleaseEvent = self.circleMouseReleaseEvent
         self.main_layout.addWidget(self.circle_widget)
         
-        # Controls
-        controls_layout = QHBoxLayout()
+        # Controls section with better styling
+        controls_container = QWidget()
+        controls_container.setStyleSheet("""
+            QWidget {
+                background-color: #f8f9fa;
+                border-radius: 8px;
+                padding: 10px;
+                margin-top: 10px;
+            }
+        """)
         
-        # Torque toggle
+        controls_layout = QVBoxLayout(controls_container)  # Changed to vertical for better card layout
+        controls_layout.setSpacing(10)
+        
+        # Torque toggle with modern styling
         self.torque_checkbox = QCheckBox("Enable Torque")
         self.torque_checkbox.setChecked(self.torque_enabled)
         self.torque_checkbox.setEnabled(False)  # Disabled until motor connects
+        self.torque_checkbox.setFont(QFont('Segoe UI', 11))
+        self.torque_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: #2c3e50;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border-radius: 9px;
+                border: 2px solid #bdc3c7;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #27ae60;
+                border: 2px solid #27ae60;
+            }
+            QCheckBox::indicator:disabled {
+                background-color: #ecf0f1;
+                border: 2px solid #bdc3c7;
+            }
+        """)
         self.torque_checkbox.stateChanged.connect(self.toggleTorque)
         controls_layout.addWidget(self.torque_checkbox)
         
-        # Reset position button
-        self.reset_button = QPushButton("Reset Position")
+        # Reset position button with modern styling
+        self.reset_button = QPushButton("↻ Reset Position")
         self.reset_button.setEnabled(False)  # Disabled until motor connects
+        self.reset_button.setFont(QFont('Segoe UI', 11))
+        self.reset_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:pressed {
+                background-color: #21618c;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+                color: #7f8c8d;
+            }
+        """)
         self.reset_button.clicked.connect(self.resetPosition)
         controls_layout.addWidget(self.reset_button)
         
-        self.main_layout.addLayout(controls_layout)
+        self.main_layout.addWidget(controls_container)
         
         # Conversion helpers
         self.rosnode = None  # Will be set by parent
@@ -98,20 +192,31 @@ class MotorControlWidget(QWidget):
         else:
             painter.setPen(QPen(Qt.black, 2))
             painter.setBrush(QBrush(QColor(240, 240, 240)))  # Light gray when disabled
-        circle_rect = QRect(20, 20, 2 * self.radius, 2 * self.radius)
+        circle_rect = QRect(10, 10, 2 * self.radius, 2 * self.radius)  # Adjusted for new layout
         painter.drawEllipse(circle_rect)
         
-        # Draw motor name
-        painter.setFont(QFont("Arial", 12, QFont.Bold))
-        name_rect = QRect(20, 2 * self.radius + 30, 2 * self.radius, 30)
-        painter.drawText(name_rect, Qt.AlignCenter, self.motor_name)
-
-        # Draw angle text with connection status
+        # Draw angle text with connection status (centered below circle)
+        painter.setFont(QFont("Segoe UI", 12, QFont.Medium))
         if self.motor_connected:
-            angle_text = f"{self.angle:.1f}°  (Pos: {self.position})"
+            angle_text = f"{self.angle:.1f}°"
+            pos_text = f"Position: {self.position}"
         else:
-            angle_text = f"{self.angle:.1f}° (DISCONNECTED)"
-        painter.drawText(name_rect.translated(0, 25), Qt.AlignCenter, angle_text)
+            angle_text = f"{self.angle:.1f}°"
+            pos_text = "DISCONNECTED"
+        
+        # Angle text
+        angle_rect = QRect(10, 2 * self.radius + 20, 2 * self.radius, 25)
+        painter.setPen(QPen(Qt.black, 1))
+        painter.drawText(angle_rect, Qt.AlignCenter, angle_text)
+        
+        # Position/status text
+        pos_rect = QRect(10, 2 * self.radius + 40, 2 * self.radius, 25)
+        if self.motor_connected:
+            painter.setPen(QPen(QColor("#7f8c8d"), 1))
+        else:
+            painter.setPen(QPen(QColor("#e74c3c"), 1))
+        painter.setFont(QFont("Segoe UI", 10))
+        painter.drawText(pos_rect, Qt.AlignCenter, pos_text)
         
         # Draw line from center to edge (like a clock hand)
         if self.torque_enabled:
@@ -221,53 +326,77 @@ class DynamixelControlUI(QMainWindow):
         
     def initUI(self):
         self.setWindowTitle('Dynamixel Motor Control')
-        self.setGeometry(100, 100, 600, 500)
+        self.setGeometry(100, 100, 800, 650)  # Larger window for card layout
         
-        # Main widget and layout
+        # Main widget and layout with better spacing
         main_widget = QWidget()
+        main_widget.setStyleSheet("""
+            QWidget {
+                background-color: #f8f9fa;
+                font-family: 'Segoe UI', 'Arial', sans-serif;
+            }
+        """)
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
+        main_layout.setSpacing(20)  # Better spacing between sections
+        main_layout.setContentsMargins(30, 20, 30, 20)  # Consistent margins
         
-        # Title label
+        # Title label with modern styling
         title_label = QLabel('Dynamixel Motor Control')
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setFont(QFont('Arial', 16, QFont.Bold))
+        title_label.setFont(QFont('Segoe UI', 24, QFont.Bold))
+        title_label.setStyleSheet("""
+            QLabel {
+                color: #2c3e50;
+                padding: 15px;
+                margin-bottom: 10px;
+            }
+        """)
         main_layout.addWidget(title_label)
         
-        # Service status indicator
+        # Service status indicator with card styling
         self.status_label = QLabel('Service Status: Checking connection...')
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setFont(QFont('Arial', 11))
+        self.status_label.setFont(QFont('Segoe UI', 12, QFont.Medium))
         self.update_service_status(False)  # Initialize as disconnected
         main_layout.addWidget(self.status_label)
         
-        # Motor controls layout
-        motors_layout = QHBoxLayout()
+        # Motor controls in card layout
+        motors_container = QWidget()
+        motors_container.setStyleSheet("""
+            QWidget {
+                background-color: transparent;
+            }
+        """)
+        motors_layout = QHBoxLayout(motors_container)
+        motors_layout.setSpacing(30)  # Space between motor cards
+        motors_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Pan motor control (default angle: 90 degrees)
+        # Pan motor control card
         self.pan_motor = MotorControlWidget(DXL_PAN_ID, "Pan Motor", DEFAULT_PAN_ANGLE)
         self.pan_motor.set_ros_node(self.node)
         motors_layout.addWidget(self.pan_motor)
         
-        # Tilt motor control (default angle: 180 degrees)
+        # Tilt motor control card  
         self.tilt_motor = MotorControlWidget(DXL_TILT_ID, "Tilt Motor", DEFAULT_TILT_ANGLE)
         self.tilt_motor.set_ros_node(self.node)
         motors_layout.addWidget(self.tilt_motor)
         
-        main_layout.addLayout(motors_layout)
+        main_layout.addWidget(motors_container)
         
-        # Help instructions
-        help_label = QLabel('Instructions: To control motors, run "ros2 run dynamixel_sdk_examples read_write_node" in another terminal')
+        # Help instructions with modern styling
+        help_label = QLabel('💡 To control motors, run "ros2 run dynamixel_sdk_examples read_write_node" in another terminal')
         help_label.setAlignment(Qt.AlignCenter)
-        help_label.setFont(QFont('Arial', 9))
+        help_label.setFont(QFont('Segoe UI', 11))
         help_label.setStyleSheet("""
             QLabel {
-                color: #666666;
-                background-color: #f5f5f5;
-                border: 1px solid #cccccc;
-                border-radius: 3px;
-                padding: 5px;
-                margin: 5px;
+                color: #6c757d;
+                background-color: #ffffff;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+                padding: 15px 20px;
+                margin: 10px 0px;
+                line-height: 1.4;
             }
         """)
         main_layout.addWidget(help_label)
@@ -279,24 +408,26 @@ class DynamixelControlUI(QMainWindow):
             self.status_label.setText('✓ Dynamixel Service: CONNECTED - Motors ready for control')
             self.status_label.setStyleSheet("""
                 QLabel {
-                    background-color: #d4e8d4;
-                    color: #2e7d2e;
-                    border: 2px solid #4caf50;
-                    border-radius: 5px;
-                    padding: 8px;
-                    font-weight: bold;
+                    background-color: #d5f4e6;
+                    color: #27ae60;
+                    border: 2px solid #27ae60;
+                    border-radius: 10px;
+                    padding: 12px 20px;
+                    font-weight: 600;
+                    margin: 5px;
                 }
             """)
         else:
             self.status_label.setText('⚠ Dynamixel Service: DISCONNECTED - Start "read_write_node" to control motors')
             self.status_label.setStyleSheet("""
                 QLabel {
-                    background-color: #f8d7da;
-                    color: #721c24;
-                    border: 2px solid #f44336;
-                    border-radius: 5px;
-                    padding: 8px;
-                    font-weight: bold;
+                    background-color: #ffeaa7;
+                    color: #d63031;
+                    border: 2px solid #fdcb6e;
+                    border-radius: 10px;
+                    padding: 12px 20px;
+                    font-weight: 600;
+                    margin: 5px;
                 }
             """)
     
