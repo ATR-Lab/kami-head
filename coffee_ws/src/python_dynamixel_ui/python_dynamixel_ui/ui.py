@@ -66,11 +66,13 @@ class MotorControlWidget(QWidget):
         # Torque toggle
         self.torque_checkbox = QCheckBox("Enable Torque")
         self.torque_checkbox.setChecked(self.torque_enabled)
+        self.torque_checkbox.setEnabled(False)  # Disabled until motor connects
         self.torque_checkbox.stateChanged.connect(self.toggleTorque)
         controls_layout.addWidget(self.torque_checkbox)
         
         # Reset position button
         self.reset_button = QPushButton("Reset Position")
+        self.reset_button.setEnabled(False)  # Disabled until motor connects
         self.reset_button.clicked.connect(self.resetPosition)
         controls_layout.addWidget(self.reset_button)
         
@@ -194,6 +196,16 @@ class MotorControlWidget(QWidget):
         self.position = position
         self.angle = (position * DEGREES_PER_POSITION) % 360
         self.motor_connected = True  # Mark motor as connected when we receive position
+        # Enable controls when motor is connected
+        self.torque_checkbox.setEnabled(True)
+        self.reset_button.setEnabled(True)
+        self.circle_widget.update()
+    
+    def set_motor_disconnected(self):
+        """Mark motor as disconnected and disable controls"""
+        self.motor_connected = False
+        self.torque_checkbox.setEnabled(False)
+        self.reset_button.setEnabled(False)
         self.circle_widget.update()
 
 
@@ -201,6 +213,7 @@ class DynamixelControlUI(QMainWindow):
     def __init__(self, node):
         super().__init__()
         self.node = node
+        self.service_connected = False  # Track overall service status
         self.initUI()
         
         # Initial motor position read
@@ -221,6 +234,13 @@ class DynamixelControlUI(QMainWindow):
         title_label.setFont(QFont('Arial', 16, QFont.Bold))
         main_layout.addWidget(title_label)
         
+        # Service status indicator
+        self.status_label = QLabel('Service Status: Checking connection...')
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setFont(QFont('Arial', 11))
+        self.update_service_status(False)  # Initialize as disconnected
+        main_layout.addWidget(self.status_label)
+        
         # Motor controls layout
         motors_layout = QHBoxLayout()
         
@@ -235,6 +255,50 @@ class DynamixelControlUI(QMainWindow):
         motors_layout.addWidget(self.tilt_motor)
         
         main_layout.addLayout(motors_layout)
+        
+        # Help instructions
+        help_label = QLabel('Instructions: To control motors, run "ros2 run dynamixel_sdk_examples read_write_node" in another terminal')
+        help_label.setAlignment(Qt.AlignCenter)
+        help_label.setFont(QFont('Arial', 9))
+        help_label.setStyleSheet("""
+            QLabel {
+                color: #666666;
+                background-color: #f5f5f5;
+                border: 1px solid #cccccc;
+                border-radius: 3px;
+                padding: 5px;
+                margin: 5px;
+            }
+        """)
+        main_layout.addWidget(help_label)
+    
+    def update_service_status(self, connected):
+        """Update the service status indicator"""
+        self.service_connected = connected
+        if connected:
+            self.status_label.setText('✓ Dynamixel Service: CONNECTED - Motors ready for control')
+            self.status_label.setStyleSheet("""
+                QLabel {
+                    background-color: #d4e8d4;
+                    color: #2e7d2e;
+                    border: 2px solid #4caf50;
+                    border-radius: 5px;
+                    padding: 8px;
+                    font-weight: bold;
+                }
+            """)
+        else:
+            self.status_label.setText('⚠ Dynamixel Service: DISCONNECTED - Start "read_write_node" to control motors')
+            self.status_label.setStyleSheet("""
+                QLabel {
+                    background-color: #f8d7da;
+                    color: #721c24;
+                    border: 2px solid #f44336;
+                    border-radius: 5px;
+                    padding: 8px;
+                    font-weight: bold;
+                }
+            """)
     
     def read_motor_positions(self):
         """Read current motor positions from the motors"""
@@ -249,6 +313,10 @@ class DynamixelControlUI(QMainWindow):
         # Check if service is available with a short timeout (non-blocking)
         if not client.wait_for_service(timeout_sec=0.5):
             self.node.get_logger().warning(f'get_position service not available for motor ID {motor_id}. UI will show default positions.')
+            # Update service status to disconnected
+            self.update_service_status(False)
+            # Mark this motor as disconnected
+            motor_widget.set_motor_disconnected()
             # Set a timer to retry later
             self.create_retry_timer(motor_id, motor_widget)
             return
@@ -279,8 +347,15 @@ class DynamixelControlUI(QMainWindow):
             response = future.result()
             self.node.get_logger().info(f'Received position {response.position} for motor ID {motor_widget.motor_id}')
             motor_widget.set_position_from_motor(response.position)
+            # Update service status to connected when we get a successful response
+            if not self.service_connected:
+                self.update_service_status(True)
         except Exception as e:
             self.node.get_logger().error(f'Service call failed for motor ID {motor_widget.motor_id}: {e}')
+            # Update service status to disconnected on failure
+            self.update_service_status(False)
+            # Mark this motor as disconnected
+            motor_widget.set_motor_disconnected()
             # Retry after a delay if the service call failed
             self.create_retry_timer(motor_widget.motor_id, motor_widget)
 
