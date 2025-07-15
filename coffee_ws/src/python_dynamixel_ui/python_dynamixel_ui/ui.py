@@ -41,7 +41,7 @@ class MotorControlWidget(QWidget):
         self.angle = default_angle  # Angle in degrees
         self.position = int(default_angle * POSITIONS_PER_DEGREE)  # Position in Dynamixel units
         self.radius = 100
-        self.circle_center = QPoint(self.radius + 10, self.radius + 10)  # Adjusted for new layout
+        # Center the circle in its widget - will be calculated in paintEvent
         self.dragging = False
         self.torque_enabled = False
         self.motor_connected = False  # Track motor connection status
@@ -104,14 +104,23 @@ class MotorControlWidget(QWidget):
         # Separate labels for angle and status information
         self.angle_label = QLabel(f"{self.angle:.1f}°")
         self.angle_label.setAlignment(Qt.AlignCenter)
-        self.angle_label.setFont(QFont('Segoe UI', 14, QFont.Bold))
-        self.angle_label.setStyleSheet("color: #2c3e50; margin: 5px 0px;")
+        self.angle_label.setFont(QFont('Segoe UI', 18, QFont.Bold))  # Larger and bolder
+        self.angle_label.setStyleSheet("color: #2c3e50; margin: 8px 0px 4px 0px;")  # Better spacing
         self.main_layout.addWidget(self.angle_label)
         
         self.status_label = QLabel("DISCONNECTED")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setFont(QFont('Segoe UI', 10))
-        self.status_label.setStyleSheet("color: #e74c3c; margin: 0px 0px 10px 0px;")
+        self.status_label.setFont(QFont('Segoe UI', 11, QFont.Medium))  # Slightly larger
+        self.status_label.setStyleSheet("""
+            QLabel {
+                color: #e74c3c; 
+                background-color: #ffeaa7;
+                border: 1px solid #fdcb6e;
+                border-radius: 12px;
+                padding: 4px 12px;
+                margin: 4px 20px 8px 20px;
+            }
+        """)  # Status badge styling
         self.main_layout.addWidget(self.status_label)
         
         # Initialize display with current state
@@ -202,17 +211,48 @@ class MotorControlWidget(QWidget):
         # Update angle label
         self.angle_label.setText(f"{self.angle:.1f}°")
         
-        # Update status label
+        # Update status label with badge styling
         if self.motor_connected:
             self.status_label.setText(f"Position: {self.position}")
-            self.status_label.setStyleSheet("color: #7f8c8d; margin: 0px 0px 10px 0px;")
+            self.status_label.setStyleSheet("""
+                QLabel {
+                    color: #27ae60; 
+                    background-color: #d5f4e6;
+                    border: 1px solid #27ae60;
+                    border-radius: 12px;
+                    padding: 4px 12px;
+                    margin: 4px 20px 8px 20px;
+                    font-weight: 500;
+                }
+            """)
         else:
             self.status_label.setText("DISCONNECTED")
-            self.status_label.setStyleSheet("color: #e74c3c; margin: 0px 0px 10px 0px;")
+            self.status_label.setStyleSheet("""
+                QLabel {
+                    color: #d63031; 
+                    background-color: #ffeaa7;
+                    border: 1px solid #fdcb6e;
+                    border-radius: 12px;
+                    padding: 4px 12px;
+                    margin: 4px 20px 8px 20px;
+                    font-weight: 500;
+                }
+            """)
 
     def paintCircleWidget(self, event):
         painter = QPainter(self.circle_widget)
         painter.setRenderHint(QPainter.Antialiasing)
+
+        # Calculate center position to center the circle in the widget
+        widget_width = self.circle_widget.width()
+        widget_height = self.circle_widget.height()
+        
+        # Center the circle in the available space
+        circle_x = (widget_width - 2 * self.radius) // 2
+        circle_y = (widget_height - 2 * self.radius) // 2
+        
+        # Update circle center for mouse interactions
+        self.circle_center = QPoint(circle_x + self.radius, circle_y + self.radius)
 
         # Draw circle with connection status
         if not self.motor_connected:
@@ -224,10 +264,11 @@ class MotorControlWidget(QWidget):
         else:
             painter.setPen(QPen(Qt.black, 2))
             painter.setBrush(QBrush(QColor(240, 240, 240)))  # Light gray when disabled
-        circle_rect = QRect(10, 10, 2 * self.radius, 2 * self.radius)  # Adjusted for new layout
+        
+        circle_rect = QRect(circle_x, circle_y, 2 * self.radius, 2 * self.radius)
         painter.drawEllipse(circle_rect)
         
-        # Draw line from center to edge (like a clock hand)
+        # Draw line from center to edge (like a clock hand)  
         if self.torque_enabled:
             painter.setPen(QPen(Qt.red, 3))
         else:
