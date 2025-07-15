@@ -45,7 +45,7 @@ class MotorControlWidget(QWidget):
         self.dragging = False
         self.torque_enabled = False
         self.motor_connected = False  # Track motor connection status
-        self.setMinimumSize(2 * (self.radius + 60), 2 * (self.radius + 120))  # Larger for card design
+        self.setMinimumSize(2 * (self.radius + 60), 2 * (self.radius + 160))  # Increased height for labels and controls
         
         # Card styling with shadow effect
         self.setStyleSheet("""
@@ -92,14 +92,30 @@ class MotorControlWidget(QWidget):
         
         self.main_layout.addLayout(header_layout)
         
-        # Widget for drawing the circle
+        # Widget for drawing the circle (just the circle, no text)
         self.circle_widget = QWidget()
-        self.circle_widget.setMinimumSize(2 * (self.radius + 20), 2 * (self.radius + 20))  # Smaller since we have header
+        self.circle_widget.setMinimumSize(2 * (self.radius + 20), 2 * (self.radius + 20))  # Just for the circle
         self.circle_widget.paintEvent = self.paintCircleWidget
         self.circle_widget.mousePressEvent = self.circleMousePressEvent
         self.circle_widget.mouseMoveEvent = self.circleMouseMoveEvent
         self.circle_widget.mouseReleaseEvent = self.circleMouseReleaseEvent
         self.main_layout.addWidget(self.circle_widget)
+        
+        # Separate labels for angle and status information
+        self.angle_label = QLabel(f"{self.angle:.1f}°")
+        self.angle_label.setAlignment(Qt.AlignCenter)
+        self.angle_label.setFont(QFont('Segoe UI', 14, QFont.Bold))
+        self.angle_label.setStyleSheet("color: #2c3e50; margin: 5px 0px;")
+        self.main_layout.addWidget(self.angle_label)
+        
+        self.status_label = QLabel("DISCONNECTED")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setFont(QFont('Segoe UI', 10))
+        self.status_label.setStyleSheet("color: #e74c3c; margin: 0px 0px 10px 0px;")
+        self.main_layout.addWidget(self.status_label)
+        
+        # Initialize display with current state
+        self.update_display()
         
         # Controls section with better styling
         controls_container = QWidget()
@@ -177,6 +193,22 @@ class MotorControlWidget(QWidget):
 
     def set_ros_node(self, node):
         self.rosnode = node
+    
+    def update_display(self):
+        """Update all visual elements (circle, angle, status)"""
+        # Update circle drawing
+        self.circle_widget.update()
+        
+        # Update angle label
+        self.angle_label.setText(f"{self.angle:.1f}°")
+        
+        # Update status label
+        if self.motor_connected:
+            self.status_label.setText(f"Position: {self.position}")
+            self.status_label.setStyleSheet("color: #7f8c8d; margin: 0px 0px 10px 0px;")
+        else:
+            self.status_label.setText("DISCONNECTED")
+            self.status_label.setStyleSheet("color: #e74c3c; margin: 0px 0px 10px 0px;")
 
     def paintCircleWidget(self, event):
         painter = QPainter(self.circle_widget)
@@ -194,29 +226,6 @@ class MotorControlWidget(QWidget):
             painter.setBrush(QBrush(QColor(240, 240, 240)))  # Light gray when disabled
         circle_rect = QRect(10, 10, 2 * self.radius, 2 * self.radius)  # Adjusted for new layout
         painter.drawEllipse(circle_rect)
-        
-        # Draw angle text with connection status (centered below circle)
-        painter.setFont(QFont("Segoe UI", 12, QFont.Medium))
-        if self.motor_connected:
-            angle_text = f"{self.angle:.1f}°"
-            pos_text = f"Position: {self.position}"
-        else:
-            angle_text = f"{self.angle:.1f}°"
-            pos_text = "DISCONNECTED"
-        
-        # Angle text
-        angle_rect = QRect(10, 2 * self.radius + 20, 2 * self.radius, 25)
-        painter.setPen(QPen(Qt.black, 1))
-        painter.drawText(angle_rect, Qt.AlignCenter, angle_text)
-        
-        # Position/status text
-        pos_rect = QRect(10, 2 * self.radius + 40, 2 * self.radius, 25)
-        if self.motor_connected:
-            painter.setPen(QPen(QColor("#7f8c8d"), 1))
-        else:
-            painter.setPen(QPen(QColor("#e74c3c"), 1))
-        painter.setFont(QFont("Segoe UI", 10))
-        painter.drawText(pos_rect, Qt.AlignCenter, pos_text)
         
         # Draw line from center to edge (like a clock hand)
         if self.torque_enabled:
@@ -265,7 +274,7 @@ class MotorControlWidget(QWidget):
         self.position = int(self.angle * POSITIONS_PER_DEGREE)
         
         # Update display
-        self.circle_widget.update()
+        self.update_display()
         
         # Only send to motor if dragging stopped (to reduce traffic)
         # Full position will be sent when mouse is released
@@ -280,7 +289,7 @@ class MotorControlWidget(QWidget):
     
     def toggleTorque(self, state):
         self.torque_enabled = bool(state)
-        self.circle_widget.update()
+        self.update_display()
         if self.rosnode:
             self.rosnode.get_logger().info(f"{self.motor_name} (ID: {self.motor_id}) torque {'enabled' if self.torque_enabled else 'disabled'}")
             # In a real implementation, you would send torque command to motor here
@@ -290,7 +299,7 @@ class MotorControlWidget(QWidget):
     def resetPosition(self):
         self.angle = self.default_angle
         self.position = int(self.default_angle * POSITIONS_PER_DEGREE)
-        self.circle_widget.update()
+        self.update_display()
         
         if self.rosnode and self.torque_enabled:
             self.rosnode.get_logger().info(f"{self.motor_name} (ID: {self.motor_id}) position reset to {self.default_angle}°")
@@ -304,14 +313,14 @@ class MotorControlWidget(QWidget):
         # Enable controls when motor is connected
         self.torque_checkbox.setEnabled(True)
         self.reset_button.setEnabled(True)
-        self.circle_widget.update()
+        self.update_display()
     
     def set_motor_disconnected(self):
         """Mark motor as disconnected and disable controls"""
         self.motor_connected = False
         self.torque_checkbox.setEnabled(False)
         self.reset_button.setEnabled(False)
-        self.circle_widget.update()
+        self.update_display()
 
 
 class DynamixelControlUI(QMainWindow):
