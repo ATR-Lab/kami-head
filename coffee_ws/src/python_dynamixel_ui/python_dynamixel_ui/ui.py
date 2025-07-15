@@ -44,6 +44,7 @@ class MotorControlWidget(QWidget):
         self.circle_center = QPoint(self.radius + 20, self.radius + 20)
         self.dragging = False
         self.torque_enabled = False
+        self.motor_connected = False  # Track motor connection status
         self.setMinimumSize(2 * (self.radius + 40), 2 * (self.radius + 60))
         
         # Create layout for the control buttons
@@ -85,11 +86,15 @@ class MotorControlWidget(QWidget):
         painter = QPainter(self.circle_widget)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        # Draw circle
-        painter.setPen(QPen(Qt.black, 2))
-        if self.torque_enabled:
+        # Draw circle with connection status
+        if not self.motor_connected:
+            painter.setPen(QPen(Qt.red, 3))  # Red border when disconnected
+            painter.setBrush(QBrush(QColor(255, 220, 220)))  # Light red when disconnected
+        elif self.torque_enabled:
+            painter.setPen(QPen(Qt.black, 2))
             painter.setBrush(QBrush(QColor(230, 230, 255)))  # Light blue when torque enabled
         else:
+            painter.setPen(QPen(Qt.black, 2))
             painter.setBrush(QBrush(QColor(240, 240, 240)))  # Light gray when disabled
         circle_rect = QRect(20, 20, 2 * self.radius, 2 * self.radius)
         painter.drawEllipse(circle_rect)
@@ -99,8 +104,11 @@ class MotorControlWidget(QWidget):
         name_rect = QRect(20, 2 * self.radius + 30, 2 * self.radius, 30)
         painter.drawText(name_rect, Qt.AlignCenter, self.motor_name)
 
-        # Draw angle text
-        angle_text = f"{self.angle:.1f}°  (Pos: {self.position})"
+        # Draw angle text with connection status
+        if self.motor_connected:
+            angle_text = f"{self.angle:.1f}°  (Pos: {self.position})"
+        else:
+            angle_text = f"{self.angle:.1f}° (DISCONNECTED)"
         painter.drawText(name_rect.translated(0, 25), Qt.AlignCenter, angle_text)
         
         # Draw line from center to edge (like a clock hand)
@@ -185,6 +193,7 @@ class MotorControlWidget(QWidget):
         # Update UI from motor position
         self.position = position
         self.angle = (position * DEGREES_PER_POSITION) % 360
+        self.motor_connected = True  # Mark motor as connected when we receive position
         self.circle_widget.update()
 
 
@@ -237,8 +246,12 @@ class DynamixelControlUI(QMainWindow):
         """Get position for a specific motor"""
         client = self.node.create_client(GetPosition, 'get_position')
         
-        while not client.wait_for_service(timeout_sec=1.0):
-            self.node.get_logger().info('Waiting for get_position service...')
+        # Check if service is available with a short timeout (non-blocking)
+        if not client.wait_for_service(timeout_sec=0.5):
+            self.node.get_logger().warning(f'get_position service not available for motor ID {motor_id}. UI will show default positions.')
+            # Set a timer to retry later
+            self.create_retry_timer(motor_id, motor_widget)
+            return
         
         request = GetPosition.Request()
         request.id = motor_id
@@ -248,6 +261,18 @@ class DynamixelControlUI(QMainWindow):
             lambda f: self.process_position_response(f, motor_widget)
         )
     
+    def create_retry_timer(self, motor_id, motor_widget):
+        """Create a timer to retry reading motor position later"""
+        def retry_callback():
+            self.node.get_logger().info(f'Retrying position read for motor ID {motor_id}...')
+            # Cancel this timer first
+            timer.cancel()
+            # Then retry the position read
+            self.get_motor_position(motor_id, motor_widget)
+        
+        # Create a one-shot timer to retry after 5 seconds
+        timer = self.node.create_timer(5.0, retry_callback)
+    
     def process_position_response(self, future, motor_widget):
         """Process the response from the get_position service"""
         try:
@@ -255,7 +280,9 @@ class DynamixelControlUI(QMainWindow):
             self.node.get_logger().info(f'Received position {response.position} for motor ID {motor_widget.motor_id}')
             motor_widget.set_position_from_motor(response.position)
         except Exception as e:
-            self.node.get_logger().error(f'Service call failed: {e}')
+            self.node.get_logger().error(f'Service call failed for motor ID {motor_widget.motor_id}: {e}')
+            # Retry after a delay if the service call failed
+            self.create_retry_timer(motor_widget.motor_id, motor_widget)
 
 
 class DynamixelUINode(Node):
