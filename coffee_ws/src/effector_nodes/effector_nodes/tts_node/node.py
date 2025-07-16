@@ -19,26 +19,38 @@ class TTSNode(Node):
         super().__init__('tts_node')
         self.get_logger().info("TTS node initialized")
 
+        # Declare parameters
+        self.declare_parameter('voice_id', "KTPVrSVAEUSJRClDzBw7")  # Default voice ID
+        self.declare_parameter('model_id', "eleven_multilingual_v2")  # Default model
+        self.declare_parameter('api_key', '')  # Empty by default, will check env var
+        self.declare_parameter('cooldown_duration', 1.0)  # Cooldown in seconds
+        self.declare_parameter('output_format', 'pcm_24000')  # Audio output format
+
+        # Get parameters
+        self.voice_id = self.get_parameter('voice_id').value
+        self.model_id = self.get_parameter('model_id').value
+        self.COOLDOWN_DURATION = self.get_parameter('cooldown_duration').value
+        self.output_format = self.get_parameter('output_format').value
+
         self.service_group = MutuallyExclusiveCallbackGroup()
         self.timer_group = MutuallyExclusiveCallbackGroup()
         
         # Cooldown settings
         self.cooldown_timer = None
         self.in_cooldown = False
-        self.COOLDOWN_DURATION = 1.0  # seconds
 
         # Initialize Eleven Labs SDK client
-        api_key = os.environ.get('ELEVEN_LABS_API_KEY')
+        api_key = self.get_parameter('api_key').value
         if not api_key:
-            self.get_logger().error("ELEVEN_LABS_API_KEY environment variable not set")
-            raise ValueError("ELEVEN_LABS_API_KEY environment variable is required, refer to the README for more information")
+            api_key = os.environ.get('ELEVEN_LABS_API_KEY')
+        
+        if not api_key:
+            self.get_logger().error("ELEVEN_LABS_API_KEY not set in parameter or environment variable")
+            raise ValueError("ELEVEN_LABS_API_KEY is required. Set it as a ROS2 parameter or environment variable. Refer to the README for more information")
         
         self.eleven_labs_client = ElevenLabs(api_key=api_key)
 
-        self.voice_id = "KTPVrSVAEUSJRClDzBw7" # https://elevenlabs.io/app/voice-library/collections/HXn5AetPOJgAHd2D60mP?voiceId=KTPVrSVAEUSJRClDzBw7
-        self.model_id = "eleven_multilingual_v2"
-
-        self.get_logger().info("Eleven Labs SDK initialized")
+        self.get_logger().info(f"Eleven Labs SDK initialized with voice: {self.voice_id}, model: {self.model_id}")
 
         self.audio_player = pyaudio.PyAudio()
 
@@ -75,7 +87,11 @@ class TTSNode(Node):
     def publish_status(self):
         """Publish current status information"""
         status = {
-            "health": "ok"
+            "health": "ok",
+            "voice_id": self.voice_id,
+            "model_id": self.model_id,
+            "is_playing": self.is_playing,
+            "in_cooldown": self.in_cooldown
         }
         
         msg = String()
@@ -120,7 +136,7 @@ class TTSNode(Node):
                 
                 # Request PCM audio format (raw audio data)
                 # pcm_16000 = 16kHz sample rate, pcm_24000 = 24kHz sample rate
-                output_format = "pcm_24000"
+                output_format = self.output_format
                 
                 self.get_logger().info(f"Starting audio streaming with format: {output_format}")
                 

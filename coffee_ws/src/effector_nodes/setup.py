@@ -10,13 +10,18 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/launch', ['launch/tts_node.launch.py']),
     ],
-    install_requires=['setuptools'],
+    install_requires=[
+        'setuptools',
+        'elevenlabs==1.57.0',
+        'PyAudio==0.2.14',
+    ],
     zip_safe=True,
     maintainer='vr-workstation-2',
-    maintainer_email='Marcus.Arnett10@gmail.com',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    maintainer_email='marcus@opendive.io',
+    description='ROS2 package providing Text-to-Speech (TTS) effector nodes for the Coffee Buddy robot system using ElevenLabs API',
+    license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [

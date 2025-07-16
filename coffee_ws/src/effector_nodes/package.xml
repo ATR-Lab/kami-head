@@ -3,10 +3,22 @@
 <package format="3">
   <name>effector_nodes</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="Marcus.Arnett10@gmail.com">vr-workstation-2</maintainer>
-  <license>TODO: License declaration</license>
+  <description>ROS2 package providing Text-to-Speech (TTS) effector nodes for the Coffee Buddy robot system using ElevenLabs API</description>
+  <maintainer email="marcus@opendive.io">vr-workstation-2</maintainer>
+  <license>Apache-2.0</license>
 
+  <!-- Core ROS2 dependencies -->
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  
+  <!-- Coffee Buddy specific message dependencies -->
+  <depend>coffee_buddy_msgs</depend>
+  <depend>shared_configs</depend>
+  
+  <!-- System dependencies for audio -->
+  <depend>python3-pyaudio</depend>
+
+  <!-- Test dependencies -->
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
