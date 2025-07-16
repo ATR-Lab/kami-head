@@ -18,16 +18,15 @@ from rcl_interfaces.msg import ParameterDescriptor, ParameterType
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 import time
 import json
-import noisereduce as nr
 
 # Import ROS2 message types
 from coffee_buddy_msgs.msg import IntentClassification
 
 # Import our modules
-from coffee_speech_processing.sensor_nodes.voice_intent_node.audio_processor import AudioProcessor
-from coffee_speech_processing.sensor_nodes.voice_intent_node.asr_manager import ASRManager
-from coffee_speech_processing.sensor_nodes.voice_intent_node.intent_classifier import IntentClassifier
-from coffee_speech_processing.sensor_nodes.voice_intent_node.memory_utils import MemoryManager
+from coffee_speech_processing.voice_intent_node.audio_processor import AudioProcessor
+from coffee_speech_processing.voice_intent_node.asr_manager import ASRManager
+from coffee_speech_processing.voice_intent_node.intent_classifier import IntentClassifier
+from coffee_speech_processing.voice_intent_node.memory_utils import MemoryManager
 
 from shared_configs import (
     GENERATE_BEHAVIOR_RESPONSE_SERVICE,
@@ -37,7 +36,6 @@ from shared_configs import (
 )
 
 from coffee_buddy_msgs.srv import GenerateBehaviorResponse, TTSQuery
-from coffee_interfaces.srv import ChatService
 from std_msgs.msg import String
 
 class VoiceIntentNode(Node):
@@ -70,44 +68,24 @@ class VoiceIntentNode(Node):
         
         self.tts_client = self.create_client(
             TTSQuery, TTS_SERVICE, callback_group=self.service_group)
-            
-        # Subscribe to TTS audio state
-        self.create_subscription(
-            String,
-            'tts/audio_state',
-            self.audio_state_callback,
-            10)
-            
-        # Create Atoma chat service client
-        self.atoma_chat_client = self.create_client(
-            ChatService, 'chat', callback_group=self.service_group)
-
+        
+        self.llm_behavior_response_publisher = self.create_publisher(
+            String, "/voice/intent", 10)
+        
         # Check for CUDA availability if device_type is cuda
         self._setup_gpu()
         
         # Initialize components
         self._initialize_components()
-
+        
+        # LLM processing queue
+        self.llm_queue = queue.Queue(maxsize=10)  # Maximum 10 text prompts in queue
+        
         # Create and start the threads
         self.running = True
         self._start_threads()
         
         self.get_logger().info('Voice Intent Node started successfully')
-        
-    def audio_state_callback(self, msg):
-        """Handle TTS audio state changes to control microphone input."""
-        state = msg.data
-        
-        if state == 'playing':
-            # Pause microphone input while TTS is playing
-            if hasattr(self, 'audio_processor'):
-                self.audio_processor.pause_stream()
-                self.get_logger().info('Paused microphone input for TTS playback')
-        elif state == 'done':
-            # Resume microphone input after TTS is done
-            if hasattr(self, 'audio_processor'):
-                self.audio_processor.resume_stream()
-                self.get_logger().info('Resumed microphone input after TTS playback')
     
     def _declare_parameters(self):
         """Declare all ROS2 parameters for this node."""
@@ -136,22 +114,6 @@ class VoiceIntentNode(Node):
             ParameterDescriptor(
                 type=ParameterType.PARAMETER_INTEGER,
                 description='Milliseconds of silence to consider speech ended'
-            )
-        )
-        self.declare_parameter(
-            'use_noise_reduction',
-            True,
-            ParameterDescriptor(
-                type=ParameterType.PARAMETER_BOOL,
-                description='Enable noise reduction preprocessing before ASR'
-            )
-        )
-        self.declare_parameter(
-            'noise_reduction_amount',
-            0.75,
-            ParameterDescriptor(
-                type=ParameterType.PARAMETER_DOUBLE,
-                description='Amount of noise to reduce (0.0-1.0)'
             )
         )
         self.declare_parameter(
@@ -236,6 +198,32 @@ class VoiceIntentNode(Node):
                 description='Wake phrase to listen for'
             )
         )
+        
+        # LLM classification parameters
+        self.declare_parameter(
+            'llm_model', 
+            'gemma3:1b',
+            ParameterDescriptor(
+                type=ParameterType.PARAMETER_STRING,
+                description='Ollama LLM model for intent classification (e.g., gemma3:1b, tinyllama, etc.)'
+            )
+        )
+        self.declare_parameter(
+            'llm_timeout', 
+            3.0, 
+            ParameterDescriptor(
+                type=ParameterType.PARAMETER_DOUBLE,
+                description='Timeout in seconds for LLM classification'
+            )
+        )
+        self.declare_parameter(
+            'llm_retry', 
+            1, 
+            ParameterDescriptor(
+                type=ParameterType.PARAMETER_INTEGER,
+                description='Number of retries for LLM classification before falling back'
+            )
+        )
     
     def _get_parameters(self):
         """Get parameter values from the ROS2 parameter system."""
@@ -256,16 +244,20 @@ class VoiceIntentNode(Node):
         self.vad_silence_duration = self.get_parameter('vad_silence_duration').value
         self.chunk_size = self.get_parameter('chunk_size').value
         self.wake_phrase = self.get_parameter('wake_phrase').value
-        
-        # Noise reduction parameters
-        self.use_noise_reduction = self.get_parameter('use_noise_reduction').value
-        self.noise_reduction_amount = self.get_parameter('noise_reduction_amount').value
 
+        
+        # LLM parameters
+        self.llm_model = self.get_parameter('llm_model').value
+        self.llm_timeout = self.get_parameter('llm_timeout').value
+        self.llm_retry = self.get_parameter('llm_retry').value
+        
         self.get_logger().info(f"Parameters loaded: model_size={self.model_size}, language={self.language}, " +
                               f"device_type={self.device_type}, compute_type={self.compute_type}, " +
                               f"timeout_segments={self.timeout_segments}, audio_device_id={self.audio_device_id}, " +
                               f"verbose_logging={self.verbose_logging}, gpu_memory_monitoring={self.gpu_memory_monitoring}")
-        
+        self.get_logger().info(f"LLM parameters loaded: llm_model={self.llm_model}, " +
+                              f"llm_timeout={self.llm_timeout}, llm_retry={self.llm_retry}")
+    
     def _setup_gpu(self):
         """Check for GPU availability and set up memory monitoring."""
         # Conditionally import torch for GPU memory management
@@ -318,6 +310,14 @@ class VoiceIntentNode(Node):
             self.asr_manager.set_timeout_segments(self.timeout_segments)
             self.get_logger().info("ASR manager initialized")
             
+            # Initialize intent classifier
+            self.intent_classifier = IntentClassifier(
+                model=self.llm_model,
+                timeout=self.llm_timeout,
+                max_retries=self.llm_retry
+            )
+            self.get_logger().info("Intent classifier initialized")
+            
         except Exception as e:
             self.get_logger().error(f"Error initializing components: {str(e)}")
             raise
@@ -328,12 +328,17 @@ class VoiceIntentNode(Node):
         self.inference_thread = threading.Thread(target=self._inference_thread)
         self.inference_thread.daemon = True
         
+        # # Create LLM thread
+        # self.llm_thread = threading.Thread(target=self._llm_thread)
+        # self.llm_thread.daemon = True
+        
         # Start audio processor
         self.audio_processor.start()
         
         # Start threads
         self.inference_thread.start()
-
+        # self.llm_thread.start()
+        
         self.get_logger().info("All processing threads started")
     
     def _inference_thread(self):
@@ -365,45 +370,11 @@ class VoiceIntentNode(Node):
                 # Process the audio chunk with timing
                 start_time = time.time()
                 try:
-                    # The sampling rate is fixed at 16000Hz as per the AudioProcessor
-                    self.get_logger().info("Applying noise reduction to audio chunk")
-                    audio_chunk = nr.reduce_noise(
-                        y=audio_chunk,
-                        sr=16000,
-                        stationary=True,
-                        prop_decrease=self.noise_reduction_amount
-                    )
-                    self.get_logger().info("Noise reduction complete")
-
                     transcription = self.asr_manager.process_audio_chunk(audio_chunk)
                     if transcription:
                         # Complete utterance received from VAD
                         self.get_logger().info(f">> UTTERANCE text: {transcription}")
-                        
-                        # Call Chat service
-                        request = ChatService.Request()
-                        request.prompt = transcription
-                        
-                        self.get_logger().info("Calling chat service...")
-                        future = self.atoma_chat_client.call_async(request)
-                        
-                        # Wait for response
-                        rclpy.spin_until_future_complete(self, future, timeout_sec=10.0)
-                        
-                        if future.result() is not None:
-                            response = future.result()
-                            if response.success:
-                                self.get_logger().info(f"Processor response: {response.response}")
-                                
-                                # Send response to TTS
-                                tts_request = TTSQuery.Request()
-                                tts_request.text = response.response
-                                future = self.tts_client.call_async(tts_request)
-                                rclpy.spin_until_future_complete(self, future, timeout_sec=7.0)
-                            else:
-                                self.get_logger().error(f"Processor service error: {response.error}")
-                        else:
-                            self.get_logger().error("Failed to get response from Processor service")
+                        # self._add_to_llm_queue(transcription, "VAD speech end detected")
                 except Exception as e:
                     self.get_logger().error(f"ASR processing error: {e}")
                     transcription = None
@@ -439,7 +410,15 @@ class VoiceIntentNode(Node):
                 # Reset error counter on successful processing
                 consecutive_errors = 0
                 last_successful_inference_time = time.time()
-
+                
+                # Process the transcription if we got one
+                # if transcription:
+                #     prompt_text, reason, is_complete = self.asr_manager.process_transcription(transcription)
+                    
+                    # If we have a complete prompt, add it to the LLM queue
+                    # if is_complete and prompt_text:
+                    #     self._add_to_llm_queue(prompt_text, reason)
+            
             except Exception as e:
                 consecutive_errors += 1
                 self.get_logger().error(f'Error in inference thread: {str(e)}')
@@ -459,7 +438,129 @@ class VoiceIntentNode(Node):
                     
                     # Short sleep to give system time to recover
                     time.sleep(0.5)
+    
+    def _llm_thread(self):
+        """Thread for processing intent classification with LLM."""
+        self.get_logger().info("Starting LLM thread")
+        
+        while self.running:
+            try:
+                # Get text from queue with timeout
+                try:
+                    prompt_text = self.llm_queue.get(timeout=0.5)
+                except queue.Empty:
+                    continue  # No text to process
+                
+                # Process text with LLM
+                intent_code, success = self.intent_classifier.classify(prompt_text)
+                
+                # Create and publish message
+                msg = IntentClassification()
+                msg.prompt_text = prompt_text
+                msg.intent = intent_code
 
+                intent_name = self.intent_classifier.get_intent_name(intent_code)
+                self.get_logger().info(f"Voice Intent Output: prompt='{prompt_text}', intent={intent_code!r} ({intent_name})")
+                
+                # Start the LLM service call
+                self._start_llm_call(prompt_text, intent_name)
+
+                # Mark task as done
+                self.llm_queue.task_done()
+                
+            except Exception as e:
+                self.get_logger().error(f'Error in LLM thread: {str(e)}')
+
+    def _start_llm_service(self):
+        """Initialize the LLM service and queue."""
+        try:
+            self.get_logger().info("Starting LLM service")
+            # Start the LLM service
+            if not hasattr(self, 'llm_queue'):
+                self.llm_queue = queue.Queue(maxsize=10)
+                self.get_logger().info("LLM service initialized")
+            return True
+        except Exception as e:
+            self.get_logger().error(f"Error initializing LLM service: {e}")
+            return False
+
+    def _start_llm_call(self, prompt_text, intent):
+        """Make an async call to the LLM service.
+        
+        Args:
+            prompt_text (str): The text to process
+            intent (str): The classified intent
+        """
+        try:
+            # Initialize LLM service if needed
+            if not hasattr(self, 'llm_queue'):
+                if not self._start_llm_service():
+                    self.get_logger().error("Failed to initialize LLM service")
+                    return
+
+            request = GenerateBehaviorResponse.Request()
+            request.prompt_text = prompt_text
+            request.intent = intent
+            future = self.language_model_processor_client.call_async(request)
+            rclpy.spin_until_future_complete(self, future, timeout_sec=7.0)
+            
+            # response -> (response: str /* LLM text response */, emotion: /* emotion for the robot to express */ str)
+            response = future.result()
+
+            # Publish the LLM response to the behavior response topic
+            self.llm_behavior_response_publisher.publish(String(data=intent))
+
+            # TTS service call
+            tts_request = TTSQuery.Request()
+            tts_request.text = response.response
+            future = self.tts_client.call_async(tts_request)
+            rclpy.spin_until_future_complete(self, future, timeout_sec=7.0)
+        except Exception as e:
+            self.get_logger().error(f"Error in start LLM service call: {e}")
+
+    def _add_prompt_to_llm_queue(self, prompt):
+        """Add a prompt to the LLM queue and handle the response.
+        
+        Args:
+            prompt (str): Text prompt to classify
+        """
+        try:
+            if not hasattr(self, 'llm_queue') or self.llm_queue is None:
+                self.get_logger().warning("LLM service not ready, using fallback classification")
+                return
+                
+            self.get_logger().info(f"Adding prompt to LLM queue: '{prompt}'")
+            try:
+                self.llm_queue.put(prompt, timeout=0.5)
+                self.get_logger().info("Successfully added prompt to LLM queue")
+            except queue.Full:
+                self.get_logger().warning("LLM queue full, skipping prompt")
+        except Exception as e:
+            self.get_logger().error(f"Error adding prompt to LLM queue: {e}")
+
+    def _add_to_llm_queue(self, prompt_text, reason):
+        """
+        Add a text prompt to the LLM queue for intent classification.
+        
+        Args:
+            prompt_text (str): Text prompt to classify
+            reason (str): Reason for adding to queue
+        """
+        try:
+            if not hasattr(self, 'llm_queue') or self.llm_queue is None:
+                self.get_logger().warning("LLM service not ready, using fallback classification")
+                return
+                
+            self.get_logger().info(f"Adding prompt to LLM queue: '{prompt_text}'")
+            try:
+                self.llm_queue.put(prompt_text, timeout=0.5)
+                self.get_logger().info("Successfully added prompt to LLM queue")
+            except queue.Full:
+                self.get_logger().warning("LLM queue full, skipping prompt")
+        except Exception as e:
+            self.get_logger().error(f"Error adding prompt to LLM queue: {e}")
+            return str(e)
+    
     def destroy_node(self):
         """Clean up resources when the node is destroyed."""
         self.get_logger().info("Shutting down VoiceIntentNode")
@@ -473,6 +574,10 @@ class VoiceIntentNode(Node):
         if hasattr(self, 'inference_thread') and self.inference_thread.is_alive():
             self.get_logger().info("Waiting for inference thread to terminate")
             self.inference_thread.join(timeout=1.0)
+        
+        # if hasattr(self, 'llm_thread') and self.llm_thread.is_alive():
+        #     self.get_logger().info("Waiting for LLM thread to terminate")
+        #     self.llm_thread.join(timeout=1.0)
         
         # Perform final cleanup
         if hasattr(self, 'memory_manager') and self.using_gpu:

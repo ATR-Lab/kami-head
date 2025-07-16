@@ -31,9 +31,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'llm_sensor_node = coffee_speech_processing.sensor_nodes.llm_sensor_node.node:main',
-            'voice_intent_node = coffee_speech_processing.sensor_nodes.voice_intent_node.node:main',
-            'emotion_node = coffee_speech_processing.sensor_nodes.emotion_node.node:main',
+            'llm_sensor_node = coffee_speech_processing.llm_sensor_node.node:main',
+            'voice_intent_node = coffee_speech_processing.voice_intent_node.node:main',
+            'emotion_node = coffee_speech_processing.emotion_node.node:main',
         ],
     },
 )

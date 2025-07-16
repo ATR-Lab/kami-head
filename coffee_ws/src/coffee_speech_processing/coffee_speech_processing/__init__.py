@@ -7,4 +7,4 @@ ROS2 package containing nodes for speech processing tasks like speech recognitio
 intent classification, and audio processing.
 """
 
-from coffee_speech_processing.sensor_nodes.voice_intent_node import VoiceIntentNode
+from coffee_speech_processing.voice_intent_node import VoiceIntentNode
