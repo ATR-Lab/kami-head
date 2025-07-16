@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 import os
 from glob import glob
 
-package_name = 'python_dynamixel_ui'
+package_name = 'dynamixel_test_ui'
 
 setup(
     name=package_name,
@@ -17,12 +17,12 @@ setup(
     zip_safe=True,
     maintainer='user',
     maintainer_email='user@example.com',
-    description='UI for controlling Dynamixel motors',
+    description='UI for testing Dynamixel motors',
     license='Apache License 2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'dynamixel_ui = python_dynamixel_ui.dynamixel_ui_node:main',
+            'dynamixel_ui = dynamixel_test_ui.dynamixel_ui_node:main',
         ],
     },
 )

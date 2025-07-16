@@ -1,6 +1,6 @@
-# Python Dynamixel UI
+# Dynamixel Test UI
 
-A ROS2 package for controlling and visualizing Dynamixel servos with a Python-based GUI.
+A ROS2 package for testing and debugging Dynamixel servos with a Python-based GUI.
 
 ## Virtual Environment Setup
 
@@ -54,11 +54,11 @@ After setting up your environment, build and run the package:
 ```bash
 # Build the package
 cd /path/to/your/workspace
-colcon build --packages-select python_dynamixel_ui
+colcon build --packages-select dynamixel_test_ui
 
 # Source the setup files
 source install/setup.bash
 
 # Run the UI node
-ros2 run python_dynamixel_ui dynamixel_ui
+ros2 run dynamixel_test_ui dynamixel_ui
 ``` 
