@@ -13,22 +13,23 @@ The `coffee_voice_service` package serves as the primary TTS service in the Coff
 - **🔄 Streaming Audio**: Direct audio streaming from API to speakers for low-latency response
 - **⏱️ Smart Cooldown**: Prevents audio overlap with configurable cooldown periods
 - **📊 State Management**: Real-time broadcasting of TTS and audio playback states
-- **🔧 Configurable**: Fully configurable voice, model, and audio settings via ROS2 parameters
+- **🔧 Fully Configurable**: All service names, topics, voice settings, and audio parameters configurable via ROS2 parameters
 - **🛡️ Thread-Safe**: Concurrent audio processing with proper resource management
 - **📈 Health Monitoring**: Regular status publishing for system monitoring
+- **🏗️ No Dependencies**: Self-contained package with no shared configuration dependencies
 
 ## Architecture
 
 ### ROS2 Interface
 
 **Services:**
-- `/system/effector/tts/tts_query` (coffee_buddy_msgs/TTSQuery)
+- `/coffee/voice/tts/query` (coffee_buddy_msgs/TTSQuery) - *Configurable via `service_name` parameter*
   - Request: `string text`
   - Response: `bool success`
 
 **Topics Published:**
-- `/system/effector/tts/status` (std_msgs/String) - JSON status with health info
-- `tts/audio_state` (std_msgs/String) - Audio playback state ('playing', 'cooldown', 'done')
+- `/coffee/voice/tts/status` (std_msgs/String) - JSON status with health info - *Configurable via `status_topic` parameter*
+- `/coffee/voice/tts/audio_state` (std_msgs/String) - Audio playback state ('playing', 'cooldown', 'done') - *Configurable via `audio_state_topic` parameter*
 
 ### Integration
 
@@ -98,16 +99,16 @@ ros2 run coffee_voice_service tts_node
 
 **Test TTS service:**
 ```bash
-ros2 service call /system/effector/tts/tts_query coffee_buddy_msgs/srv/TTSQuery "{text: 'Hello, I am Coffee Buddy!'}"
+ros2 service call /coffee/voice/tts/query coffee_buddy_msgs/srv/TTSQuery "{text: 'Hello, I am Coffee Buddy!'}"
 ```
 
 **Monitor status:**
 ```bash
 # Monitor general status
-ros2 topic echo /system/effector/tts/status
+ros2 topic echo /coffee/voice/tts/status
 
 # Monitor audio playback state
-ros2 topic echo tts/audio_state
+ros2 topic echo /coffee/voice/tts/audio_state
 ```
 
 ### Advanced Configuration
@@ -120,6 +121,14 @@ ros2 launch coffee_voice_service tts_node.launch.py \
   cooldown_duration:=2.0
 ```
 
+**Custom service/topic names:**
+```bash
+ros2 launch coffee_voice_service tts_node.launch.py \
+  service_name:="/my_robot/tts/speak" \
+  status_topic:="/my_robot/tts/health" \
+  audio_state_topic:="/my_robot/tts/playing"
+```
+
 **Different audio format:**
 ```bash
 ros2 launch coffee_voice_service tts_node.launch.py \
@@ -130,6 +139,7 @@ ros2 launch coffee_voice_service tts_node.launch.py \
 
 ### ROS2 Parameters
 
+#### TTS Configuration
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `voice_id` | string | `KTPVrSVAEUSJRClDzBw7` | ElevenLabs voice ID |
@@ -137,6 +147,13 @@ ros2 launch coffee_voice_service tts_node.launch.py \
 | `api_key` | string | `""` | API key (falls back to env var) |
 | `cooldown_duration` | double | `1.0` | Cooldown between requests (seconds) |
 | `output_format` | string | `pcm_24000` | Audio format (pcm_16000, pcm_24000) |
+
+#### ROS2 Communication Configuration
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `service_name` | string | `/coffee/voice/tts/query` | ROS2 service name for TTS queries |
+| `status_topic` | string | `/coffee/voice/tts/status` | Topic for TTS status updates |
+| `audio_state_topic` | string | `/coffee/voice/tts/audio_state` | Topic for audio playback state |
 
 ### Voice Selection
 
@@ -174,11 +191,11 @@ bool success  # True if TTS request accepted, False if busy/error
 - Returns `success: true` immediately if request accepted
 - Returns `success: false` if already playing audio or in cooldown
 - Audio plays asynchronously in background thread
-- Publishes state updates to `tts/audio_state` topic
+- Publishes state updates to audio state topic
 
 ### Status Topic
 
-**Topic:** `/system/effector/tts/status`
+**Topic:** `/coffee/voice/tts/status` *(configurable)*
 **Type:** `std_msgs/String` (JSON format)
 
 **Status JSON Format:**
@@ -194,7 +211,7 @@ bool success  # True if TTS request accepted, False if busy/error
 
 ### Audio State Topic
 
-**Topic:** `tts/audio_state`
+**Topic:** `/coffee/voice/tts/audio_state` *(configurable)*
 **Type:** `std_msgs/String`
 
 **Possible Values:**
@@ -215,10 +232,18 @@ from std_msgs.msg import String
 class TTSClient(Node):
     def __init__(self):
         super().__init__('tts_client')
-        self.client = self.create_client(TTSQuery, '/system/effector/tts/tts_query')
         
-        # Subscribe to audio state for synchronization
-        self.create_subscription(String, 'tts/audio_state', self.audio_state_callback, 10)
+        # Use configurable service name (default: /coffee/voice/tts/query)
+        self.declare_parameter('tts_service', '/coffee/voice/tts/query')
+        service_name = self.get_parameter('tts_service').value
+        
+        self.client = self.create_client(TTSQuery, service_name)
+        
+        # Subscribe to audio state for synchronization (configurable topic)
+        self.declare_parameter('audio_state_topic', '/coffee/voice/tts/audio_state')
+        audio_topic = self.get_parameter('audio_state_topic').value
+        
+        self.create_subscription(String, audio_topic, self.audio_state_callback, 10)
         
     def speak(self, text):
         request = TTSQuery.Request()
@@ -245,8 +270,11 @@ rclpy.spin_until_future_complete(client, future)
 class TTSClient : public rclcpp::Node {
 public:
     TTSClient() : Node("tts_client") {
-        client_ = this->create_client<coffee_buddy_msgs::srv::TTSQuery>(
-            "/system/effector/tts/tts_query");
+        // Use configurable service name
+        this->declare_parameter("tts_service", "/coffee/voice/tts/query");
+        std::string service_name = this->get_parameter("tts_service").as_string();
+        
+        client_ = this->create_client<coffee_buddy_msgs::srv::TTSQuery>(service_name);
     }
     
     void speak(const std::string& text) {
@@ -288,8 +316,13 @@ pip install pyaudio
 
 **5. Service call timeouts**
 - TTS service responds immediately (non-blocking)
-- Monitor `tts/audio_state` topic for actual completion
+- Monitor audio state topic for actual completion
 - Don't wait for audio completion in service call
+
+**6. Service not found**
+- Check if service name parameter has been customized
+- Use `ros2 service list | grep tts` to find actual service name
+- Verify node is running: `ros2 node list | grep tts_node`
 
 ### Debug Commands
 
@@ -301,13 +334,18 @@ ros2 node list | grep tts_node
 ros2 topic list | grep tts
 
 # Check service availability
-ros2 service list | grep tts_query
+ros2 service list | grep tts
 
 # View node parameters
 ros2 param list /tts_node
 
 # Test with minimal text
-ros2 service call /system/effector/tts/tts_query coffee_buddy_msgs/srv/TTSQuery "{text: 'test'}"
+ros2 service call /coffee/voice/tts/query coffee_buddy_msgs/srv/TTSQuery "{text: 'test'}"
+
+# Check actual service/topic names being used
+ros2 param get /tts_node service_name
+ros2 param get /tts_node status_topic
+ros2 param get /tts_node audio_state_topic
 ```
 
 ## Development
@@ -346,3 +384,28 @@ colcon test --packages-select coffee_voice_service
 3. Make changes following ROS2 conventions
 4. Add tests for new functionality
 5. Submit a pull request
+
+## Migration Notes
+
+### Breaking Changes
+
+**v1.0.0 → v2.0.0:**
+- **Service endpoint changed**: `/system/effector/tts/tts_query` → `/coffee/voice/tts/query`
+- **Status topic changed**: `/system/effector/tts/status` → `/coffee/voice/tts/status`
+- **Audio state topic changed**: `tts/audio_state` → `/coffee/voice/tts/audio_state`
+- **Removed dependency**: No longer depends on `shared_configs` package
+- **Added configuration**: All endpoints now configurable via ROS2 parameters
+
+**Migration Guide:**
+```bash
+# Old usage
+ros2 service call /system/effector/tts/tts_query coffee_buddy_msgs/srv/TTSQuery "{text: 'hello'}"
+
+# New usage (default)
+ros2 service call /coffee/voice/tts/query coffee_buddy_msgs/srv/TTSQuery "{text: 'hello'}"
+
+# Or configure custom endpoints
+ros2 launch coffee_voice_service tts_node.launch.py \
+  service_name:="/system/effector/tts/tts_query" \
+  status_topic:="/system/effector/tts/status"
+```
