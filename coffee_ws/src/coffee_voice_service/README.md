@@ -1,10 +1,10 @@
-# Effector Nodes
+# Coffee Voice Service
 
-A ROS2 package providing Text-to-Speech (TTS) effector nodes for the Coffee Buddy robot system using the ElevenLabs API.
+A ROS2 package providing Text-to-Speech (TTS) service for the Coffee Buddy robot system using the ElevenLabs API.
 
 ## Overview
 
-The `effector_nodes` package serves as the primary TTS effector in the Coffee Buddy robot ecosystem. It provides high-quality, multilingual text-to-speech synthesis through the ElevenLabs API, enabling the robot to communicate naturally with users through voice responses.
+The `coffee_voice_service` package serves as the primary TTS service in the Coffee Buddy robot ecosystem. It provides high-quality, multilingual text-to-speech synthesis through the ElevenLabs API, enabling the robot to communicate naturally with users through voice responses.
 
 ## Features
 
@@ -55,7 +55,7 @@ VoiceIntentNode → LanguageModelProcessorNode → TTSNode → Audio Output
 1. **Clone and build the package:**
    ```bash
    cd coffee_ws
-   colcon build --packages-select effector_nodes
+   colcon build --packages-select coffee_voice_service
    source install/setup.bash
    ```
 
@@ -75,12 +75,12 @@ export ELEVEN_LABS_API_KEY="your_api_key_here"
 
 **Method 2: ROS2 Parameter**
 ```bash
-ros2 run effector_nodes tts_node --ros-args -p api_key:="your_api_key_here"
+ros2 run coffee_voice_service tts_node --ros-args -p api_key:="your_api_key_here"
 ```
 
 **Method 3: Launch File Parameter**
 ```bash
-ros2 launch effector_nodes tts_node.launch.py api_key:="your_api_key_here"
+ros2 launch coffee_voice_service tts_node.launch.py api_key:="your_api_key_here"
 ```
 
 ## Usage
@@ -90,10 +90,10 @@ ros2 launch effector_nodes tts_node.launch.py api_key:="your_api_key_here"
 **Start the TTS node:**
 ```bash
 # Using launch file (recommended)
-ros2 launch effector_nodes tts_node.launch.py
+ros2 launch coffee_voice_service tts_node.launch.py
 
 # Or run directly
-ros2 run effector_nodes tts_node
+ros2 run coffee_voice_service tts_node
 ```
 
 **Test TTS service:**
@@ -114,7 +114,7 @@ ros2 topic echo tts/audio_state
 
 **Custom voice and model:**
 ```bash
-ros2 launch effector_nodes tts_node.launch.py \
+ros2 launch coffee_voice_service tts_node.launch.py \
   voice_id:="pNInz6obpgDQGcFmaJgB" \
   model_id:="eleven_multilingual_v2" \
   cooldown_duration:=2.0
@@ -122,7 +122,7 @@ ros2 launch effector_nodes tts_node.launch.py \
 
 **Different audio format:**
 ```bash
-ros2 launch effector_nodes tts_node.launch.py \
+ros2 launch coffee_voice_service tts_node.launch.py \
   output_format:="pcm_16000"
 ```
 
@@ -316,13 +316,13 @@ ros2 service call /system/effector/tts/tts_query coffee_buddy_msgs/srv/TTSQuery 
 
 ```bash
 cd coffee_ws
-colcon build --packages-select effector_nodes --cmake-args -DCMAKE_BUILD_TYPE=Debug
+colcon build --packages-select coffee_voice_service --cmake-args -DCMAKE_BUILD_TYPE=Debug
 ```
 
 ### Running Tests
 
 ```bash
-colcon test --packages-select effector_nodes
+colcon test --packages-select coffee_voice_service
 colcon test-result --verbose
 ```
 
@@ -336,7 +336,7 @@ ament_flake8 src/
 ament_pep257 src/
 
 # Run all tests
-colcon test --packages-select effector_nodes
+colcon test --packages-select coffee_voice_service
 ```
 
 ## Contributing

@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>effector_nodes</name>
+  <name>coffee_voice_service</name>
   <version>0.0.0</version>
-  <description>ROS2 package providing Text-to-Speech (TTS) effector nodes for the Coffee Buddy robot system using ElevenLabs API</description>
+  <description>ROS2 package providing Text-to-Speech (TTS) service for the Coffee Buddy robot system using ElevenLabs API</description>
   <maintainer email="marcus@opendive.io">vr-workstation-2</maintainer>
   <license>Apache-2.0</license>
 

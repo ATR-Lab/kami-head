@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'effector_nodes'
+package_name = 'coffee_voice_service'
 
 setup(
     name=package_name,
@@ -20,12 +20,12 @@ setup(
     zip_safe=True,
     maintainer='vr-workstation-2',
     maintainer_email='marcus@opendive.io',
-    description='ROS2 package providing Text-to-Speech (TTS) effector nodes for the Coffee Buddy robot system using ElevenLabs API',
+    description='ROS2 package providing Text-to-Speech (TTS) service for the Coffee Buddy robot system using ElevenLabs API',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'tts_node = effector_nodes.tts_node.node:main',
+            'tts_node = coffee_voice_service.tts_node.node:main',
         ],
     },
 )

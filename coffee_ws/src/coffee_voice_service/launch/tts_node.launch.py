@@ -42,7 +42,7 @@ def generate_launch_description():
     
     # TTS Node
     tts_node = Node(
-        package='effector_nodes',
+        package='coffee_voice_service',
         executable='tts_node',
         name='tts_node',
         output='screen',
