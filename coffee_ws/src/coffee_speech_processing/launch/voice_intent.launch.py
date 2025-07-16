@@ -61,7 +61,7 @@ def generate_launch_description():
     
     # Create node
     voice_intent_node = Node(
-        package='perception_nodes',
+        package='coffee_speech_processing',
         executable='voice_intent_node',
         name='voice_intent_node',
         output='screen',

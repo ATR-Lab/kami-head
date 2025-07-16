@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>perception_nodes</name>
+  <name>coffee_speech_processing</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="Marcus.Arnett10@gmail.com">vr-workstation-2</maintainer>
+  <description>Speech processing package for Coffee Buddy robot system, including speech recognition, intent classification, and emotion detection</description>
+  <maintainer email="marcus@opendive.io">vr-workstation-2</maintainer>
   <license>Apache-2.0</license>
 
   <depend>rclpy</depend>

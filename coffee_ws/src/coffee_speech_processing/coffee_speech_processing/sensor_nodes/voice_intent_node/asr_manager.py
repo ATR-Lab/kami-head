@@ -18,7 +18,7 @@ import numpy as np
 
 # Import whisper streaming components
 try:
-    from perception_nodes.utils.whisper_streaming import (
+    from coffee_speech_processing.utils.whisper_streaming import (
         asr_factory,
         load_audio_chunk,
         OnlineASRProcessor,
@@ -97,7 +97,7 @@ class ASRManager:
         """Initialize or reinitialize the ASR processor."""
         try:
             import torch
-            from perception_nodes.utils.whisper_streaming import FasterWhisperASR, VACOnlineASRProcessor, OnlineASRProcessor
+            from coffee_speech_processing.utils.whisper_streaming import FasterWhisperASR, VACOnlineASRProcessor, OnlineASRProcessor
             
             # Create the ASR object first
             asr = FasterWhisperASR(

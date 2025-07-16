@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 import os
 from glob import glob
 
-package_name = 'perception_nodes'
+package_name = 'coffee_speech_processing'
 
 setup(
     name=package_name,
@@ -26,14 +26,14 @@ setup(
     zip_safe=True,
     maintainer='opendive-technologies',
     maintainer_email='Marcus@opendive.io',
-    description='Perception input nodes for Coffee-Buddy',
+    description='Speech processing package for Coffee Buddy robot system, including speech recognition, intent classification, and emotion detection',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'llm_sensor_node = perception_nodes.sensor_nodes.llm_sensor_node.node:main',
-            'voice_intent_node = perception_nodes.sensor_nodes.voice_intent_node.node:main',
-            'emotion_node = perception_nodes.sensor_nodes.emotion_node.node:main',
+            'llm_sensor_node = coffee_speech_processing.sensor_nodes.llm_sensor_node.node:main',
+            'voice_intent_node = coffee_speech_processing.sensor_nodes.voice_intent_node.node:main',
+            'emotion_node = coffee_speech_processing.sensor_nodes.emotion_node.node:main',
         ],
     },
 )

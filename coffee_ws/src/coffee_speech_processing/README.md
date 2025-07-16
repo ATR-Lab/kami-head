@@ -1,6 +1,6 @@
-# Perception Nodes
+# Coffee Speech Processing
 
-ROS2 package containing nodes for perception tasks like speech recognition, intent classification, and audio processing.
+ROS2 package containing nodes for speech processing tasks like speech recognition, intent classification, and audio processing for the Coffee Buddy robot system.
 
 ## Voice Intent Node
 
@@ -100,7 +100,7 @@ The intent classifier supports the following intents:
 To run the node with default parameters:
 
 ```bash
-ros2 run perception_nodes voice_intent_node
+ros2 run coffee_speech_processing voice_intent_node
 ```
 
 #### Using Launch File
@@ -108,7 +108,7 @@ ros2 run perception_nodes voice_intent_node
 To run with the launch file (recommended):
 
 ```bash
-ros2 launch perception_nodes voice_intent.launch.py
+ros2 launch coffee_speech_processing voice_intent.launch.py
 ```
 
 #### Custom Parameters
@@ -116,19 +116,19 @@ ros2 launch perception_nodes voice_intent.launch.py
 To specify a different model or language:
 
 ```bash
-ros2 launch perception_nodes voice_intent.launch.py model_size:=small language:=auto
+ros2 launch coffee_speech_processing voice_intent.launch.py model_size:=small language:=auto
 ```
 
 To use CPU instead of GPU:
 
 ```bash
-ros2 launch perception_nodes voice_intent.launch.py device_type:=cpu
+ros2 launch coffee_speech_processing voice_intent.launch.py device_type:=cpu
 ```
 
 To change the LLM model:
 
 ```bash
-ros2 launch perception_nodes voice_intent.launch.py llm_model:=llama3:8b
+ros2 launch coffee_speech_processing voice_intent.launch.py llm_model:=llama3:8b
 ```
 
 ### Monitor Output
@@ -153,7 +153,7 @@ The required Python packages are listed as dependencies in the package.xml file.
 
 ```bash
 cd ~/your_workspace
-colcon build --packages-select perception_nodes
+colcon build --packages-select coffee_speech_processing
 ```
 
 ### Troubleshooting
@@ -177,5 +177,5 @@ ros2 param set /voice_intent_node audio_device_id <ID>
 If you encounter GPU memory issues, try using a smaller model or disabling GPU:
 
 ```bash
-ros2 launch perception_nodes voice_intent.launch.py model_size:=tiny device_type:=cpu
+ros2 launch coffee_speech_processing voice_intent.launch.py model_size:=tiny device_type:=cpu
 ``` 
