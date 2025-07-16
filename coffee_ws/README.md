@@ -184,7 +184,7 @@ ros2 run coffee_voice_agent voice_agent_node
 Receives text to be spoken and sends it to the TTS engine.   
 In the LLM flow, all it does is receive the output from the LLM and send it to the TTS engine.
 ```
-ros2 run effector_nodes tts_node
+ros2 run coffee_voice_service tts_node
 ```
 
 `tts_node` explicitly handles the calls to Eleven Labs or Fish Audio. It run a `ROS2 Service` that makes a synchronous call to the server. An example service call is provided here:
@@ -244,7 +244,7 @@ sudo docker run -it --rm -v /dev:/dev --privileged --net=host microros/micro-ros
 ## Window 2
 
 ```
-ros2 run effector_nodes tts_node
+ros2 run coffee_voice_service tts_node
 
 ros2 run coffee_machine_control coffee_machine_control_node --ros-args -p use_mock_machine:=true -p "mac_address:=''"
 
@@ -303,7 +303,7 @@ ros2 run perception_nodes voice_intent_node
 
 ros2 run behavior_nodes language_model_processor_node
 
-ros2 run effector_nodes tts_node
+ros2 run coffee_voice_service tts_node
 ```
 
 # ROS2 Package Creation Compatibility
