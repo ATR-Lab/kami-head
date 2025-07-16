@@ -25,7 +25,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'tts_node = coffee_voice_service.tts_node.node:main',
+            'tts_node = coffee_voice_service.tts_node:main',
         ],
     },
 )
