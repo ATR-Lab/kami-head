@@ -215,7 +215,7 @@ Open up an ongoing audio stream and employs Voice Activity Detection (VAD) to de
 
 The transcribed text is then sent to the LLM processor node.
 ```
-ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=1500
+ros2 launch coffee_speech_processing voice_intent.launch.py use_vad:=true vad_silence_duration:=1500
 ```
 
 ### Large Language Model (LLM) Processor Node
@@ -265,7 +265,7 @@ ros2 run coffee_machine_control coffee_machine_control_node --ros-args -p use_mo
 
 ros2 run behavior_nodes language_model_processor_node
 
-ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=1500
+ros2 launch coffee_speech_processing voice_intent.launch.py use_vad:=true vad_silence_duration:=1500
 ```
 
 
@@ -279,10 +279,10 @@ ros2 run coffee_expressions_test_ui expressions_test_ui
 ros2 run coffee_expressions_state_ui state_ui
 
 #Run with VAD -- 
-ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=1500
+ros2 launch coffee_speech_processing voice_intent.launch.py use_vad:=true vad_silence_duration:=1500
 
 # Use with threshold: float = 0.4, min_silence_duration_ms: int = 2000, speech_pad_ms: int = 1000
-ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=2000
+ros2 launch coffee_speech_processing voice_intent.launch.py use_vad:=true vad_silence_duration:=2000
 
 # Run coffee machine control node directly
 ros2 run coffee_machine_control coffee_machine_control_node --ros-args -p mac_address:=<your_machine_mac>
@@ -314,7 +314,7 @@ pip install -r requirements.txt
 source ./scripts/ros2_venv.sh enable ./coffee_buddy_venv
 
 # Run each in separate windows
-ros2 run perception_nodes voice_intent_node
+ros2 run coffee_speech_processing voice_intent_node
 
 ros2 run behavior_nodes language_model_processor_node
 
@@ -393,10 +393,10 @@ VAD can be enabled with the following parameters:
 
 ```bash
 # Without VAD (default):
-ros2 launch perception_nodes voice_intent.launch.py
+ros2 launch coffee_speech_processing voice_intent.launch.py
 
 # With VAD:
-ros2 launch perception_nodes voice_intent.launch.py use_vad:=true vad_silence_duration:=500
+ros2 launch coffee_speech_processing voice_intent.launch.py use_vad:=true vad_silence_duration:=500
 ```
 
 ### VAD Parameters
