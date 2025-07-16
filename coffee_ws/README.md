@@ -184,15 +184,30 @@ ros2 run coffee_voice_agent voice_agent_node
 Receives text to be spoken and sends it to the TTS engine.   
 In the LLM flow, all it does is receive the output from the LLM and send it to the TTS engine.
 ```
+# Using launch file (recommended)
+ros2 launch coffee_voice_service tts_node.launch.py
+
+# Or run directly
 ros2 run coffee_voice_service tts_node
 ```
 
 `tts_node` explicitly handles the calls to Eleven Labs or Fish Audio. It run a `ROS2 Service` that makes a synchronous call to the server. An example service call is provided here:
 
 ```
-ros2 service call /system/effector/tts/tts_query coffee_buddy_msgs/srv/TTSQuery "{text: 'Hey, would you like a cup of coffee?'}"
+# Default service endpoint
+ros2 service call /coffee/voice/tts/query coffee_buddy_msgs/srv/TTSQuery "{text: 'Hey, would you like a cup of coffee?'}"
 
-ros2 service call /tts_query coffee_buddy_msgs/srv/TTSQuery "{text: 'Your text prompt here'}"
+# Alternative syntax
+ros2 service call /coffee/voice/tts/query coffee_buddy_msgs/srv/TTSQuery "{text: 'Your text prompt here'}"
+```
+
+**Monitor TTS Status:**
+```
+# Monitor TTS status
+ros2 topic echo /coffee/voice/tts/status
+
+# Monitor audio playback state
+ros2 topic echo /coffee/voice/tts/audio_state
 ```
 
 ### Voice Intent Node
@@ -244,7 +259,7 @@ sudo docker run -it --rm -v /dev:/dev --privileged --net=host microros/micro-ros
 ## Window 2
 
 ```
-ros2 run coffee_voice_service tts_node
+ros2 launch coffee_voice_service tts_node.launch.py
 
 ros2 run coffee_machine_control coffee_machine_control_node --ros-args -p use_mock_machine:=true -p "mac_address:=''"
 
@@ -303,7 +318,7 @@ ros2 run perception_nodes voice_intent_node
 
 ros2 run behavior_nodes language_model_processor_node
 
-ros2 run coffee_voice_service tts_node
+ros2 launch coffee_voice_service tts_node.launch.py
 ```
 
 # ROS2 Package Creation Compatibility
