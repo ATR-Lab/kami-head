@@ -8,7 +8,6 @@ from rclpy.node import Node
 from std_msgs.msg import String
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from coffee_buddy_msgs.srv import TTSQuery
-from shared_configs import TTS_SERVICE, TTS_STATUS_TOPIC
 import pyaudio
 import wave
 import json
@@ -19,18 +18,28 @@ class TTSNode(Node):
         super().__init__('tts_node')
         self.get_logger().info("TTS node initialized")
 
-        # Declare parameters
+        # Declare parameters for TTS configuration
         self.declare_parameter('voice_id', "KTPVrSVAEUSJRClDzBw7")  # Default voice ID
         self.declare_parameter('model_id', "eleven_multilingual_v2")  # Default model
         self.declare_parameter('api_key', '')  # Empty by default, will check env var
         self.declare_parameter('cooldown_duration', 1.0)  # Cooldown in seconds
         self.declare_parameter('output_format', 'pcm_24000')  # Audio output format
+        
+        # Declare parameters for ROS2 topics and services
+        self.declare_parameter('service_name', '/coffee/voice/tts/query')
+        self.declare_parameter('status_topic', '/coffee/voice/tts/status')
+        self.declare_parameter('audio_state_topic', '/coffee/voice/tts/audio_state')
 
         # Get parameters
         self.voice_id = self.get_parameter('voice_id').value
         self.model_id = self.get_parameter('model_id').value
         self.COOLDOWN_DURATION = self.get_parameter('cooldown_duration').value
         self.output_format = self.get_parameter('output_format').value
+        
+        # Get ROS2 communication parameters
+        service_name = self.get_parameter('service_name').value
+        status_topic = self.get_parameter('status_topic').value
+        audio_state_topic = self.get_parameter('audio_state_topic').value
 
         self.service_group = MutuallyExclusiveCallbackGroup()
         self.timer_group = MutuallyExclusiveCallbackGroup()
@@ -59,18 +68,18 @@ class TTSNode(Node):
         # Create a service for the TTS queries
         self.create_service(
             TTSQuery,
-            TTS_SERVICE,
+            service_name,
             self.tts_query_callback,
             callback_group=self.service_group
         )
 
         # Publisher for general status
         self.status_pub = self.create_publisher(
-            String, TTS_STATUS_TOPIC, 10)
+            String, status_topic, 10)
             
         # Publisher for audio playback state
         self.audio_state_pub = self.create_publisher(
-            String, 'tts/audio_state', 10)
+            String, audio_state_topic, 10)
 
         # Status update timer (1Hz)
         self.status_timer = self.create_timer(
@@ -82,7 +91,10 @@ class TTSNode(Node):
         # Flag to track if audio is currently playing
         self.is_playing = False
         
-        self.get_logger().info("TTS node initialized and ready")
+        self.get_logger().info(f"TTS node initialized and ready")
+        self.get_logger().info(f"Service available at: {service_name}")
+        self.get_logger().info(f"Status published to: {status_topic}")
+        self.get_logger().info(f"Audio state published to: {audio_state_topic}")
 
     def publish_status(self):
         """Publish current status information"""

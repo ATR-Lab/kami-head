@@ -13,7 +13,6 @@
   
   <!-- Coffee Buddy specific message dependencies -->
   <depend>coffee_buddy_msgs</depend>
-  <depend>shared_configs</depend>
   
   <!-- System dependencies for audio -->
   <depend>python3-pyaudio</depend>
