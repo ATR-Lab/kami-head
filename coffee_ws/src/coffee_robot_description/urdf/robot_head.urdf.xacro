@@ -1,0 +1,257 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Robot Head Assembly -->
+  <xacro:macro name="robot_head" params="parent xyz">
+    
+    <!-- Head Main Body -->
+    <joint name="head_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="head_link"/>
+      <origin xyz="${xyz}" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="head_link">
+      <visual>
+        <geometry>
+          <box size="0.16 0.14 0.12"/>
+        </geometry>
+        <origin xyz="0 0 0.06" rpy="0 0 0"/>
+        <material name="white"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.16 0.14 0.12"/>
+        </geometry>
+        <origin xyz="0 0 0.06" rpy="0 0 0"/>
+      </collision>
+      <inertial>
+        <mass value="1.2"/>  <!-- Head with display and components -->
+        <origin xyz="0 0 0.06" rpy="0 0 0"/>
+        <inertia ixx="0.02" iyy="0.02" izz="0.015" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- LCD Display (in the middle of the head) -->
+    <joint name="display_joint" type="fixed">
+      <parent link="head_link"/>
+      <child link="display_link"/>
+      <origin xyz="0.07 0 0.06" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="display_link">
+      <visual>
+        <geometry>
+          <box size="0.02 0.10 0.08"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.02 0.10 0.08"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.15"/>
+        <inertia ixx="0.0001" iyy="0.0001" izz="0.0001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Display Screen Surface -->
+    <joint name="screen_joint" type="fixed">
+      <parent link="display_link"/>
+      <child link="screen_link"/>
+      <origin xyz="0.01 0 0" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="screen_link">
+      <visual>
+        <geometry>
+          <box size="0.001 0.08 0.06"/>
+        </geometry>
+        <material name="blue"/>  <!-- Blue screen for eyes -->
+      </visual>
+      <inertial>
+        <mass value="0.01"/>
+        <inertia ixx="0.00001" iyy="0.00001" izz="0.00001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Logitech Brio Camera Mount (at the top of LCD display - forehead position) -->
+    <joint name="camera_mount_joint" type="fixed">
+      <parent link="display_link"/>
+      <child link="camera_mount_link"/>
+      <origin xyz="0.01 0 0.05" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="camera_mount_link">
+      <visual>
+        <geometry>
+          <box size="0.03 0.08 0.02"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.03 0.08 0.02"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.08"/>  <!-- Logitech Brio weight ~63g -->
+        <inertia ixx="0.0001" iyy="0.0001" izz="0.0001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Camera Lens -->
+    <joint name="camera_lens_joint" type="fixed">
+      <parent link="camera_mount_link"/>
+      <child link="camera_lens_link"/>
+      <origin xyz="0.015 0 0" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="camera_lens_link">
+      <visual>
+        <geometry>
+          <cylinder radius="0.008" length="0.005"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="0.008" length="0.005"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.005"/>
+        <inertia ixx="0.000001" iyy="0.000001" izz="0.000001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Left Ear Assembly (movable left to right) -->
+    <joint name="left_ear_joint" type="revolute">
+      <parent link="head_link"/>
+      <child link="left_ear_link"/>
+      <origin xyz="-0.02 0.08 0.10" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>  <!-- Rotate around Z-axis (left-right movement) -->
+      <limit lower="${-45*pi/180}" upper="${45*pi/180}" effort="2.0" velocity="3.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+    
+    <link name="left_ear_link">
+      <visual>
+        <geometry>
+          <box size="0.05 0.02 0.08"/>
+        </geometry>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <material name="gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.05 0.02 0.08"/>
+        </geometry>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+      </collision>
+      <inertial>
+        <mass value="0.08"/>  <!-- Light ear assembly -->
+        <inertia ixx="0.0001" iyy="0.0001" izz="0.0001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Left Ear Tip (decorative) -->
+    <joint name="left_ear_tip_joint" type="fixed">
+      <parent link="left_ear_link"/>
+      <child link="left_ear_tip_link"/>
+      <origin xyz="0 0 0.04" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="left_ear_tip_link">
+      <visual>
+        <geometry>
+          <sphere radius="0.015"/>
+        </geometry>
+        <material name="red"/>
+      </visual>
+      <inertial>
+        <mass value="0.01"/>
+        <inertia ixx="0.00001" iyy="0.00001" izz="0.00001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Right Ear Assembly (movable left to right) -->
+    <joint name="right_ear_joint" type="revolute">
+      <parent link="head_link"/>
+      <child link="right_ear_link"/>
+      <origin xyz="-0.02 -0.08 0.10" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>  <!-- Rotate around Z-axis (left-right movement) -->
+      <limit lower="${-45*pi/180}" upper="${45*pi/180}" effort="2.0" velocity="3.0"/>
+      <dynamics damping="0.02" friction="0.02"/>
+    </joint>
+    
+    <link name="right_ear_link">
+      <visual>
+        <geometry>
+          <box size="0.05 0.02 0.08"/>
+        </geometry>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <material name="gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.05 0.02 0.08"/>
+        </geometry>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+      </collision>
+      <inertial>
+        <mass value="0.08"/>  <!-- Light ear assembly -->
+        <inertia ixx="0.0001" iyy="0.0001" izz="0.0001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Right Ear Tip (decorative) -->
+    <joint name="right_ear_tip_joint" type="fixed">
+      <parent link="right_ear_link"/>
+      <child link="right_ear_tip_link"/>
+      <origin xyz="0 0 0.04" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="right_ear_tip_link">
+      <visual>
+        <geometry>
+          <sphere radius="0.015"/>
+        </geometry>
+        <material name="red"/>
+      </visual>
+      <inertial>
+        <mass value="0.01"/>
+        <inertia ixx="0.00001" iyy="0.00001" izz="0.00001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Head Top Cover -->
+    <joint name="head_top_joint" type="fixed">
+      <parent link="head_link"/>
+      <child link="head_top_link"/>
+      <origin xyz="0 0 0.12" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="head_top_link">
+      <visual>
+        <geometry>
+          <cylinder radius="0.08" length="0.02"/>
+        </geometry>
+        <material name="white"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="0.08" length="0.02"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.1"/>
+        <inertia ixx="0.0001" iyy="0.0001" izz="0.0001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+  </xacro:macro>
+
+</robot> 

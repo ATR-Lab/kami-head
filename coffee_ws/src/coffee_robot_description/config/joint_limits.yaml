@@ -1,0 +1,108 @@
+# Joint limits configuration for Coffee Robot
+# Based on current hardware capabilities and planned future expansion
+
+joint_limits:
+  # Neck Yaw Joint (Pan Motor ID:1)
+  # Hardware: Dynamixel XM540-W270
+  # Range: 143° to 210° (motor coordinates) = -37° to +30° (URDF coordinates)
+  neck_yaw_joint:
+    has_position_limits: true
+    min_position: -0.6458  # -37 degrees in radians
+    max_position: 0.5236   # +30 degrees in radians
+    has_velocity_limits: true
+    max_velocity: 1.5      # rad/s
+    has_acceleration_limits: true
+    max_acceleration: 2.0  # rad/s²
+    has_effort_limits: true
+    max_effort: 10.0       # Nm
+    
+  # Neck Pitch Joint (Tilt Motor ID:9)  
+  # Hardware: Dynamixel XM540-W270
+  # Range: 169° to 206° (motor coordinates) = -11° to +26° (URDF coordinates)
+  neck_pitch_joint:
+    has_position_limits: true
+    min_position: -0.1920  # -11 degrees in radians (up)
+    max_position: 0.4538   # +26 degrees in radians (down)
+    has_velocity_limits: true
+    max_velocity: 1.5      # rad/s
+    has_acceleration_limits: true
+    max_acceleration: 2.0  # rad/s²
+    has_effort_limits: true
+    max_effort: 10.0       # Nm
+    
+  # Neck Roll Joint (Future motor - 3rd DOF)
+  # Hardware: TBD (smaller Dynamixel motor planned)
+  neck_roll_joint:
+    has_position_limits: true
+    min_position: -0.5236  # -30 degrees in radians
+    max_position: 0.5236   # +30 degrees in radians
+    has_velocity_limits: true
+    max_velocity: 2.0      # rad/s (faster for smaller motor)
+    has_acceleration_limits: true
+    max_acceleration: 3.0  # rad/s²
+    has_effort_limits: true
+    max_effort: 5.0        # Nm (lower for smaller motor)
+    
+  # Left Ear Joint (Future motor)
+  # Hardware: TBD (small servo motor planned)
+  left_ear_joint:
+    has_position_limits: true
+    min_position: -0.7854  # -45 degrees in radians
+    max_position: 0.7854   # +45 degrees in radians  
+    has_velocity_limits: true
+    max_velocity: 3.0      # rad/s (fast for expressions)
+    has_acceleration_limits: true
+    max_acceleration: 5.0  # rad/s²
+    has_effort_limits: true
+    max_effort: 2.0        # Nm (low for light ear)
+    
+  # Right Ear Joint (Future motor)
+  # Hardware: TBD (small servo motor planned)
+  right_ear_joint:
+    has_position_limits: true
+    min_position: -0.7854  # -45 degrees in radians
+    max_position: 0.7854   # +45 degrees in radians
+    has_velocity_limits: true
+    max_velocity: 3.0      # rad/s (fast for expressions)
+    has_acceleration_limits: true
+    max_acceleration: 5.0  # rad/s²
+    has_effort_limits: true
+    max_effort: 2.0        # Nm (low for light ear)
+
+# Safety configuration
+safety_limits:
+  # Default safety factors
+  position_factor: 0.95    # Use 95% of full range for safety
+  velocity_factor: 0.8     # Use 80% of max velocity for safety
+  acceleration_factor: 0.7 # Use 70% of max acceleration for safety
+  effort_factor: 0.9       # Use 90% of max effort for safety
+  
+  # Emergency stop parameters
+  emergency_stop_acceleration: 10.0  # rad/s² for emergency stops
+  
+# Hardware-specific parameters
+hardware:
+  # Current Dynamixel motors
+  dynamixel_xm540:
+    protocol_version: 2.0
+    baudrate: 1000000
+    port: "/dev/ttyUSB0"
+    models:
+      - id: 1    # Pan motor
+        type: "XM540-W270"
+        joint: "neck_yaw_joint"
+      - id: 9    # Tilt motor  
+        type: "XM540-W270"
+        joint: "neck_pitch_joint"
+        
+  # Future motors (when hardware is added)
+  future_motors:
+    - joint: "neck_roll_joint"
+      hardware: "TBD"
+      notes: "3rd DOF roll motor planned"
+    - joint: "left_ear_joint"
+      hardware: "TBD" 
+      notes: "Left ear actuation motor planned"
+    - joint: "right_ear_joint"
+      hardware: "TBD"
+      notes: "Right ear actuation motor planned" 

@@ -1,0 +1,168 @@
+# ROS2 Control configuration for Coffee Robot
+# Defines controllers for head movements and ear animations
+
+controller_manager:
+  ros__parameters:
+    update_rate: 30  # 30Hz control loop
+    
+    # Joint State Broadcaster (publishes joint states)
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+      
+    # Coffee Head Controller (3DOF neck movement)
+    coffee_head_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+      
+    # Coffee Ear Controller (ear animations)
+    coffee_ear_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+# Joint State Broadcaster Configuration
+joint_state_broadcaster:
+  ros__parameters:
+    joints:
+      - neck_yaw_joint     # Pan motor (ID:1)
+      - neck_pitch_joint   # Tilt motor (ID:9)
+      - neck_roll_joint    # Future roll motor
+      - left_ear_joint     # Future left ear motor
+      - right_ear_joint    # Future right ear motor
+    interfaces:
+      - position
+      - velocity
+      - effort
+    publish_rate: 30.0
+
+# Coffee Head Controller Configuration  
+coffee_head_controller:
+  ros__parameters:
+    joints:
+      - neck_yaw_joint     # Pan motor (ID:1) - current hardware
+      - neck_pitch_joint   # Tilt motor (ID:9) - current hardware  
+      - neck_roll_joint    # Future roll motor
+      
+    interface_name: position
+    
+    command_interfaces:
+      - position
+      
+    state_interfaces:
+      - position
+      - velocity
+      - effort
+      
+    # Trajectory execution parameters
+    constraints:
+      stopped_velocity_tolerance: 0.01  # rad/s
+      goal_time: 0.0  # No goal time constraint
+      neck_yaw_joint:
+        trajectory: 0.05    # rad
+        goal: 0.02          # rad
+      neck_pitch_joint:
+        trajectory: 0.05    # rad  
+        goal: 0.02          # rad
+      neck_roll_joint:
+        trajectory: 0.05    # rad
+        goal: 0.02          # rad
+        
+    # Action server configuration
+    action_monitor_rate: 20.0  # Hz
+    
+    # Allow partial goals (useful when roll motor not available)
+    allow_partial_joints_goal: true
+    
+    # Integration with existing head control
+    open_loop_control: false
+    allow_integration_in_goal_trajectories: true
+
+# Coffee Ear Controller Configuration
+coffee_ear_controller:
+  ros__parameters:
+    joints:
+      - left_ear_joint     # Future left ear motor
+      - right_ear_joint    # Future right ear motor
+      
+    interface_name: position
+    
+    command_interfaces:
+      - position
+      
+    state_interfaces:
+      - position
+      - velocity
+      - effort
+      
+    # Trajectory execution parameters (faster for ear animations)
+    constraints:
+      stopped_velocity_tolerance: 0.02  # rad/s
+      goal_time: 0.0  # No goal time constraint
+      left_ear_joint:
+        trajectory: 0.1     # rad (looser for fast movements)
+        goal: 0.05          # rad
+      right_ear_joint:
+        trajectory: 0.1     # rad
+        goal: 0.05          # rad
+        
+    # Action server configuration
+    action_monitor_rate: 30.0  # Hz (faster for animations)
+    
+    # Allow partial goals
+    allow_partial_joints_goal: true
+    
+    # Optimized for quick ear movements
+    open_loop_control: false
+    allow_integration_in_goal_trajectories: true
+
+# Hardware interface parameters (for future integration)
+hardware_interface:
+  ros__parameters:
+    # Current Dynamixel interface
+    dynamixel_interface:
+      port: "/dev/ttyUSB0"
+      baudrate: 1000000
+      protocol_version: 2.0
+      
+      # Current motors
+      motors:
+        - id: 1
+          joint: "neck_yaw_joint"
+          type: "XM540-W270"
+          center_position: 2048  # Dynamixel center (corresponds to 180°)
+          min_position: 1169     # Corresponds to 143° 
+          max_position: 2415     # Corresponds to 210°
+          
+        - id: 9
+          joint: "neck_pitch_joint"  
+          type: "XM540-W270"
+          center_position: 2048  # Dynamixel center (corresponds to 180°)
+          min_position: 1376     # Corresponds to 169°
+          max_position: 2372     # Corresponds to 206°
+          
+      # Future motors (when hardware added)
+      future_motors:
+        - joint: "neck_roll_joint"
+          notes: "Roll motor to be added for 3rd DOF"
+        - joint: "left_ear_joint"
+          notes: "Left ear motor to be added"
+        - joint: "right_ear_joint"
+          notes: "Right ear motor to be added"
+
+# Integration with existing coffee head control system
+integration:
+  ros__parameters:
+    # Topic remapping for integration
+    head_control_topics:
+      pan_angle_input: "/head_pan_angle"      # From existing head control
+      tilt_angle_input: "/head_tilt_angle"    # From existing head control
+      joint_states_output: "/joint_states"    # To robot_state_publisher
+      
+    # Coordinate transformation
+    coordinate_transform:
+      # Convert from motor coordinates to URDF coordinates
+      pan_offset: -180.0   # degrees (motor 180° = URDF 0°)
+      tilt_offset: -180.0  # degrees (motor 180° = URDF 0°)
+      
+    # Safety parameters
+    safety:
+      max_update_rate: 50.0    # Hz
+      timeout_duration: 2.0    # seconds
+      emergency_stop_enabled: true 

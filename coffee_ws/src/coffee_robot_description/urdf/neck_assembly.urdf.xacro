@@ -1,0 +1,153 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- 3DOF Neck Assembly -->
+  <xacro:macro name="neck_assembly" params="parent xyz">
+    
+    <!-- Properties based on current hardware -->
+    <!-- Pan Motor ID:1 limits: 143° to 210° (center: 180°) = -37° to +30° from center -->
+    <!-- Tilt Motor ID:9 limits: 169° to 206° (center: 180°) = -11° to +26° from center -->
+    <xacro:property name="pan_min_angle" value="${-37*pi/180}"/>  <!-- -37 degrees -->
+    <xacro:property name="pan_max_angle" value="${30*pi/180}"/>   <!-- +30 degrees -->
+    <xacro:property name="tilt_min_angle" value="${-11*pi/180}"/>  <!-- -11 degrees (up) -->
+    <xacro:property name="tilt_max_angle" value="${26*pi/180}"/>   <!-- +26 degrees (down) -->
+    <xacro:property name="roll_min_angle" value="${-30*pi/180}"/>  <!-- Future roll motor -->
+    <xacro:property name="roll_max_angle" value="${30*pi/180}"/>   <!-- Future roll motor -->
+    
+    <!-- Neck Base Mount (fixed to coffee machine base) -->
+    <joint name="neck_mount_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="neck_mount_link"/>
+      <origin xyz="${xyz}" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="neck_mount_link">
+      <visual>
+        <geometry>
+          <cylinder radius="0.05" length="0.04"/>
+        </geometry>
+        <material name="dark_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="0.05" length="0.04"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.3"/>
+        <inertia ixx="0.001" iyy="0.001" izz="0.002" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Yaw Joint (Pan Motor - Dynamixel ID:1) -->
+    <joint name="neck_yaw_joint" type="revolute">
+      <parent link="neck_mount_link"/>
+      <child link="neck_yaw_link"/>
+      <origin xyz="0 0 0.04" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="${pan_min_angle}" upper="${pan_max_angle}" effort="10.0" velocity="1.5"/>
+      <dynamics damping="0.1" friction="0.1"/>
+    </joint>
+    
+    <link name="neck_yaw_link">
+      <visual>
+        <geometry>
+          <cylinder radius="0.045" length="0.06"/>
+        </geometry>
+        <material name="gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="0.045" length="0.06"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.4"/>  <!-- XM540-W270 motor weight -->
+        <inertia ixx="0.002" iyy="0.002" izz="0.001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Pitch Joint (Tilt Motor - Dynamixel ID:9) -->
+    <joint name="neck_pitch_joint" type="revolute">
+      <parent link="neck_yaw_link"/>
+      <child link="neck_pitch_link"/>
+      <origin xyz="0 0 0.06" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="${tilt_min_angle}" upper="${tilt_max_angle}" effort="10.0" velocity="1.5"/>
+      <dynamics damping="0.1" friction="0.1"/>
+    </joint>
+    
+    <link name="neck_pitch_link">
+      <visual>
+        <geometry>
+          <box size="0.08 0.06 0.04"/>
+        </geometry>
+        <material name="gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.08 0.06 0.04"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.4"/>  <!-- XM540-W270 motor weight -->
+        <inertia ixx="0.002" iyy="0.001" izz="0.002" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Roll Joint (Future motor - placeholder for 3rd DOF) -->
+    <joint name="neck_roll_joint" type="revolute">
+      <parent link="neck_pitch_link"/>
+      <child link="neck_roll_link"/>
+      <origin xyz="0 0 0.04" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="${roll_min_angle}" upper="${roll_max_angle}" effort="5.0" velocity="2.0"/>
+      <dynamics damping="0.05" friction="0.05"/>
+    </joint>
+    
+    <link name="neck_roll_link">
+      <visual>
+        <geometry>
+          <cylinder radius="0.035" length="0.03"/>
+        </geometry>
+        <material name="red"/>  <!-- Red to indicate future hardware -->
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="0.035" length="0.03"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.2"/>  <!-- Smaller motor for roll -->
+        <inertia ixx="0.0005" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Head Connection Point -->
+    <joint name="head_connection_joint" type="fixed">
+      <parent link="neck_roll_link"/>
+      <child link="head_connection_link"/>
+      <origin xyz="0 0 0.03" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="head_connection_link">
+      <visual>
+        <geometry>
+          <cylinder radius="0.03" length="0.02"/>
+        </geometry>
+        <material name="silver"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="0.03" length="0.02"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.1"/>
+        <inertia ixx="0.0001" iyy="0.0001" izz="0.0001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+  </xacro:macro>
+
+</robot> 

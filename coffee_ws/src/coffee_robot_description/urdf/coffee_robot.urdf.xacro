@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="coffee_robot">
+  
+  <!-- Include all sub-assemblies -->
+  <xacro:include filename="$(find coffee_robot_description)/urdf/coffee_machine_base.urdf.xacro"/>
+  <xacro:include filename="$(find coffee_robot_description)/urdf/neck_assembly.urdf.xacro"/>
+  <xacro:include filename="$(find coffee_robot_description)/urdf/robot_head.urdf.xacro"/>
+  <xacro:include filename="$(find coffee_robot_description)/urdf/sensors.urdf.xacro"/>
+  
+  <!-- Robot Parameters -->
+  <xacro:property name="base_width" value="0.30"/>
+  <xacro:property name="base_length" value="0.40"/>
+  <xacro:property name="base_height" value="0.50"/>
+  <!-- Note: pi is provided globally by xacro -->
+  
+  <!-- Material Definitions -->
+  <material name="white">
+    <color rgba="0.9 0.9 0.9 1.0"/>
+  </material>
+  
+  <material name="black">
+    <color rgba="0.1 0.1 0.1 1.0"/>
+  </material>
+  
+  <material name="gray">
+    <color rgba="0.5 0.5 0.5 1.0"/>
+  </material>
+  
+  <material name="dark_gray">
+    <color rgba="0.3 0.3 0.3 1.0"/>
+  </material>
+  
+  <material name="red">
+    <color rgba="0.8 0.2 0.2 1.0"/>
+  </material>
+  
+  <material name="blue">
+    <color rgba="0.2 0.2 0.8 1.0"/>
+  </material>
+  
+  <material name="silver">
+    <color rgba="0.7 0.7 0.7 1.0"/>
+  </material>
+  
+  <!-- World/Base Link -->
+  <link name="world"/>
+  
+  <!-- Coffee machine base assembly -->
+  <xacro:coffee_machine_base parent="world" xyz="0 0 0"/>
+  
+  <!-- 3DOF Neck assembly (connects to base_link) -->
+  <xacro:neck_assembly parent="base_link" xyz="0 0 ${base_height}"/>
+  
+  <!-- Robot head assembly (connects to neck) -->
+  <xacro:robot_head parent="neck_roll_link" xyz="0 0 0.05"/>
+  
+  <!-- Sensors (camera, etc.) -->
+  <xacro:robot_sensors parent="head_link"/>
+  
+</robot> 

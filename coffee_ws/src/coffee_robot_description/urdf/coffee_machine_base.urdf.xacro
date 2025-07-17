@@ -1,0 +1,164 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Coffee Machine Base Assembly -->
+  <xacro:macro name="coffee_machine_base" params="parent xyz">
+    
+    <!-- Base link (main coffee machine body) -->
+    <joint name="base_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="base_link"/>
+      <origin xyz="${xyz}" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="base_link">
+      <visual>
+        <geometry>
+          <box size="0.40 0.30 0.50"/>
+        </geometry>
+        <origin xyz="0 0 0.25" rpy="0 0 0"/>
+        <material name="black"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.40 0.30 0.50"/>
+        </geometry>
+        <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      </collision>
+      <inertial>
+        <mass value="15.0"/>  <!-- Heavy coffee machine -->
+        <origin xyz="0 0 0.25" rpy="0 0 0"/>
+        <inertia ixx="1.25" iyy="1.0" izz="0.625" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Water Tank (removable) -->
+    <joint name="water_tank_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="water_tank_link"/>
+      <origin xyz="-0.15 0 0.35" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="water_tank_link">
+      <visual>
+        <geometry>
+          <box size="0.08 0.20 0.25"/>
+        </geometry>
+        <material name="blue"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.08 0.20 0.25"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.5"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Coffee Cup Platform -->
+    <joint name="cup_platform_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="cup_platform_link"/>
+      <origin xyz="0.12 0 0.08" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="cup_platform_link">
+      <visual>
+        <geometry>
+          <box size="0.15 0.15 0.02"/>
+        </geometry>
+        <material name="silver"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.15 0.15 0.02"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.2"/>
+        <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Drip Tray -->
+    <joint name="drip_tray_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="drip_tray_link"/>
+      <origin xyz="0.12 0 0.03" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="drip_tray_link">
+      <visual>
+        <geometry>
+          <box size="0.20 0.25 0.03"/>
+        </geometry>
+        <material name="dark_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.20 0.25 0.03"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.3"/>
+        <inertia ixx="0.002" iyy="0.002" izz="0.002" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Coffee Outlet Spout -->
+    <joint name="coffee_spout_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="coffee_spout_link"/>
+      <origin xyz="0.08 0 0.20" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="coffee_spout_link">
+      <visual>
+        <geometry>
+          <cylinder radius="0.015" length="0.08"/>
+        </geometry>
+        <origin xyz="0 0 0" rpy="0 1.57 0"/>
+        <material name="silver"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="0.015" length="0.08"/>
+        </geometry>
+        <origin xyz="0 0 0" rpy="0 1.57 0"/>
+      </collision>
+      <inertial>
+        <mass value="0.1"/>
+        <inertia ixx="0.0001" iyy="0.0001" izz="0.0001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Control Panel -->
+    <joint name="control_panel_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="control_panel_link"/>
+      <origin xyz="-0.05 0 0.45" rpy="0 0.2 0"/>
+    </joint>
+    
+    <link name="control_panel_link">
+      <visual>
+        <geometry>
+          <box size="0.08 0.15 0.08"/>
+        </geometry>
+        <material name="dark_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.08 0.15 0.08"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.2"/>
+        <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+  </xacro:macro>
+
+</robot> 

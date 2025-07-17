@@ -1,0 +1,181 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Robot Sensors -->
+  <xacro:macro name="robot_sensors" params="parent">
+    
+    <!-- Camera Frame (for ROS camera topics) -->
+    <joint name="camera_optical_joint" type="fixed">
+      <parent link="camera_lens_link"/>
+      <child link="camera_optical_frame"/>
+      <!-- Standard camera optical frame: X forward, Y left, Z up -->
+      <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+    
+    <link name="camera_optical_frame">
+      <!-- Optical frame has no visual/collision geometry -->
+      <inertial>
+        <mass value="0.001"/>
+        <inertia ixx="0.000001" iyy="0.000001" izz="0.000001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- RGB Camera Frame (for color image) -->
+    <joint name="camera_rgb_frame_joint" type="fixed">
+      <parent link="camera_optical_frame"/>
+      <child link="camera_rgb_frame"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="camera_rgb_frame">
+      <inertial>
+        <mass value="0.001"/>
+        <inertia ixx="0.000001" iyy="0.000001" izz="0.000001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Depth Camera Frame (for depth image) -->
+    <joint name="camera_depth_frame_joint" type="fixed">
+      <parent link="camera_optical_frame"/>
+      <child link="camera_depth_frame"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="camera_depth_frame">
+      <inertial>
+        <mass value="0.001"/>
+        <inertia ixx="0.000001" iyy="0.000001" izz="0.000001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- IMU Sensor (future sensor) -->
+    <joint name="imu_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="imu_link"/>
+      <origin xyz="-0.02 0 0.08" rpy="0 0 0"/>
+    </joint>
+    
+    <link name="imu_link">
+      <visual>
+        <geometry>
+          <box size="0.01 0.01 0.005"/>
+        </geometry>
+        <material name="red"/>
+      </visual>
+      <inertial>
+        <mass value="0.002"/>
+        <inertia ixx="0.000001" iyy="0.000001" izz="0.000001" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+    
+    <!-- Gazebo Camera Plugin (for simulation) -->
+    <gazebo reference="camera_lens_link">
+      <sensor type="camera" name="head_camera">
+        <update_rate>30.0</update_rate>
+        <camera name="head">
+          <horizontal_fov>1.3962634</horizontal_fov> <!-- 80 degrees -->
+          <image>
+            <width>1920</width>  <!-- Logitech Brio 4K capability -->
+            <height>1080</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.02</near>
+            <far>300</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.007</stddev>
+          </noise>
+        </camera>
+        <plugin name="camera_controller" filename="libgazebo_ros_camera.so">
+          <alwaysOn>true</alwaysOn>
+          <updateRate>0.0</updateRate>
+          <cameraName>head_camera</cameraName>
+          <imageTopicName>image_raw</imageTopicName>
+          <cameraInfoTopicName>camera_info</cameraInfoTopicName>
+          <frameName>camera_optical_frame</frameName>
+          <hackBaseline>0.07</hackBaseline>
+          <distortionK1>0.0</distortionK1>
+          <distortionK2>0.0</distortionK2>
+          <distortionK3>0.0</distortionK3>
+          <distortionT1>0.0</distortionT1>
+          <distortionT2>0.0</distortionT2>
+        </plugin>
+      </sensor>
+    </gazebo>
+    
+    <!-- Gazebo IMU Plugin (for simulation) -->
+    <gazebo reference="imu_link">
+      <sensor name="imu_sensor" type="imu">
+        <plugin filename="libgazebo_ros_imu_sensor.so" name="imu_plugin">
+          <ros>
+            <namespace>/</namespace>
+            <remapping>~/out:=imu</remapping>
+          </ros>
+          <initial_orientation_as_reference>false</initial_orientation_as_reference>
+        </plugin>
+        <always_on>true</always_on>
+        <update_rate>100</update_rate>
+        <visualize>true</visualize>
+        <imu>
+          <angular_velocity>
+            <x>
+              <noise type="gaussian">
+                <mean>0.0</mean>
+                <stddev>2e-4</stddev>
+                <bias_mean>0.0000075</bias_mean>
+                <bias_stddev>0.0000008</bias_stddev>
+              </noise>
+            </x>
+            <y>
+              <noise type="gaussian">
+                <mean>0.0</mean>
+                <stddev>2e-4</stddev>
+                <bias_mean>0.0000075</bias_mean>
+                <bias_stddev>0.0000008</bias_stddev>
+              </noise>
+            </y>
+            <z>
+              <noise type="gaussian">
+                <mean>0.0</mean>
+                <stddev>2e-4</stddev>
+                <bias_mean>0.0000075</bias_mean>
+                <bias_stddev>0.0000008</bias_stddev>
+              </noise>
+            </z>
+          </angular_velocity>
+          <linear_acceleration>
+            <x>
+              <noise type="gaussian">
+                <mean>0.0</mean>
+                <stddev>1.7e-2</stddev>
+                <bias_mean>0.1</bias_mean>
+                <bias_stddev>0.001</bias_stddev>
+              </noise>
+            </x>
+            <y>
+              <noise type="gaussian">
+                <mean>0.0</mean>
+                <stddev>1.7e-2</stddev>
+                <bias_mean>0.1</bias_mean>
+                <bias_stddev>0.001</bias_stddev>
+              </noise>
+            </y>
+            <z>
+              <noise type="gaussian">
+                <mean>0.0</mean>
+                <stddev>1.7e-2</stddev>
+                <bias_mean>0.1</bias_mean>
+                <bias_stddev>0.001</bias_stddev>
+              </noise>
+            </z>
+          </linear_acceleration>
+        </imu>
+      </sensor>
+    </gazebo>
+    
+  </xacro:macro>
+
+</robot> 
