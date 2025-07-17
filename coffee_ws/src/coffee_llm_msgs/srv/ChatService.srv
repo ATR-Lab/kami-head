@@ -1,0 +1,8 @@
+# Request
+string prompt                  # The user's input text
+string[] conversation_history  # Optional: previous messages for context
+---
+# Response
+string response               # The LLM's response
+bool success                  # Whether the request succeeded
+string error                  # Error message if failed
