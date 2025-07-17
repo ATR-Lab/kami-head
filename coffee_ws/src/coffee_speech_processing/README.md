@@ -2,9 +2,13 @@
 
 ROS2 package containing nodes for speech processing tasks like speech recognition, intent classification, and audio processing for the Coffee Buddy robot system.
 
+## Overview
+
+The `coffee_speech_processing` package provides real-time speech recognition and processing capabilities for the Coffee Buddy robot. It handles wake word detection, speech transcription, and integrates with the coffee system's LLM and voice services for complete conversational interaction.
+
 ## Voice Intent Node
 
-A ROS2 node that performs real-time speech recognition using OpenAI's Whisper model, detects wake words, and classifies user intents using local LLM models via Ollama.
+A ROS2 node that performs real-time speech recognition using OpenAI's Whisper model, detects wake words, and integrates with the coffee system's LLM processor for intelligent response generation.
 
 ### Architecture
 
@@ -15,21 +19,37 @@ The voice intent node is composed of several modular components:
 - **ASRManager**: Manages Whisper ASR models and transcription processing
 - **IntentClassifier**: Classifies user intents using local LLM models
 - **MemoryManager**: Handles GPU memory management and cleanup
+- **LLM Integration**: Communicates with coffee LLM processor for response generation
+- **TTS Integration**: Sends responses to coffee voice service for speech output
 
 ### Features
 
 - Real-time speech transcription from microphone input
 - Wake word detection ("buddy")
 - Intent classification using local LLM models (Ollama)
+- Integration with coffee LLM processor for intelligent responses
+- Integration with coffee voice service for speech output
 - Configurable Whisper model size (tiny, base, small, medium, large)
 - GPU acceleration with memory management
 - Voice Activity Detection (VAD) to filter out silence
-- Multiple supported intents for classification
+- Self-contained configuration with no external dependencies
 
 ### Topics
 
 - **Publishers**:
   - `/voice/intent` (coffee_buddy_msgs/IntentClassification): Publishes classified intents with prompt text
+
+### Service Integration
+
+The node integrates with other coffee system services:
+
+- **LLM Service**: `/coffee/llm/chat` (coffee_interfaces/srv/ChatService)
+  - Sends transcribed speech for intelligent response generation
+  - Receives generated responses from the coffee LLM processor
+
+- **TTS Service**: `/coffee/voice/tts/query` (coffee_interfaces/srv/TTSService)  
+  - Sends generated responses for speech synthesis
+  - Integrates with coffee voice service for audio output
 
 ### Parameters
 
@@ -139,6 +159,22 @@ To monitor the intent classification:
 ros2 topic echo /voice/intent
 ```
 
+To monitor service integration:
+
+```bash
+# Check LLM service availability
+ros2 service list | grep coffee/llm
+
+# Check TTS service availability  
+ros2 service list | grep coffee/voice/tts
+
+# Test LLM integration
+ros2 service call /coffee/llm/chat coffee_interfaces/srv/ChatService "{prompt: 'Hello'}"
+
+# Test TTS integration
+ros2 service call /coffee/voice/tts/query coffee_interfaces/srv/TTSService "{text: 'Hello world'}"
+```
+
 ### Requirements
 
 - Python 3.8+
@@ -155,6 +191,51 @@ The required Python packages are listed as dependencies in the package.xml file.
 cd ~/your_workspace
 colcon build --packages-select coffee_speech_processing
 ```
+
+### Dependencies
+
+The package has the following ROS2 dependencies:
+```xml
+<depend>rclpy</depend>
+<depend>std_msgs</depend>
+<depend>coffee_buddy_msgs</depend>
+<depend>coffee_interfaces</depend>
+```
+
+No external configuration dependencies - all constants are defined locally in `constants.py`.
+
+## Architecture Details
+
+### Complete Processing Flow
+
+```
+Audio Input → Voice Intent Node → LLM Service → TTS Service → Audio Output
+    ↓              ↓                  ↓             ↓
+Microphone → Speech Recognition → Response Gen → Speech Synthesis
+             Intent Classification   (LLM)        (Voice Service)
+```
+
+### Service Communication
+
+The voice intent node acts as the central coordinator:
+
+1. **Speech Input**: Captures and processes audio from microphone
+2. **Wake Word**: Detects "buddy" trigger word  
+3. **Transcription**: Converts speech to text using Whisper
+4. **Intent Classification**: Analyzes intent using local LLM (optional)
+5. **LLM Integration**: Sends transcribed text to `/coffee/llm/chat`
+6. **Response Processing**: Receives intelligent response from LLM processor
+7. **TTS Integration**: Sends response to `/coffee/voice/tts/query` for speech output
+
+### Configuration Management
+
+The package uses local configuration constants defined in `constants.py`:
+- `TTS_SERVICE`: TTS service endpoint (`/coffee/voice/tts/query`)
+- `GENERATE_BEHAVIOR_RESPONSE_SERVICE`: LLM service endpoint (`/coffee/llm/chat`)
+- `VOICE_INTENT_RESPONSE_TOPIC`: Intent publishing topic (`/voice/intent`)
+- `INTENT_MAPPING_BYTE_TO_STRING`: Intent classification mappings
+
+This approach follows ROS2 best practices by avoiding shared configuration dependencies and maintaining package autonomy.
 
 ### Troubleshooting
 
@@ -178,4 +259,59 @@ If you encounter GPU memory issues, try using a smaller model or disabling GPU:
 
 ```bash
 ros2 launch coffee_speech_processing voice_intent.launch.py model_size:=tiny device_type:=cpu
-``` 
+```
+
+#### Service Integration Issues
+
+**LLM Service Not Available:**
+```
+[ERROR] Service /coffee/llm/chat not available
+```
+**Solution:** Ensure `coffee_llm_processor` node is running
+
+**TTS Service Not Available:**
+```
+[ERROR] Service /coffee/voice/tts/query not available  
+```
+**Solution:** Ensure `coffee_voice_service` node is running
+
+**Intent Classification Timeout:**
+```
+[WARN] LLM intent classification timed out
+```
+**Solution:** Increase `llm_timeout` parameter or check Ollama service
+
+### Performance Optimization
+
+- Use smaller Whisper models (`tiny`, `base`) for faster transcription
+- Reduce `llm_timeout` for quicker intent classification
+- Use `device_type:=cpu` if GPU memory is limited
+- Adjust `memory_cleanup_interval` based on available GPU memory
+
+### Development
+
+#### Modifying Service Endpoints
+
+Update the constants in `constants.py` to change service endpoints:
+```python
+TTS_SERVICE = "/coffee/voice/tts/query"
+GENERATE_BEHAVIOR_RESPONSE_SERVICE = "/coffee/llm/chat"
+```
+
+#### Adding New Intent Types
+
+Extend the `INTENT_MAPPING_BYTE_TO_STRING` dictionary in `constants.py` to support additional intent classifications.
+
+#### Customizing Wake Words
+
+Modify the wake word detection logic in the voice intent node to support different trigger words or phrases.
+
+## Future Enhancements
+
+- [ ] Multi-language wake word detection
+- [ ] Continuous conversation mode (no wake word required)
+- [ ] Voice activity detection improvements
+- [ ] Real-time audio streaming optimization
+- [ ] Custom wake word training
+- [ ] Multi-microphone array support
+- [ ] Noise cancellation and audio enhancement 
