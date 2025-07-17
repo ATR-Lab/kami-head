@@ -37,7 +37,7 @@ from coffee_speech_processing.constants import (
 )
 
 from coffee_buddy_msgs.srv import TTSQuery
-from coffee_interfaces.srv import ChatService
+from coffee_llm_msgs.srv import ChatService
 from std_msgs.msg import String
 
 class VoiceIntentNode(Node):

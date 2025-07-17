@@ -5,7 +5,12 @@
   <version>0.0.0</version>
   <description>LLM processing package for Coffee Buddy robot system, providing conversational AI and response generation capabilities</description>
   <maintainer email="marcus@opendive.io">vr-workstation-2</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>coffee_llm_msgs</depend>
+  <depend>coffee_machine_control_msgs</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

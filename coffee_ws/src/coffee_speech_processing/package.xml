@@ -15,7 +15,8 @@
   <depend>python3-librosa</depend>
   <depend>python3-soundfile</depend>
   <depend>python3-torch</depend>
-  <depend>coffee_interfaces</depend>
+  <depend>coffee_llm_msgs</depend>
+  <depend>coffee_buddy_msgs</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

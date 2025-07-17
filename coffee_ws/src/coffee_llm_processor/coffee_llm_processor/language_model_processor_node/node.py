@@ -18,7 +18,7 @@ from coffee_llm_processor.constants import (
     LLM_STATUS_TOPIC,
     LLM_CHAT_SERVICE
 )
-from coffee_interfaces.srv import ChatService, DispenseCoffee
+from coffee_llm_msgs.srv import ChatService
 from coffee_machine_control_msgs.srv import CoffeeCommand
 import concurrent.futures
 import asyncio

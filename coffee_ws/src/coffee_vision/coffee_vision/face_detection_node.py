@@ -803,7 +803,7 @@ class FaceRecognitionNode(Node):
         self.bridge = CvBridge()
         
         # Get data directory
-        self.data_dir = os.path.join(os.path.expanduser('~'), '.coffee_head', 'face_recognition')
+        self.data_dir = os.path.join(os.path.expanduser('~'), '.coffee_buddy', 'face_recognition')
         os.makedirs(self.data_dir, exist_ok=True)
         
         # Initialize face recognition memory
