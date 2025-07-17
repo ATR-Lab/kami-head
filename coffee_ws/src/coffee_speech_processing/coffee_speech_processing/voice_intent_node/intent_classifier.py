@@ -11,7 +11,7 @@ import re
 import logging
 import time
 
-from shared_configs import (INTENT_MAPPING_STRING_TO_BYTE, DEFAULT_INTENT)
+from coffee_speech_processing.constants import (INTENT_MAPPING_STRING_TO_BYTE, DEFAULT_INTENT)
 
 # Import for Ollama
 try:

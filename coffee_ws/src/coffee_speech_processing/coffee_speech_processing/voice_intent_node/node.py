@@ -29,7 +29,7 @@ from coffee_speech_processing.voice_intent_node.asr_manager import ASRManager
 from coffee_speech_processing.voice_intent_node.intent_classifier import IntentClassifier
 from coffee_speech_processing.voice_intent_node.memory_utils import MemoryManager
 
-from shared_configs import (
+from coffee_speech_processing.constants import (
     GENERATE_BEHAVIOR_RESPONSE_SERVICE,
     VOICE_INTENT_RESPONSE_TOPIC,
     TTS_SERVICE,
