@@ -17,7 +17,8 @@ The `coffee_robot_description` package contains:
 ✅ **Working**: URDF models, TF integration, RViz visualization, real-time head tracking  
 ✅ **Working**: Integration with existing head control system via `/head_pan_angle` and `/head_tilt_angle`  
 ✅ **Working**: Complete 3D robot model with coffee machine, neck, head, camera, ears  
-⚠️ **Temporarily Disabled**: Manual joint control GUI (due to package availability)  
+✅ **Working**: Dual-mode operation (hardware integration + standalone simulation)  
+✅ **Working**: Manual joint control GUI for development and testing  
 ✅ **Ready for Future**: 3rd DOF roll motor and ear actuation (hardware expansion)
 
 ## Hardware Integration
@@ -43,12 +44,20 @@ The `coffee_robot_description` package contains:
 sudo apt update
 sudo apt install ros-jazzy-robot-state-publisher ros-jazzy-xacro ros-jazzy-rviz2
 
+# Joint state publishers (for manual control and development)
+sudo apt install ros-jazzy-joint-state-publisher ros-jazzy-joint-state-publisher-gui
+
 # Optional dependencies (for simulation and advanced features)
 sudo apt install ros-jazzy-gazebo-ros-pkgs ros-jazzy-controller-manager ros-jazzy-joint-trajectory-controller
+```
 
-# Note: joint-state-publisher packages temporarily unavailable due to repository issues
-# Manual joint control via GUI is disabled until packages are available
-# The core visualization and TF integration still work perfectly
+**Note**: If you encounter GPG key errors during installation, update your ROS2 repository configuration:
+```bash
+# Modern repository setup (automatic key management)
+export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F\" '{print $4}')
+curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo $VERSION_CODENAME)_all.deb"
+sudo dpkg -i /tmp/ros2-apt-source.deb
+sudo apt update
 ```
 
 ### Build the Package
@@ -65,43 +74,107 @@ source install/setup.bash
 
 ## Usage
 
-### 1. Basic Robot Visualization
+The package supports **dual-mode operation** for different use cases:
 
-View the robot model in RViz:
+### Mode 1: Hardware Integration (Default)
+
+Real-time 3D visualization synchronized with your physical robot:
 
 ```bash
-# Launch robot state publisher and RViz
+# Hardware integration mode (default)
 ros2 launch coffee_robot_description rviz_display.launch.py
 
-# Or just the robot state publisher
-ros2 launch coffee_robot_description robot_state_publisher.launch.py
+# Or explicitly specify hardware mode
+ros2 launch coffee_robot_description rviz_display.launch.py use_manual_control:=false
 ```
 
-This will:
-- Load the complete URDF model
-- Start robot_state_publisher
-- Launch RViz with pre-configured views
-- Start TF publisher for real-time head movement integration
+**Features:**
+- Integrates with existing head control system
+- Subscribes to `/head_pan_angle` and `/head_tilt_angle` topics
+- Real-time 3D visualization of actual robot movements
+- Perfect for monitoring, debugging, and demonstrations
 
-**Note**: Manual joint control GUI is temporarily disabled due to package availability issues. The robot model will still display correctly and integrate with your existing head control system.
+### Mode 2: Standalone Simulation 
 
-### 2. Integration with Existing Head Control
-
-Start the TF publisher to integrate with your existing head control system:
+Manual control and algorithm development without hardware dependency:
 
 ```bash
-# Start TF integration (subscribes to /head_pan_angle and /head_tilt_angle)
-ros2 run coffee_robot_description tf_publisher
-
-# Or include in your existing launch files
-ros2 launch coffee_robot_description robot_state_publisher.launch.py
+# Standalone simulation mode
+ros2 launch coffee_robot_description rviz_display.launch.py use_manual_control:=true
 ```
 
-The TF publisher will:
-- Subscribe to `/head_pan_angle` and `/head_tilt_angle` from your existing head control
-- Convert motor coordinates (143-210°, 169-206°) to URDF coordinates (-37° to +30°, -11° to +26°)
-- Publish joint states for robot_state_publisher
-- Provide real-time 3D visualization of head movements
+**Features:**
+- Manual joint control sliders in GUI
+- Send position commands programmatically
+- Algorithm testing and development
+- Works completely offline from hardware
+
+### Basic Robot State Publisher
+
+For minimal setups or integration into other launch files:
+
+```bash
+# Just robot state publisher (no RViz)
+ros2 launch coffee_robot_description robot_state_publisher.launch.py
+
+# With manual control support
+ros2 launch coffee_robot_description robot_state_publisher.launch.py use_manual_control:=true
+```
+
+### When to Use Each Mode
+
+**Hardware Integration Mode** (`use_manual_control:=false`):
+- ✅ **Production operation** - monitoring real robot behavior
+- ✅ **Hardware debugging** - visualizing actual motor positions
+- ✅ **Demonstrations** - showing real-time robot movement
+- ✅ **System integration** - connecting with existing head control
+
+**Standalone Simulation Mode** (`use_manual_control:=true`):
+- ✅ **Algorithm development** - testing without hardware
+- ✅ **Motion planning** - validating joint trajectories
+- ✅ **Remote development** - working away from physical robot
+- ✅ **Safe testing** - experimenting without motor wear
+- ✅ **Multi-developer** - multiple people working simultaneously
+
+### Programmatic Control (Standalone Mode)
+
+In standalone simulation mode, you can control the robot programmatically:
+
+```bash
+# Send joint state commands
+ros2 topic pub /joint_states sensor_msgs/msg/JointState "{
+  header: {stamp: {sec: 0, nanosec: 0}, frame_id: ''},
+  name: ['neck_yaw_joint', 'neck_pitch_joint'],
+  position: [0.5, -0.2],
+  velocity: [],
+  effort: []
+}"
+
+# Move ears (when available)
+ros2 topic pub /joint_states sensor_msgs/msg/JointState "{
+  header: {stamp: {sec: 0, nanosec: 0}, frame_id: ''},
+  name: ['neck_yaw_joint', 'neck_pitch_joint', 'left_ear_joint', 'right_ear_joint'],
+  position: [0.0, 0.0, 0.3, -0.3],
+  velocity: [],
+  effort: []
+}"
+```
+
+### Integration with Existing Head Control
+
+The hardware integration mode automatically connects to your existing system:
+
+**Automatic Integration:**
+- TF publisher subscribes to `/head_pan_angle` and `/head_tilt_angle` topics
+- Converts motor coordinates (143-210°, 169-206°) to URDF coordinates (-37° to +30°, -11° to +26°)
+- Publishes joint states for robot_state_publisher
+- Provides real-time 3D visualization of head movements
+
+**Manual Integration:**
+```bash
+# Run TF publisher standalone (if needed)
+ros2 run coffee_robot_description tf_publisher
+```
 
 ### 3. Gazebo Simulation
 
@@ -289,7 +362,7 @@ When you add ear actuation hardware:
 
 ## Troubleshooting
 
-### ROS2 Jazzy Launch Issues
+### ROS2 Jazzy Issues
 
 **Import Error for FindPackageShare:**
 ```
@@ -303,11 +376,17 @@ Unable to parse the value of parameter robot_description as yaml
 ```
 **Solution**: Fixed in our launch files - uses `ParameterValue(content, value_type=str)`
 
-**Joint State Publisher Package Not Found:**
+**Repository GPG Key Errors:**
 ```
-package 'joint_state_publisher' not found
+GPG error: http://packages.ros.org/ros2/ubuntu InRelease: EXPKEYSIG F42ED6FBAB17C654
 ```
-**Solution**: Removed dependency on unavailable packages. Our custom TF publisher handles joint states.
+**Solution**: Update to modern repository configuration (see Prerequisites section)
+
+**Package Installation 404 Errors:**
+```
+404 Not Found for ros-jazzy-joint-state-publisher
+```
+**Solution**: Usually caused by expired GPG keys. Update repository configuration first, then retry installation.
 
 ### No Robot Visible in RViz
 ```bash
@@ -356,23 +435,23 @@ When adding new components:
 
 ## Dependencies
 
-### Required
+### Required (Core Functionality)
 - ROS2 Jazzy (or compatible)
 - robot_state_publisher
 - xacro
 - rviz2
 - tf2_ros
 
-### Optional  
-- gazebo_ros (for simulation)
+### Required (Dual-Mode Operation)
+- joint_state_publisher (for standalone simulation)
+- joint_state_publisher_gui (for manual control interface)
+
+### Optional (Advanced Features)
+- gazebo_ros (for physics simulation)
 - controller_manager (for ROS2 control)
 - joint_trajectory_controller (for trajectory control)
 
-### Temporarily Unavailable
-- joint_state_publisher (404 errors from ROS repository)
-- joint_state_publisher_gui (404 errors from ROS repository)
-
-**Note**: Manual joint control functionality is disabled until these packages become available. The core robot visualization and TF integration work without them.
+**Note**: All packages are now available with proper ROS2 repository configuration. See Prerequisites section for installation details.
 
 ## License
 
