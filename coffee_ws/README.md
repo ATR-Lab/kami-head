@@ -225,9 +225,9 @@ NOTE: Current Atoma Network is not supported.
 ```
 # This defaults to OpenAI
 #   by line: `self.declare_parameter('api_provider', 'openai')  # Options: 'openai' or 'atoma'`
-# `behavior_nodes/behavior_nodes/language_model_processor_node/node.py`
+# `coffee_llm_processor/coffee_llm_processor/language_model_processor_node/node.py`
 
-ros2 run behavior_nodes language_model_processor_node
+ros2 run coffee_llm_processor language_model_processor_node
 ```
 
 We can make a call to the service as follows:
@@ -263,7 +263,7 @@ ros2 launch coffee_voice_service tts_node.launch.py
 
 ros2 run coffee_machine_control coffee_machine_control_node --ros-args -p use_mock_machine:=true -p "mac_address:=''"
 
-ros2 run behavior_nodes language_model_processor_node
+ros2 run coffee_llm_processor language_model_processor_node
 
 ros2 launch coffee_speech_processing voice_intent.launch.py use_vad:=true vad_silence_duration:=1500
 ```
@@ -316,7 +316,7 @@ source ./scripts/ros2_venv.sh enable ./coffee_buddy_venv
 # Run each in separate windows
 ros2 run coffee_speech_processing voice_intent_node
 
-ros2 run behavior_nodes language_model_processor_node
+ros2 run coffee_llm_processor language_model_processor_node
 
 ros2 launch coffee_voice_service tts_node.launch.py
 ```
