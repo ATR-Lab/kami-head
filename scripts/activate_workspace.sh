@@ -38,20 +38,18 @@ echo "Setting up environment with virtual environment: $VENV_NAME"
 echo "Activating virtual environment..."
 source "$VENV_PATH/bin/activate"
 
-# Step 2: Enable ROS2 with the virtual environment
-echo "Enabling ROS2 with virtual environment..."
-source "$SCRIPTS_PATH/ros2_venv.sh" enable "$VENV_PATH"
-
-# Step 3: Change to coffee_ws directory and source ros-source.sh
+# Step 2: Change to coffee_ws directory and source ROS environment
 echo "Changing to coffee workspace and sourcing ROS..."
 pushd "$COFFEE_WS_PATH" > /dev/null
 source "$SCRIPTS_PATH/ros-source.sh"
 
-# Step 4: Run ros-source function
-echo "Running ros-source..."
+# Step 3: Run ros-source function to set up ROS2 and workspace
+echo "Setting up ROS2 and workspace..."
 ros-source
 
 # Return to original directory
 popd > /dev/null
 
 echo "Environment setup complete!"
+echo "Virtual environment: $VENV_NAME"
+echo "ROS2 and workspace are ready to use."
