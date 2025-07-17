@@ -1,6 +1,7 @@
 # Table of Contents
 
 - [Overview](#overview)
+- [3D Robot Visualization](#3d-robot-visualization)
 - [Running the System](#running-the-system)
 
 # Overview
@@ -38,6 +39,153 @@ ros-source
 - `/robot/affective_state` - Affective state -- the aggregation of the state of the robot's expressions.   
 
 - `/robot/state_manager/diagnostics` - Diagnostics
+
+# 3D Robot Visualization
+
+The `coffee_robot_description` package provides 3D visualization capabilities for the Coffee Buddy robot using URDF, RViz, and Gazebo.
+
+## Dependencies Installation
+
+First, install the required ROS2 packages:
+
+```bash
+# Install core dependencies
+sudo apt update
+sudo apt install ros-jazzy-xacro ros-jazzy-robot-state-publisher ros-jazzy-rviz2
+
+# Optional: Install joint state publishers for manual control
+sudo apt install ros-jazzy-joint-state-publisher ros-jazzy-joint-state-publisher-gui
+```
+
+## Building the Package
+
+```bash
+# Build the robot description package
+cd coffee_ws
+colcon build --packages-select coffee_robot_description
+source install/setup.bash
+```
+
+## Available Launch Files
+
+### 1. Basic Robot State Publisher
+Real-time 3D visualization that integrates with existing head control system:
+
+```bash
+# Launch robot state publisher with TF integration
+ros2 launch coffee_robot_description robot_state_publisher.launch.py
+
+# This automatically:
+# - Loads the robot URDF model
+# - Starts TF publisher that converts motor angles to joint states
+# - Publishes robot description to /robot_description topic
+```
+
+### 2. RViz Visualization with GUI Controls
+Interactive 3D visualization with manual joint controls:
+
+```bash
+# Launch RViz with robot model and joint controls
+ros2 launch coffee_robot_description rviz_display.launch.py
+
+# Features:
+# - 3D robot model visualization
+# - Manual joint sliders for testing
+# - TF tree visualization
+# - Camera view display
+# - Pre-configured RViz setup
+```
+
+### 3. Gazebo Physics Simulation
+Full physics simulation environment:
+
+```bash
+# Launch Gazebo simulation with robot model
+ros2 launch coffee_robot_description gazebo_sim.launch.py
+
+# Features:
+# - Physics simulation
+# - Camera sensor simulation (1920x1080, 80° FOV)
+# - IMU sensor simulation
+# - ROS2 control integration
+# - Joint trajectory controllers
+```
+
+## Robot Model Features
+
+The URDF model includes:
+
+- **Coffee Machine Base**: Delonghi Prima Donna with water tank, drip tray, control panel
+- **3DOF Neck Assembly**: Pan/Tilt (current hardware) + Roll (future expansion)
+- **Robot Head**: LCD display, Logitech Brio camera mount, movable ears
+- **Sensor Integration**: Camera frames, IMU, Gazebo plugins
+
+## Hardware Integration
+
+The TF publisher automatically converts motor coordinates to URDF coordinates:
+
+- **Current Hardware**: 2x Dynamixel XM540-W270 (Pan ID:1, Tilt ID:9)
+- **Motor Limits**: Pan 143-210°, Tilt 169-206° (both centered at 180°)
+- **URDF Limits**: Converted to standard 0° center coordinates
+- **Future Ready**: 3rd DOF roll motor and ear actuation pre-defined
+
+## Topics and TF Tree
+
+**Subscribed Topics:**
+- `/head_pan_angle` - Current pan motor angle (from existing head control)
+- `/head_tilt_angle` - Current tilt motor angle (from existing head control)
+
+**Published Topics:**
+- `/robot_description` - Robot URDF description
+- `/joint_states` - Current joint positions
+- `/tf` and `/tf_static` - Transform tree
+
+**TF Tree:**
+```
+world → base_link → neck_mount → neck_yaw → neck_pitch → neck_roll → head
+                                                                  ├─ camera_link
+                                                                  ├─ display_link
+                                                                  ├─ left_ear
+                                                                  └─ right_ear
+```
+
+## Configuration Files
+
+- `config/joint_limits.yaml` - Joint limits based on current hardware
+- `config/controllers.yaml` - ROS2 control configuration
+- `rviz/coffee_robot.rviz` - Pre-configured RViz setup
+
+## Testing Integration
+
+To test the integration with the existing head control system:
+
+```bash
+# Terminal 1: Start robot visualization
+ros2 launch coffee_robot_description robot_state_publisher.launch.py
+
+# Terminal 2: Start RViz (optional)
+ros2 launch coffee_robot_description rviz_display.launch.py
+
+# Terminal 3: Run existing head control system
+ros2 run coffee_head_control head_tracking
+
+# Terminal 4: Run camera for face tracking
+ros2 run coffee_vision camera_node
+
+# The 3D model will now move in real-time with the physical robot head!
+```
+
+## Troubleshooting
+
+**Import Error for FindPackageShare:**
+- Fixed in ROS2 Jazzy - uses `launch_ros.substitutions.FindPackageShare`
+
+**xacro command not found:**
+- Install: `sudo apt install ros-jazzy-xacro`
+
+**Joint limits:**
+- Current limits based on physical motor constraints
+- Future hardware can extend limits in `config/joint_limits.yaml`
 
 # Running the System
 
