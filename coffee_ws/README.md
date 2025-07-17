@@ -10,11 +10,12 @@ Commands to launch all of the nodes:
 source ../ros-source.sh
 colcon build
 ros-source
-ros2 launch coffee_head all_nodes.launch.py
+# Note: coffee_head package was split into coffee_head_control and coffee_vision
+# Launch individual nodes as needed - see sections below
 ```
 
-- Camera node handles opening the camera, tracking faces (`src/coffee_head/coffee_head/camera_node.py`).
-- Head tracking handles the PID controller, and is in coordination with the camera node to move the motors to center the detected face in frame (`src/coffee_head/coffee_head/head_tracking.py`).
+- Camera node handles opening the camera, tracking faces (`src/coffee_vision/coffee_vision/camera_node.py`).
+- Head tracking handles the PID controller, and is in coordination with the camera node to move the motors to center the detected face in frame (`src/coffee_head_control/coffee_head_control/head_tracking.py`).
   - Subscribes to the camera node.
 - Coffee Expression show the latest version of the eye shapes with a new topic message (`src/coffee_expressions/coffee_expressions/plaipin_expressive_eyes.py`)
 - Coffee Eyes shows the eye visuals for the Coffee Buddy robot,  (`src/coffee_face/coffee_face/coffee_eyes.py`).
@@ -60,7 +61,7 @@ source ./scripts/setup_env.sh
 ```
 # Run for Launching Camera
 
-ros2 run coffee_head camera_node
+ros2 run coffee_vision camera_node
 ```   
 
 ## Launching Eye Interface
@@ -87,7 +88,7 @@ ros2 launch coffee_expressions_state_manager state_manager.launch.py
 ```
 # Run to launch node that receives data from the proxy node and sends it to the head motors via Dynamixel Read Write
 
-ros2 run coffee_head head_tracking
+ros2 run coffee_head_control head_tracking
 ```
 
 ## Launching MicroROS Agent for Ear Movement
@@ -195,10 +196,10 @@ ros2 run coffee_voice_service tts_node
 
 ```
 # Default service endpoint
-ros2 service call /coffee/voice/tts/query coffee_buddy_msgs/srv/TTSQuery "{text: 'Hey, would you like a cup of coffee?'}"
+ros2 service call /coffee/voice/tts/query coffee_speech_msgs/srv/TTSQuery "{text: 'Hey, would you like a cup of coffee?'}"
 
 # Alternative syntax
-ros2 service call /coffee/voice/tts/query coffee_buddy_msgs/srv/TTSQuery "{text: 'Your text prompt here'}"
+ros2 service call /coffee/voice/tts/query coffee_speech_msgs/srv/TTSQuery "{text: 'Your text prompt here'}"
 ```
 
 **Monitor TTS Status:**
@@ -234,7 +235,7 @@ We can make a call to the service as follows:
 ```
 # NOTE: This currently attempts to make a function call whenever it receives the "coffee" trigger word
 
-ros2 service call /chat coffee_interfaces/srv/ChatService "{prompt: 'Hello there, what are you doing here?'}"
+ros2 service call /coffee/llm/chat coffee_llm_msgs/srv/ChatService "{prompt: 'Hello there, what are you doing here?'}"
 ```
 
 # Terminal Window set up
@@ -242,7 +243,7 @@ ros2 service call /chat coffee_interfaces/srv/ChatService "{prompt: 'Hello there
 ## Window 1
 
 ```
-ros2 run coffee_head camera_node
+ros2 run coffee_vision camera_node
 
 ros2 run coffee_expressions plaipin_expressive_eyes
 
@@ -250,7 +251,7 @@ ros2 run dynamixel_sdk_examples read_write_node
 
 ros2 launch coffee_expressions_state_manager state_manager.launch.py
 
-ros2 run coffee_head head_tracking
+ros2 run coffee_head_control head_tracking
 
 sudo docker run -it --rm -v /dev:/dev --privileged --net=host microros/micro-ros-agent:jazzy serial --dev /dev/ttyUSB1 -v6
 
@@ -271,7 +272,7 @@ ros2 launch coffee_speech_processing voice_intent.launch.py use_vad:=true vad_si
 
 # Miscellaneous
 ```
-ros2 run coffee_head eye_tracking
+# ros2 run coffee_head eye_tracking  # DEPRECATED - functionality moved to coffee_vision or coffee_head_control
 ros2 run coffee_face coffee_eyes
 ros2 run coffee_expressions_test_ui expressions_test_ui
 
