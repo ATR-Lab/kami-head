@@ -6,6 +6,7 @@ from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
+from launch import conditions
 import os
 
 def generate_launch_description():
@@ -55,13 +56,29 @@ def generate_launch_description():
         emulate_tty=True,
     )
     
-    # Note: Joint State Publisher GUI removed due to package availability issues
-    # The robot will still display correctly using the TF publisher integration
-    # Manual joint control can be added later when the package is available
+    # Launch argument for choosing control mode
+    use_manual_control_arg = DeclareLaunchArgument(
+        'use_manual_control',
+        default_value='false',
+        description='Use manual joint control instead of hardware integration'
+    )
+    
+    # Joint State Publisher GUI (for manual joint control)
+    joint_state_publisher_gui_node = Node(
+        package='joint_state_publisher_gui',
+        executable='joint_state_publisher_gui',
+        name='joint_state_publisher_gui',
+        output='screen',
+        parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
+        condition=conditions.IfCondition(LaunchConfiguration('use_manual_control')),
+        emulate_tty=True,
+    )
     
     return LaunchDescription([
         use_sim_time_arg,
         rviz_config_arg,
+        use_manual_control_arg,
         robot_state_publisher_launch,
         rviz_node,
+        joint_state_publisher_gui_node,
     ]) 

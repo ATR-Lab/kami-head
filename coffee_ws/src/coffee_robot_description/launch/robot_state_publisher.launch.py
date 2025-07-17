@@ -23,6 +23,12 @@ def generate_launch_description():
         description='Use simulation (Gazebo) clock if true'
     )
     
+    use_manual_control_arg = DeclareLaunchArgument(
+        'use_manual_control',
+        default_value='false',
+        description='Use manual joint control instead of hardware integration'
+    )
+    
     # Get the URDF file path
     urdf_file = PathJoinSubstitution([
         FindPackageShare('coffee_robot_description'),
@@ -52,18 +58,20 @@ def generate_launch_description():
     )
     
     # Coffee Robot TF Publisher (integrates with existing head control)
-    # Note: This replaces the generic joint_state_publisher with our custom integration
+    # Only runs in hardware integration mode (when use_manual_control is false)
     coffee_tf_publisher_node = Node(
         package='coffee_robot_description',
         executable='tf_publisher',
         name='coffee_robot_tf_publisher',
         output='screen',
         parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
+        condition=conditions.UnlessCondition(LaunchConfiguration('use_manual_control')),
         emulate_tty=True,
     )
     
     return LaunchDescription([
         use_sim_time_arg,
+        use_manual_control_arg,
         robot_state_publisher_node,
         coffee_tf_publisher_node,
     ]) 
