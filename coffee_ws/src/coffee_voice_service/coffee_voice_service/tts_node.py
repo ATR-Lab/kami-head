@@ -7,7 +7,7 @@ import threading
 from rclpy.node import Node
 from std_msgs.msg import String
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from coffee_buddy_msgs.srv import TTSQuery
+from coffee_speech_msgs.srv import TTSQuery
 import pyaudio
 import wave
 import json

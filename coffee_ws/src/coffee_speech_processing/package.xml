@@ -16,7 +16,7 @@
   <depend>python3-soundfile</depend>
   <depend>python3-torch</depend>
   <depend>coffee_llm_msgs</depend>
-  <depend>coffee_buddy_msgs</depend>
+  <depend>coffee_speech_msgs</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

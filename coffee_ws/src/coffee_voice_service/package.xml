@@ -12,7 +12,7 @@
   <depend>std_msgs</depend>
   
   <!-- Coffee Buddy specific message dependencies -->
-  <depend>coffee_buddy_msgs</depend>
+  <depend>coffee_speech_msgs</depend>
   
   <!-- System dependencies for audio -->
   <depend>python3-pyaudio</depend>

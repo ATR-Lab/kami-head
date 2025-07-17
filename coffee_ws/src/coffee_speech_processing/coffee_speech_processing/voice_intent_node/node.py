@@ -21,7 +21,7 @@ import json
 import noisereduce as nr
 
 # Import ROS2 message types
-from coffee_buddy_msgs.msg import IntentClassification
+from coffee_speech_msgs.msg import IntentClassification
 
 # Import our modules
 from coffee_speech_processing.voice_intent_node.audio_processor import AudioProcessor
@@ -36,7 +36,7 @@ from coffee_speech_processing.constants import (
     INTENT_MAPPING_BYTE_TO_STRING
 )
 
-from coffee_buddy_msgs.srv import TTSQuery
+from coffee_speech_msgs.srv import TTSQuery
 from coffee_llm_msgs.srv import ChatService
 from std_msgs.msg import String
 
