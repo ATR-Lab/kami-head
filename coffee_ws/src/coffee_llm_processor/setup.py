@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'behavior_nodes'
+package_name = 'coffee_llm_processor'
 
 setup(
     name=package_name,
@@ -14,13 +14,13 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='vr-workstation-2',
-    maintainer_email='Marcus.Arnett10@gmail.com',
-    description='TODO: Package description',
+    maintainer_email='marcus@opendive.io',
+    description='LLM processing package for Coffee Buddy robot system, providing conversational AI and response generation capabilities',
     license='TODO: License declaration',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'language_model_processor_node = behavior_nodes.language_model_processor_node.node:main',
+            'language_model_processor_node = coffee_llm_processor.language_model_processor_node.node:main',
         ],
     },
 )
