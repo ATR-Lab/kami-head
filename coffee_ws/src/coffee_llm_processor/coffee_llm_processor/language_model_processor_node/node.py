@@ -14,8 +14,9 @@ import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from std_msgs.msg import String
-from shared_configs import (
-    LANGUAGE_MODEL_PROCESSOR_STATUS_TOPIC
+from coffee_llm_processor.constants import (
+    LLM_STATUS_TOPIC,
+    LLM_CHAT_SERVICE
 )
 from coffee_interfaces.srv import ChatService, DispenseCoffee
 from coffee_machine_control_msgs.srv import CoffeeCommand
@@ -111,12 +112,12 @@ class LanguageModelProcessorNode(Node):
 
         # Create status publisher
         self.status_pub = self.create_publisher(
-            String, LANGUAGE_MODEL_PROCESSOR_STATUS_TOPIC, 10)
+            String, LLM_STATUS_TOPIC, 10)
         
         # Create chat service
         self.create_service(
             ChatService,
-            'chat',
+            LLM_CHAT_SERVICE,
             self.chat_callback,
             callback_group=self.service_group
         )

@@ -9,7 +9,7 @@ maintain package independence.
 """
 
 # Service endpoints
-GENERATE_BEHAVIOR_RESPONSE_SERVICE = "/system/behavior/language_model_processor/generate_behavior_response"
+LLM_CHAT_SERVICE = "/coffee/llm/chat"  # Updated to match refactored coffee_llm_processor
 TTS_SERVICE = "/coffee/voice/tts/query"  # Updated to match refactored coffee_voice_service
 
 # Topic endpoints

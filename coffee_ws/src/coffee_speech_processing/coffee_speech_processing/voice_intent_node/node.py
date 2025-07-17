@@ -30,13 +30,13 @@ from coffee_speech_processing.voice_intent_node.intent_classifier import IntentC
 from coffee_speech_processing.voice_intent_node.memory_utils import MemoryManager
 
 from coffee_speech_processing.constants import (
-    GENERATE_BEHAVIOR_RESPONSE_SERVICE,
+    LLM_CHAT_SERVICE,
     VOICE_INTENT_RESPONSE_TOPIC,
     TTS_SERVICE,
     INTENT_MAPPING_BYTE_TO_STRING
 )
 
-from coffee_buddy_msgs.srv import GenerateBehaviorResponse, TTSQuery
+from coffee_buddy_msgs.srv import TTSQuery
 from coffee_interfaces.srv import ChatService
 from std_msgs.msg import String
 
@@ -64,10 +64,7 @@ class VoiceIntentNode(Node):
         # Get parameters
         self._get_parameters()
         
-        # Create client for the language model processor node
-        self.language_model_processor_client = self.create_client(
-            GenerateBehaviorResponse, GENERATE_BEHAVIOR_RESPONSE_SERVICE, callback_group=self.service_group)
-        
+        # Create TTS service client
         self.tts_client = self.create_client(
             TTSQuery, TTS_SERVICE, callback_group=self.service_group)
             
@@ -78,9 +75,9 @@ class VoiceIntentNode(Node):
             self.audio_state_callback,
             10)
             
-        # Create Atoma chat service client
-        self.atoma_chat_client = self.create_client(
-            ChatService, 'chat', callback_group=self.service_group)
+        # Create LLM chat service client
+        self.llm_chat_client = self.create_client(
+            ChatService, LLM_CHAT_SERVICE, callback_group=self.service_group)
 
         # Check for CUDA availability if device_type is cuda
         self._setup_gpu()
@@ -385,7 +382,7 @@ class VoiceIntentNode(Node):
                         request.prompt = transcription
                         
                         self.get_logger().info("Calling chat service...")
-                        future = self.atoma_chat_client.call_async(request)
+                        future = self.llm_chat_client.call_async(request)
                         
                         # Wait for response
                         rclpy.spin_until_future_complete(self, future, timeout_sec=10.0)
