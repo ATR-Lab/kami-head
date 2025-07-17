@@ -15,6 +15,7 @@ The `coffee_llm_processor` package serves as the conversational intelligence hub
 - **⚡ Async Processing**: Non-blocking LLM API calls with timeout handling
 - **🛡️ Error Handling**: Robust error handling and fallback responses
 - **📊 Status Publishing**: Real-time status and diagnostics
+- **🔧 Self-Contained**: No external configuration dependencies
 
 ## Architecture
 
@@ -23,6 +24,7 @@ The `coffee_llm_processor` package serves as the conversational intelligence hub
 - **`LanguageModelProcessorNode`**: Main ROS2 node handling conversation flow
 - **`LLMClient`**: Abstraction layer supporting multiple LLM providers
 - **Conversation Management**: History tracking and context maintenance
+- **Local Constants**: Self-contained configuration via `constants.py`
 
 ### Robot Personality
 
@@ -34,7 +36,7 @@ BrewBot is configured as a friendly coffee robot with the following characterist
 
 ## ROS2 Services
 
-### `/chat` (coffee_interfaces/srv/ChatService)
+### `/coffee/llm/chat` (coffee_interfaces/srv/ChatService)
 Primary service for processing conversational requests.
 
 **Request:**
@@ -54,7 +56,7 @@ Automatically triggers coffee dispensing when "coffee" is mentioned in conversat
 ## Topics
 
 ### Publishers
-- `/language_model_processor/status` (String): Node status and diagnostics
+- `/coffee/llm/status` (String): Node status and diagnostics
 
 ## Configuration
 
@@ -93,7 +95,6 @@ Add to your `package.xml`:
 <depend>std_msgs</depend>
 <depend>coffee_interfaces</depend>
 <depend>coffee_machine_control_msgs</depend>
-<depend>shared_configs</depend>
 ```
 
 Python dependencies (automatically installed):
@@ -127,17 +128,17 @@ ros2 run coffee_llm_processor language_model_processor_node
 
 Basic conversation:
 ```bash
-ros2 service call /chat coffee_interfaces/srv/ChatService "{prompt: 'Hello there, how are you?'}"
+ros2 service call /coffee/llm/chat coffee_interfaces/srv/ChatService "{prompt: 'Hello there, how are you?'}"
 ```
 
 Coffee-related request:
 ```bash
-ros2 service call /chat coffee_interfaces/srv/ChatService "{prompt: 'I would like a cup of coffee please'}"
+ros2 service call /coffee/llm/chat coffee_interfaces/srv/ChatService "{prompt: 'I would like a cup of coffee please'}"
 ```
 
 Conference discussion:
 ```bash
-ros2 service call /chat coffee_interfaces/srv/ChatService "{prompt: 'What do you think about blockchain technology?'}"
+ros2 service call /coffee/llm/chat coffee_interfaces/srv/ChatService "{prompt: 'What do you think about blockchain technology?'}"
 ```
 
 ### Integration with Other Nodes
@@ -180,13 +181,13 @@ ros2 run coffee_llm_processor language_model_processor_node --ros-args \
 ### Status Monitoring
 ```bash
 # Monitor node status
-ros2 topic echo /language_model_processor/status
+ros2 topic echo /coffee/llm/status
 
 # Check service availability
-ros2 service list | grep chat
+ros2 service list | grep coffee/llm
 
 # Test service response time
-time ros2 service call /chat coffee_interfaces/srv/ChatService "{prompt: 'test'}"
+time ros2 service call /coffee/llm/chat coffee_interfaces/srv/ChatService "{prompt: 'test'}"
 ```
 
 ### Debugging
@@ -197,6 +198,23 @@ ros2 run coffee_llm_processor language_model_processor_node --ros-args --log-lev
 # Monitor conversation history (check logs)
 ros2 log set_logger_level language_model_processor_node DEBUG
 ```
+
+## Architecture Details
+
+### Service Integration
+The package integrates with the coffee speech processing system:
+
+```
+coffee_speech_processing → /coffee/llm/chat → coffee_llm_processor
+     (llm_chat_client)                       (ChatService)
+```
+
+### Configuration Management
+The package uses local configuration constants defined in `constants.py`:
+- `CHAT_SERVICE`: Service endpoint (`/coffee/llm/chat`)
+- `STATUS_TOPIC`: Status publishing topic (`/coffee/llm/status`)
+
+This approach follows ROS2 best practices by avoiding shared configuration dependencies and maintaining package autonomy.
 
 ## Troubleshooting
 
@@ -220,6 +238,12 @@ ros2 log set_logger_level language_model_processor_node DEBUG
 ```
 **Solution:** Use a supported model name or check API permissions
 
+**Service Not Available:**
+```
+[ERROR] Service /coffee/llm/chat not available
+```
+**Solution:** Ensure the node is running and check service list with `ros2 service list`
+
 ### Performance Optimization
 
 - Use faster models (e.g., `gpt-3.5-turbo` vs `gpt-4`) for lower latency
@@ -241,6 +265,14 @@ Extend the `LLMClient` abstraction in `llm_client.py`:
 
 Modify the system prompt in the node initialization to change BrewBot's personality and conversation style.
 
+### Modifying Endpoints
+
+Update the constants in `constants.py` to change service endpoints or topic names:
+```python
+CHAT_SERVICE = "/coffee/llm/chat"
+STATUS_TOPIC = "/coffee/llm/status"
+```
+
 ## Future Enhancements
 
 - [ ] Multi-turn conversation optimization
@@ -249,3 +281,4 @@ Modify the system prompt in the node initialization to change BrewBot's personal
 - [ ] Multi-language support
 - [ ] Voice tone/emotion integration
 - [ ] Advanced conversation analytics
+- [ ] Parameter-based endpoint configuration
