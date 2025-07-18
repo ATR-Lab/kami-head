@@ -94,6 +94,9 @@ class HeadTrackingSystem(QObject):
         super().__init__()
         self.node = node
         
+        # Declare simulation mode parameter (minimal change for simulation support)
+        self.simulation_mode = self.node.declare_parameter('simulation_mode', False).value
+        
         # Parameters for head tracking
         self.tracking_enabled = False
         self.target_face = None
@@ -218,7 +221,7 @@ class HeadTrackingSystem(QObject):
             self.face_data_callback,
             10)
         
-        # Initialize motor positions
+        # Initialize motor positions and timing
         self.last_update_time = time.time()
         self.last_pan_update_time = time.time()
         self.last_tilt_update_time = time.time()
@@ -228,8 +231,21 @@ class HeadTrackingSystem(QObject):
         self.previous_state = HeadState.IDLE
         self.initialization_complete = False
         
-        # Read initial motor positions and wait for callback
-        self.read_motor_positions()
+        # Log the current mode
+        mode_text = "SIMULATION" if self.simulation_mode else "HARDWARE"
+        self.node.get_logger().info(f"Head tracking system initialized in {mode_text} mode")
+        
+        # Initialize motor positions based on mode
+        if self.simulation_mode:
+            # In simulation mode, use default positions immediately
+            self.current_pan_position = int(self.default_pan_angle * self.positions_per_degree)
+            self.current_tilt_position = int(self.default_tilt_angle * self.positions_per_degree)
+            self.initialization_complete = True
+            self.head_state = HeadState.IDLE
+            self.node.get_logger().info("Simulation mode: Initialization completed with default positions")
+        else:
+            # In hardware mode, read actual motor positions
+            self.read_motor_positions()
         
         # Last time we received face data
         self.last_face_data_time = time.time()
@@ -436,11 +452,15 @@ class HeadTrackingSystem(QObject):
     
     def get_motor_position(self, motor_id):
         """Get position for a specific motor"""
+        # Skip service calls entirely in simulation mode (initialization already completed)
+        if self.simulation_mode:
+            return
+            
         client = self.node.create_client(GetPosition, 'get_position')
         
         # Don't block too long waiting for service
         if not client.wait_for_service(timeout_sec=1.0):
-            self.node.get_logger().warn('Get position service not available')
+            self.node.get_logger().warn('Get position service not available - check DynamixelSDK service')
             return
         
         request = GetPosition.Request()
