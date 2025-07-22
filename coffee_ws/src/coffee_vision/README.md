@@ -306,6 +306,39 @@ Key parameters for optimization:
 - `smoothing_factor`: Temporal smoothing strength
 - `face_confidence_threshold`: Detection sensitivity
 
+## Testing UI Separation
+
+### Camera Viewer Test
+
+To test the feasibility of separating the UI layer from the camera node (enabling headless operation), use the `camera_viewer_test` node:
+
+```bash
+# Test both publisher and subscriber together
+ros2 launch coffee_vision camera_viewer_test.launch.py
+
+# Or run them separately:
+# Terminal 1: Run camera node (publisher)
+ros2 run coffee_vision camera_node
+
+# Terminal 2: Run viewer test (subscriber)
+ros2 run coffee_vision camera_viewer_test
+```
+
+**What this tests:**
+- ROS Image transport latency vs direct Qt display
+- Frame rate and smoothness via ROS topics
+- Bandwidth requirements for video streaming
+- Feasibility of remote UI operation
+
+**Performance Metrics:**
+The viewer test displays real-time metrics:
+- **Display FPS**: How smoothly frames are rendered in the UI
+- **Frame Interval**: Time between received frames
+- **Transport Latency**: Estimated ROS transport delay
+- **Frame Size**: Resolution being transmitted
+
+Use this to evaluate whether ROS transport performance is acceptable for separating the camera processing from the UI layer.
+
 ## Known Limitations
 
 1. **Single Camera**: Currently supports one camera at a time
