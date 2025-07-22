@@ -96,6 +96,16 @@ class CameraViewerTest(QMainWindow):
         self.display_count = 0
         self.display_start_time = time.time()
         self.last_display_time = time.time()
+        self.last_frame_received_time = 0
+        
+        # Frame timeout detection
+        self.frame_timeout_seconds = 2.0  # Consider connection lost after 2 seconds
+        self.is_receiving_frames = False
+        
+        # Timer to check for frame timeout
+        self.timeout_timer = QTimer()
+        self.timeout_timer.timeout.connect(self.check_frame_timeout)
+        self.timeout_timer.start(500)  # Check every 500ms
         
         self.initUI()
     
@@ -110,7 +120,7 @@ class CameraViewerTest(QMainWindow):
         layout = QVBoxLayout(main_widget)
         
         # Video display label
-        self.image_label = QLabel("Waiting for camera frames...")
+        self.image_label = QLabel("Initializing...")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setStyleSheet("border: 1px solid gray; background-color: black; color: white;")
         layout.addWidget(self.image_label)
@@ -128,7 +138,13 @@ class CameraViewerTest(QMainWindow):
             current_time = time.time()
             display_interval = current_time - self.last_display_time
             self.last_display_time = current_time
+            self.last_frame_received_time = current_time
             self.display_count += 1
+            
+            # Mark that we're receiving frames
+            if not self.is_receiving_frames:
+                self.is_receiving_frames = True
+                self.node.get_logger().info("Camera frames detected - connection established")
             
             # Calculate display FPS
             elapsed = current_time - self.display_start_time
@@ -158,6 +174,9 @@ class CameraViewerTest(QMainWindow):
             pixmap = QPixmap.fromImage(qt_image)
             self.image_label.setPixmap(pixmap)
             
+            # Reset styling to normal when receiving frames
+            self.image_label.setStyleSheet("border: 1px solid gray;")
+            
             # Update performance info
             info_text = (
                 f"Display FPS: {display_fps:.1f} | "
@@ -170,8 +189,34 @@ class CameraViewerTest(QMainWindow):
         except Exception as e:
             self.node.get_logger().error(f"Error displaying frame: {e}")
     
+    def check_frame_timeout(self):
+        """Check if frames have stopped coming and update UI accordingly"""
+        current_time = time.time()
+        
+        # If we were receiving frames but haven't gotten one recently
+        if self.is_receiving_frames and self.last_frame_received_time > 0:
+            time_since_last_frame = current_time - self.last_frame_received_time
+            
+            if time_since_last_frame > self.frame_timeout_seconds:
+                self.is_receiving_frames = False
+                self.node.get_logger().warn(f"No camera frames received for {time_since_last_frame:.1f} seconds - connection lost")
+                
+                # Update UI to show connection lost
+                self.image_label.setText("No camera feed\n\nConnection lost - check that camera_node is running")
+                self.image_label.setStyleSheet("border: 1px solid red; background-color: #2a1a1a; color: #ff6666;")
+                
+                # Update info label
+                self.info_label.setText("Connection lost - No frames received")
+        
+        # If we've never received frames, show waiting message
+        elif not self.is_receiving_frames and self.last_frame_received_time == 0:
+            self.image_label.setText("Waiting for camera frames...\n\nMake sure camera_node is running")
+            self.image_label.setStyleSheet("border: 1px solid gray; background-color: black; color: white;")
+            self.info_label.setText("Waiting for camera_node to publish frames...")
+    
     def closeEvent(self, event):
         """Handle window close event"""
+        self.timeout_timer.stop()
         self.node.get_logger().info("Camera viewer test window closed")
         event.accept()
 
