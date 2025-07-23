@@ -12,10 +12,22 @@ source ../ros-source.sh
 colcon build
 ros-source
 # Note: coffee_head package was split into coffee_head_control and coffee_vision
+# Note: coffee_vision now features modular architecture with configurable parameters
 # Launch individual nodes as needed - see sections below
 ```
 
-- Camera node handles opening the camera, tracking faces (`src/coffee_vision/coffee_vision/camera_node.py`).
+## Recent Architecture Improvements
+
+**Coffee Vision Package Refactoring:**
+- **Modular Design**: Face detection and coordinate transformation separated into independent modules
+- **Configurable Parameters**: Runtime tuning via ROS2 parameters without code changes
+- **Headless Operation**: Removed GUI dependencies for better deployment flexibility
+- **Improved Testability**: Components can be tested and reused independently
+
+- Camera node handles opening the camera, tracking faces with modular face detection and coordinate transformation (`src/coffee_vision/coffee_vision/camera_node.py`).
+  - **Modular Architecture**: Separated face detection (`face_detection.py`) and coordinate utilities (`coordinate_utils.py`)
+  - **Configurable Parameters**: ROS2 parameters for face detection sensitivity, eye movement, and coordinate transformation
+  - **Headless Operation**: No GUI dependencies, controlled via ROS topics
 - Head tracking handles the PID controller, and is in coordination with the camera node to move the motors to center the detected face in frame (`src/coffee_head_control/coffee_head_control/head_tracking.py`).
   - Subscribes to the camera node.
 - Coffee Expression show the latest version of the eye shapes with a new topic message (`src/coffee_expressions/coffee_expressions/plaipin_expressive_eyes.py`)
@@ -32,7 +44,7 @@ ros-source
 
 - `/voice/intent` - Voice intent   
 
-- `/vision/face_position` - Face position -- the position of the face in the frame of the camera viewer. NOTE that we can dynamically update the field of view (FOV) of the camera viewer. The smaller the FOV, the faster the head tracking will be.   
+- `/vision/face_position` - Face position -- the position of the face transformed to robot eye coordinates. Uses configurable sensitivity and range parameters for eye movement control. NOTE that we can dynamically update the field of view (FOV) of the camera viewer. The smaller the FOV, the faster the head tracking will be.   
 
 - `/system/event` - System event   
 
@@ -207,9 +219,43 @@ source ./scripts/setup_env.sh
 
 ## Launching Camera
 ```
-# Run for Launching Camera
-
+# Run camera node with default settings
 ros2 run coffee_vision camera_node
+
+# Run with custom face detection sensitivity
+ros2 run coffee_vision camera_node --ros-args \
+  -p face_confidence_threshold:=0.7 \
+  -p face_smoothing_factor:=0.6
+
+# Run with custom eye movement parameters
+ros2 run coffee_vision camera_node --ros-args \
+  -p eye_range:=1.5 \
+  -p eye_sensitivity:=2.0 \
+  -p invert_x:=true
+```
+
+### Camera Node Configuration
+
+The camera node supports comprehensive configuration via ROS2 parameters:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `face_confidence_threshold` | float | 0.5 | Minimum confidence for face detection |
+| `face_smoothing_factor` | float | 0.4 | Temporal smoothing (higher = smoother) |
+| `eye_range` | float | 1.0 | Maximum eye movement range |
+| `eye_sensitivity` | float | 1.5 | Eye movement sensitivity multiplier |
+| `invert_x` | bool | false | Invert X axis for eye movement |
+| `invert_y` | bool | false | Invert Y axis for eye movement |
+
+**External Control Topics:**
+```bash
+# Camera selection and quality control
+ros2 topic pub /coffee_bot/camera/cmd/select std_msgs/Int32 "data: 1"
+ros2 topic pub /coffee_bot/camera/cmd/quality std_msgs/Bool "data: true"
+ros2 topic pub /coffee_bot/camera/cmd/face_detection std_msgs/Bool "data: false"
+
+# Request diagnostics
+ros2 topic pub /coffee_bot/camera/cmd/diagnostics std_msgs/String "data: 'get'"
 ```   
 
 ## Launching Eye Interface
@@ -391,7 +437,11 @@ ros2 service call /coffee/llm/chat coffee_llm_msgs/srv/ChatService "{prompt: 'He
 ## Window 1
 
 ```
+# Camera node with configurable parameters
 ros2 run coffee_vision camera_node
+
+# Or with custom face detection and eye movement settings:
+# ros2 run coffee_vision camera_node --ros-args -p face_confidence_threshold:=0.7 -p eye_sensitivity:=2.0
 
 ros2 run coffee_expressions plaipin_expressive_eyes
 
@@ -424,8 +474,12 @@ ros2 launch coffee_speech_processing voice_intent.launch.py use_vad:=true vad_si
 ros2 run coffee_face coffee_eyes
 ros2 run coffee_expressions_test_ui expressions_test_ui
 
-
 ros2 run coffee_expressions_state_ui state_ui
+
+# View and modify camera node parameters
+ros2 param list /camera_node
+ros2 param get /camera_node face_confidence_threshold
+ros2 param set /camera_node eye_sensitivity 2.5
 
 #Run with VAD -- 
 ros2 launch coffee_speech_processing voice_intent.launch.py use_vad:=true vad_silence_duration:=1500
