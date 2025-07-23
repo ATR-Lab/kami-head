@@ -10,6 +10,8 @@ ROS2 topics and services for integration with other robot components.
 import json
 import asyncio
 import threading
+import time
+import uuid
 from typing import Optional
 
 import rclpy
@@ -202,13 +204,19 @@ class VoiceAgentBridge(Node):
             # Parse the ROS2 message
             request_data = json.loads(msg.data)
             
-            # Format for voice agent
+            # Transform ROS2 format to voice agent WebSocket API format
+            # ROS2 format: {"request_type": "NEW_COFFEE_REQUEST", "content": "Espresso", "priority": "normal"}
+            # Voice agent expects: {"type": "NEW_COFFEE_REQUEST", "coffee_type": "Espresso", "order_id": "123", "priority": "normal"}
+            
+            # Generate unique order ID for ROS2 requests
+            order_id = f"ros2_{int(time.time())}_{str(uuid.uuid4())[:8]}"
+            
+            # Format for voice agent WebSocket API
             command = {
-                'type': 'VIRTUAL_REQUEST',
-                'request_type': request_data.get('request_type', 'NEW_COFFEE_REQUEST'),
-                'content': request_data.get('content', ''),
-                'priority': request_data.get('priority', 'normal'),
-                'timestamp': request_data.get('timestamp')
+                'type': request_data.get('request_type', 'NEW_COFFEE_REQUEST'),  # Map request_type → type
+                'coffee_type': request_data.get('content', 'Coffee'),            # Map content → coffee_type
+                'order_id': order_id,                                           # Generate missing order_id
+                'priority': request_data.get('priority', 'normal')              # Keep priority as-is
             }
             
             # Send to voice agent
@@ -220,7 +228,7 @@ class VoiceAgentBridge(Node):
             else:
                 self.get_logger().warn("Cannot send virtual request - WebSocket event loop not available")
             
-            self.get_logger().info(f"Forwarded virtual request: {request_data.get('request_type')}")
+            self.get_logger().info(f"Forwarded virtual request: {request_data.get('request_type')} - {request_data.get('content')} (Order: {order_id})")
             
         except json.JSONDecodeError as e:
             self.get_logger().error(f"Invalid JSON in virtual request: {e}")
