@@ -24,8 +24,10 @@ from .face_detection import FaceDetector
 class FrameGrabber:
     """Dedicated thread for frame capture to improve performance"""
     
-    def __init__(self, node=None):
+    def __init__(self, node=None, config=None):
         self.node = node
+        self.config = config or {}
+        
         # Camera properties
         self.camera = None
         self.camera_index = 0
@@ -77,21 +79,16 @@ class FrameGrabber:
         # Face detection
         self.enable_face_detection = True
         self.face_detector = FaceDetector(
-            confidence_threshold=0.5,
-            smoothing_factor=0.4,
+            confidence_threshold=self.config.get('face_confidence_threshold', 0.5),
+            smoothing_factor=self.config.get('face_smoothing_factor', 0.4),
             logger=self.node.get_logger() if self.node else None
         )
 
-        # # Get parameters
-        # self.invert_x = self.get_parameter('invert_x').value
-        # self.invert_y = self.get_parameter('invert_y').value
-        # self.eye_range = self.get_parameter('eye_range').value
-        
-        # TODO: Added this hot fix
-        self.invert_x = False
-        self.invert_y = False
-        # self.eye_range = 3.0
-        self.eye_range = 1.0 # The constraint for the values of the eye movement in the UI
+        # Eye movement parameters from configuration
+        self.invert_x = self.config.get('invert_x', False)
+        self.invert_y = self.config.get('invert_y', False)
+        self.eye_range = self.config.get('eye_range', 1.0)
+        self.eye_sensitivity = self.config.get('eye_sensitivity', 1.5)
 
         # ROS publishers for face data and images
         if self.node:
@@ -223,7 +220,7 @@ class FrameGrabber:
                     frame_width=self.frame_width,
                     frame_height=self.frame_height,
                     eye_range=self.eye_range,
-                    sensitivity=1.5,
+                    sensitivity=self.eye_sensitivity,
                     invert_x=self.invert_x,
                     invert_y=self.invert_y,
                     logger=self.node.get_logger() if self.node else None
@@ -619,36 +616,55 @@ class CameraNode(Node):
         super().__init__('coffee_camera_node')
         self.get_logger().info('Camera node is starting...')
         
-        # Initialize frame grabber for camera processing
-        self.frame_grabber = FrameGrabber(self)
-        
-        # Set up ROS control interface for separated UI communication
-        self._setup_ros_control_interface()
-        
         # Camera state tracking
         self.available_cameras = []
         self.current_camera_index = -1
         self.high_quality = False
         self.face_detection_enabled = True
         
-        # # Add parameters for mapping
-        # self.declare_parameter('invert_x', False)  # Default FALSE for correct eye movement
-        # self.declare_parameter('invert_y', False)  # Default FALSE for correct eye movement
-        # self.declare_parameter('eye_range', 3.0)   # Max range for eye movement (-3.0 to 3.0)
-
-        # # Get parameters
-        # self.invert_x = self.get_parameter('invert_x').value
-        # self.invert_y = self.get_parameter('invert_y').value
-        # self.eye_range = self.get_parameter('eye_range').value
-
-        self.invert_x = False
-        self.invert_y = False
-        # self.eye_range = 3.0
-        self.eye_range = 1.0 # The constraint for the values of the eye movement in the UI
+        # Declare ROS parameters for configuration
+        self._declare_parameters()
+        
+        # Get parameter values
+        self._load_parameters()
+        
+        # Initialize frame grabber for camera processing
+        config = {
+            'face_confidence_threshold': self.face_confidence_threshold,
+            'face_smoothing_factor': self.face_smoothing_factor,
+            'eye_range': self.eye_range,
+            'eye_sensitivity': self.eye_sensitivity,
+            'invert_x': self.invert_x,
+            'invert_y': self.invert_y
+        }
+        self.frame_grabber = FrameGrabber(self, config)
+        
+        # Set up ROS control interface for separated UI communication
+        self._setup_ros_control_interface()
         
         # Initialize camera system
         self.scan_cameras()
     
+    def _declare_parameters(self):
+        """Declare ROS parameters with default values"""
+        # Core parameters that were previously hard-coded
+        self.declare_parameter('face_confidence_threshold', 0.5)
+        self.declare_parameter('face_smoothing_factor', 0.4)
+        self.declare_parameter('eye_range', 1.0)
+        self.declare_parameter('eye_sensitivity', 1.5)
+        self.declare_parameter('invert_x', False)
+        self.declare_parameter('invert_y', False)
+        
+    def _load_parameters(self):
+        """Load parameter values from ROS parameter server"""
+        self.face_confidence_threshold = self.get_parameter('face_confidence_threshold').value
+        self.face_smoothing_factor = self.get_parameter('face_smoothing_factor').value
+        self.eye_range = self.get_parameter('eye_range').value
+        self.eye_sensitivity = self.get_parameter('eye_sensitivity').value
+        self.invert_x = self.get_parameter('invert_x').value
+        self.invert_y = self.get_parameter('invert_y').value
+    
+
     def scan_cameras(self):
         """Scan for available cameras"""
         self.get_logger().info("Scanning for cameras...")
@@ -753,6 +769,7 @@ class CameraNode(Node):
         self.state_query_sub = self.create_subscription(
             String, '/coffee_bot/camera/query/state', self._on_state_query, 10)
         
+
         self.get_logger().info('ROS control interface setup complete')
     
     def _on_camera_select_command(self, msg):
@@ -820,6 +837,7 @@ class CameraNode(Node):
         
         self.get_logger().info('Published diagnostics information')
     
+
     def _generate_diagnostics_info(self):
         """Generate comprehensive diagnostics information"""
         import os
