@@ -1,18 +1,24 @@
 # Coffee Vision Package
 
-A ROS2 package providing comprehensive computer vision capabilities including camera capture, face detection, and GUI visualization for the Coffee Buddy robot system.
+A ROS2 package providing comprehensive computer vision capabilities including camera capture, face detection, and coordinate transformation for the Coffee Buddy robot system.
 
 ## Overview
 
-The `coffee_vision` package provides an integrated computer vision solution that combines:
+The `coffee_vision` package provides a modular computer vision solution that combines:
 - Camera capture and streaming
 - Real-time face detection using OpenCV DNN
-- Interactive Qt-based GUI for camera control
 - Face position tracking and coordinate transformation
 - Multi-threaded performance optimization
 - Camera diagnostics and quality controls
+- Configurable parameters via ROS2 parameter system
 
-This package contains a single, comprehensive `camera_node` that handles all computer vision tasks with an integrated GUI interface.
+This package features a modular architecture with separate components for face detection, coordinate transformation, and camera management, all coordinated by the main `camera_node`.
+
+**Modular Benefits:**
+- **Testability**: Face detection and coordinate transformation can be tested independently
+- **Reusability**: Components can be used by other packages
+- **Maintainability**: Clear separation of concerns makes code easier to understand and modify
+- **Configurability**: ROS2 parameters allow runtime tuning without code changes
 
 ## Architecture
 
@@ -20,48 +26,82 @@ This package contains a single, comprehensive `camera_node` that handles all com
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Camera Node                              │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-│  │   Qt GUI        │  │  FrameGrabber   │  │  Face Detection │  │
-│  │ - Camera select │  │ - Multi-thread  │  │ - OpenCV DNN    │  │
-│  │ - Quality ctrl  │  │ - Frame buffer  │  │ - Face tracking │  │
-│  │ - Diagnostics   │  │ - Rate control  │  │ - Smoothing     │  │
+│  │  FrameGrabber   │  │  FaceDetector   │  │ CoordinateUtils │  │
+│  │ - Multi-thread  │  │ - OpenCV DNN    │  │ - Transform     │  │
+│  │ - Frame buffer  │  │ - Face tracking │  │ - Eye coords    │  │
+│  │ - Rate control  │  │ - Smoothing     │  │ - Mapping       │  │
+│  │ - ROS publish   │  │ - Visualization │  │ - Validation    │  │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
+│           │                     │                     │         │
+│           └─────────────────────┼─────────────────────┘         │
+│                                 │                               │
 └─────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-                          ROS2 Publishers:
-                          • /camera_frame (sensor_msgs/Image)
-                          • /face_detection_data (std_msgs/String)
-                          • /vision/face_position (geometry_msgs/Point)
-                          • /vision/face_position_v2 (std_msgs/String)
-                          • /face_images (sensor_msgs/Image)
+                                  │
+                                  ▼
+                        ROS2 Publishers:
+                        • /coffee_bot/camera/image_raw (sensor_msgs/Image)
+                        • /face_detection_data (std_msgs/String)
+                        • /vision/face_position (geometry_msgs/Point)
+                        • /vision/face_position_v2 (std_msgs/String)
+                        • /face_images (sensor_msgs/Image)
+
+                        ROS2 Parameters:
+                        • face_confidence_threshold (float)
+                        • face_smoothing_factor (float)
+                        • eye_range (float)
+                        • eye_sensitivity (float)
+                        • invert_x/invert_y (bool)
 ```
 
 ## Components
 
 ### Camera Node (`camera_node`)
 
-A comprehensive ROS2 node that provides camera capture, face detection, and GUI control in a single integrated package.
+The main ROS2 node that coordinates camera capture, face detection, and coordinate transformation using a modular architecture.
 
 **Key Features:**
-- **Multi-threaded Architecture**: Separate threads for capture, processing, publishing, and UI
-- **Interactive GUI**: Qt-based interface for camera selection and control
-- **Built-in Face Detection**: OpenCV DNN-based face detection with temporal smoothing
+- **Multi-threaded Architecture**: Separate threads for capture, processing, and publishing
+- **Modular Design**: Separate modules for face detection and coordinate transformation
+- **Configurable Parameters**: ROS2 parameters for runtime configuration
 - **Performance Optimization**: Adaptive frame rates and quality controls
-- **Eye Coordinate Transformation**: Converts face positions to robot eye coordinates
+- **ROS Interface**: Comprehensive ROS topic interface for external control
 
 **Publishers:**
-- `/camera_frame` (sensor_msgs/Image): Raw camera frames
+- `/coffee_bot/camera/image_raw` (sensor_msgs/Image): Raw camera frames
 - `/face_detection_data` (std_msgs/String): JSON-formatted face detection results
 - `/vision/face_position` (geometry_msgs/Point): Eye-coordinate transformed face position
 - `/vision/face_position_v2` (std_msgs/String): Extended face position data
 - `/face_images` (sensor_msgs/Image): Extracted face image regions
 
-**GUI Controls:**
-- Camera device selection and refresh
-- Quality toggle (480p/720p)
-- Face detection enable/disable
-- Camera diagnostics display
-- Real-time video preview with face overlays
+### Face Detector (`face_detection.py`)
+
+Standalone face detection module using OpenCV DNN with temporal smoothing.
+
+**Features:**
+- **OpenCV DNN Backend**: High-performance face detection
+- **Automatic Model Download**: Downloads required models on first run
+- **Temporal Smoothing**: Reduces detection flickering
+- **CUDA Support**: Automatic GPU acceleration when available
+- **Debug Visualization**: Face overlay rendering for debugging
+
+**Key Methods:**
+- `detect_faces()`: Core face detection functionality
+- `smooth_detections()`: Temporal smoothing algorithm
+- `draw_debug_overlay()`: Visualization for debugging
+
+### Coordinate Utilities (`coordinate_utils.py`)
+
+Pure utility functions for coordinate system transformations.
+
+**Features:**
+- **Camera to Eye Coordinates**: Transform pixel coordinates to robot eye movement
+- **Configurable Sensitivity**: Adjustable sensitivity and inversion parameters
+- **Input Validation**: Robust parameter validation
+- **No Dependencies**: Pure math functions with no ROS dependencies
+
+**Key Functions:**
+- `transform_camera_to_eye_coords()`: Main coordinate transformation
+- Input validation and range clamping
 
 ## Installation
 
@@ -90,28 +130,58 @@ source install/setup.bash
 
 ### Running the Camera Node
 
-The camera node provides both command-line and GUI interfaces:
+The camera node can be run with default settings or custom parameters:
 
 ```bash
-# Run with GUI (default)
+# Run with default settings
 ros2 run coffee_vision camera_node
 
+# Run with custom parameters
+ros2 run coffee_vision camera_node --ros-args \
+  -p face_confidence_threshold:=0.7 \
+  -p eye_range:=1.5 \
+  -p eye_sensitivity:=2.0
+
 # The node will automatically:
+# - Load configuration parameters
 # - Scan for available cameras
-# - Launch the Qt GUI
 # - Start publishing camera data
 # - Begin face detection
 ```
 
-### GUI Interface
+### Configuration Parameters
 
-The camera node launches with an interactive GUI that provides:
+The node supports the following ROS2 parameters:
 
-1. **Camera Selection**: Dropdown to choose between detected cameras
-2. **Quality Control**: Toggle between standard (640x480) and high quality (1280x720)
-3. **Face Detection**: Enable/disable real-time face detection
-4. **Diagnostics**: View system information and camera capabilities
-5. **Live Preview**: Real-time camera feed with face detection overlays
+```bash
+# Face detection parameters
+ros2 param set /camera_node face_confidence_threshold 0.7
+ros2 param set /camera_node face_smoothing_factor 0.6
+
+# Eye movement parameters
+ros2 param set /camera_node eye_range 1.5
+ros2 param set /camera_node eye_sensitivity 2.0
+ros2 param set /camera_node invert_x true
+
+# View current parameters
+ros2 param list /camera_node
+ros2 param get /camera_node face_confidence_threshold
+```
+
+### External Control
+
+The camera node provides ROS topic interfaces for external control:
+
+```bash
+# Camera control topics
+ros2 topic pub /coffee_bot/camera/cmd/select std_msgs/Int32 "data: 1"
+ros2 topic pub /coffee_bot/camera/cmd/quality std_msgs/Bool "data: true"
+ros2 topic pub /coffee_bot/camera/cmd/face_detection std_msgs/Bool "data: false"
+
+# Status and diagnostics
+ros2 topic echo /coffee_bot/camera/status/info
+ros2 topic pub /coffee_bot/camera/cmd/diagnostics std_msgs/String "data: 'get'"
+```
 
 ### ROS2 Topics
 
@@ -119,7 +189,7 @@ Monitor the published data:
 
 ```bash
 # View camera frames
-ros2 topic echo /camera_frame
+ros2 topic echo /coffee_bot/camera/image_raw
 
 # Monitor face detection results (JSON format)
 ros2 topic echo /face_detection_data
@@ -136,6 +206,19 @@ ros2 topic echo /face_images
 
 ## Configuration
 
+### ROS2 Parameters
+
+The node supports comprehensive configuration through ROS2 parameters:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `face_confidence_threshold` | float | 0.5 | Minimum confidence for face detection (0.0-1.0) |
+| `face_smoothing_factor` | float | 0.4 | Temporal smoothing factor (0.0-1.0, higher = more smoothing) |
+| `eye_range` | float | 1.0 | Maximum eye movement range (-eye_range to +eye_range) |
+| `eye_sensitivity` | float | 1.5 | Eye movement sensitivity multiplier |
+| `invert_x` | bool | false | Invert X axis for eye movement |
+| `invert_y` | bool | false | Invert Y axis for eye movement |
+
 ### Camera Settings
 
 The node automatically detects and configures cameras with optimal settings:
@@ -143,14 +226,14 @@ The node automatically detects and configures cameras with optimal settings:
 - **Frame Rate**: 30 FPS (standard) or 24 FPS (high quality)
 - **Backend**: Automatically selects V4L2, GStreamer, or OpenCV backends
 
-### Face Detection Parameters
+### Face Detection Configuration
 
-Built-in face detection with the following characteristics:
+Built-in face detection with configurable parameters:
 - **Model**: OpenCV DNN face detector (auto-downloaded)
-- **Confidence Threshold**: 0.5 (configurable in code)
+- **Confidence Threshold**: Configurable via `face_confidence_threshold` parameter
 - **Detection Rate**: Adaptive (3-6 FPS) based on performance
-- **Smoothing**: Temporal smoothing to reduce detection jitter
-- **Coordinate System**: Transforms to robot eye coordinates (-1.0 to 1.0 range)
+- **Smoothing**: Configurable temporal smoothing via `face_smoothing_factor`
+- **Coordinate System**: Transforms to robot eye coordinates using configurable sensitivity
 
 ### Performance Optimization
 
@@ -285,26 +368,31 @@ echo $DISPLAY
 
 ### Code Structure
 
-- **FrameGrabber**: Core camera capture and processing logic
-- **CameraViewer**: Qt GUI interface and controls  
-- **CameraNode**: ROS2 node wrapper and coordination
-- **Face Detection**: OpenCV DNN integration with smoothing
+- **CameraNode** (`camera_node.py`): Main ROS2 node with parameter management
+- **FrameGrabber** (`camera_node.py`): Core camera capture and processing logic
+- **FaceDetector** (`face_detection.py`): Standalone face detection module
+- **CoordinateUtils** (`coordinate_utils.py`): Pure coordinate transformation functions
 
 ### Extending Functionality
 
 To add new features:
-1. **New Publishers**: Add to FrameGrabber class
-2. **GUI Controls**: Extend CameraViewer interface
-3. **Detection Models**: Update `init_face_detector()` method
-4. **Processing Pipeline**: Modify `_process_loop()` thread
+1. **New Publishers**: Add to FrameGrabber class in `camera_node.py`
+2. **Face Detection**: Extend FaceDetector class in `face_detection.py`
+3. **Coordinate Systems**: Add functions to `coordinate_utils.py`
+4. **Parameters**: Add new ROS2 parameters in CameraNode
+5. **Processing Pipeline**: Modify `_process_loop()` thread in FrameGrabber
 
 ### Performance Tuning
 
-Key parameters for optimization:
-- `min_detection_interval`: Face detection frequency
-- `detection_skip_frames`: Frame skipping for performance
-- `smoothing_factor`: Temporal smoothing strength
-- `face_confidence_threshold`: Detection sensitivity
+Key configurable parameters for optimization:
+- `face_confidence_threshold`: Detection sensitivity (lower = more detections)
+- `face_smoothing_factor`: Temporal smoothing strength (higher = smoother)
+- `eye_sensitivity`: Eye movement responsiveness
+- `eye_range`: Maximum eye movement range
+
+Built-in adaptive parameters:
+- `min_detection_interval`: Face detection frequency (adaptive)
+- `detection_skip_frames`: Frame skipping for performance (adaptive)
 
 ## Testing UI Separation
 
@@ -351,17 +439,18 @@ The UI displays real-time performance metrics to evaluate ROS transport vs integ
 ## Known Limitations
 
 1. **Single Camera**: Currently supports one camera at a time
-2. **Qt Dependency**: Requires GUI environment (not headless friendly)
-3. **Memory Usage**: High memory consumption due to image processing
-4. **CPU Intensive**: Face detection requires significant computational resources
+2. **Memory Usage**: High memory consumption due to image processing
+3. **CPU Intensive**: Face detection requires significant computational resources
+4. **Synchronous Model Download**: Face detection models downloaded synchronously at startup
 
 ## Future Improvements
 
 Potential enhancements:
-- Headless mode without GUI
 - Multiple camera support
+- Asynchronous model downloading
 - Advanced face tracking algorithms
 - Custom face detection models
+- Camera reconnection and recovery
 - WebRTC streaming capabilities
 
 ## License
