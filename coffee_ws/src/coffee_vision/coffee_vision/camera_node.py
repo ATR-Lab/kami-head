@@ -18,10 +18,7 @@ from geometry_msgs.msg import Point
 from cv_bridge import CvBridge
 
 from .coordinate_utils import transform_camera_to_eye_coords
-
-# Models directory for face detection models
-MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
-os.makedirs(MODELS_DIR, exist_ok=True)
+from .face_detection import FaceDetector
 
 
 class FrameGrabber:
@@ -79,14 +76,11 @@ class FrameGrabber:
         
         # Face detection
         self.enable_face_detection = True
-        self.face_detector = None
-        self.face_net = None
-        self.face_confidence_threshold = 0.5
-        
-        # Smoothing for face detection
-        self.prev_faces = []
-        self.smoothing_factor = 0.4  # Higher value = more smoothing
-        self.smoothing_frames = 5    # Number of frames to average
+        self.face_detector = FaceDetector(
+            confidence_threshold=0.5,
+            smoothing_factor=0.4,
+            logger=self.node.get_logger() if self.node else None
+        )
 
         # # Get parameters
         # self.invert_x = self.get_parameter('invert_x').value
@@ -112,8 +106,6 @@ class FrameGrabber:
         self.face_ids = {}  # Map of face index to recognized face ID
         self.last_recognition_time = 0
         self.recognition_timeout = 3.0  # Clear recognition data after 3 seconds
-        
-        self.init_face_detector()
      
     def publish_face_data(self, faces):
         """Publish face detection data for other nodes"""
@@ -310,49 +302,7 @@ class FrameGrabber:
             if self.node:
                 self.node.get_logger().error(f"Error publishing frame: {e}")
     
-    def init_face_detector(self):
-        """Initialize the OpenCV DNN face detector"""
-        try:
-            # Try to get the models from disk, or download them if not present
-            model_file = os.path.join(MODELS_DIR, "opencv_face_detector_uint8.pb")
-            config_file = os.path.join(MODELS_DIR, "opencv_face_detector.pbtxt")
-            
-            # Download the model files if they don't exist
-            if not os.path.exists(model_file) or not os.path.exists(config_file):
-                self.download_face_model(model_file, config_file)
-            
-            # Load the DNN face detector
-            self.face_net = cv2.dnn.readNet(model_file, config_file)
-            
-            # Switch to a more accurate backend if available
-            if cv2.cuda.getCudaEnabledDeviceCount() > 0:
-                self.face_net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-                self.face_net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
-            else:
-                self.face_net.setPreferableBackend(cv2.dnn.DNN_BACKEND_DEFAULT)
-                self.face_net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-            
-            print("Face detector (OpenCV DNN) initialized successfully")
-        except Exception as e:
-            print(f"Error initializing face detector: {e}")
-            self.face_net = None
-    
-    def download_face_model(self, model_file, config_file):
-        """Download the face detection model if needed"""
-        try:
-            # Model URLs
-            model_url = "https://github.com/spmallick/learnopencv/raw/refs/heads/master/AgeGender/opencv_face_detector_uint8.pb"
-            config_url = "https://raw.githubusercontent.com/spmallick/learnopencv/refs/heads/master/AgeGender/opencv_face_detector.pbtxt"
-            
-            # Download the files
-            import urllib.request
-            print("Downloading face detection model...")
-            urllib.request.urlretrieve(model_url, model_file)
-            urllib.request.urlretrieve(config_url, config_file)
-            print("Face detection model downloaded successfully")
-        except Exception as e:
-            print(f"Error downloading face model: {e}")
-            raise
+
     
     def start(self, camera_index, backend=cv2.CAP_ANY):
         with self.lock:
@@ -441,189 +391,16 @@ class FrameGrabber:
         """Enable or disable face detection"""
         with self.lock:
             self.enable_face_detection = enable
-            if enable and self.face_net is None:
-                self.init_face_detector()
             
             # Reset face tracking when toggling
-            self.prev_faces = []
+            if self.face_detector:
+                self.face_detector.reset_tracking()
     
-    def detect_faces_dnn(self, frame):
-        """Detect faces using OpenCV's DNN-based face detector"""
-        if self.face_net is None:
-            return []
-        
-        # Get frame dimensions
-        h, w = frame.shape[:2]
-        
-        # Prepare input blob for the network
-        blob = cv2.dnn.blobFromImage(frame, 1.0, (300, 300), [104, 117, 123], False, False)
-        self.face_net.setInput(blob)
-        
-        # Run forward pass
-        detections = self.face_net.forward()
-        
-        # Parse detections
-        faces = []
-        for i in range(detections.shape[2]):
-            confidence = detections[0, 0, i, 2]
-            if confidence > self.face_confidence_threshold:
-                # Get face bounding box
-                x1 = int(detections[0, 0, i, 3] * w)
-                y1 = int(detections[0, 0, i, 4] * h)
-                x2 = int(detections[0, 0, i, 5] * w)
-                y2 = int(detections[0, 0, i, 6] * h)
-                
-                # Make sure the coordinates are within the frame
-                x1 = max(0, min(x1, w-1))
-                y1 = max(0, min(y1, h-1))
-                x2 = max(0, min(x2, w-1))
-                y2 = max(0, min(y2, h-1))
-                
-                if x2 > x1 and y2 > y1:  # Valid face
-                    faces.append({
-                        'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2,
-                        'center_x': (x1 + x2) // 2,
-                        'center_y': (y1 + y2) // 2,
-                        'radius': max((x2 - x1), (y2 - y1)) // 2,
-                        'confidence': confidence
-                    })
-        
-        return faces
+
     
-    def smooth_face_detections(self, faces):
-        """Apply temporal smoothing to face detections to reduce flickering"""
-        if not faces:
-            # If no faces detected in current frame but we have previous faces,
-            # decay them but keep showing them for a while
-            if self.prev_faces:
-                # Slowly reduce confidence of previous faces
-                for face in self.prev_faces:
-                    face['confidence'] *= 0.8  # Decay factor
-                
-                # Remove faces with very low confidence
-                self.prev_faces = [f for f in self.prev_faces if f['confidence'] > 0.2]
-                return self.prev_faces
-            return []
-        
-        # If we have new faces, smoothly transition to them
-        if not self.prev_faces:
-            # First detection, just use it
-            self.prev_faces = faces
-            return faces
-        
-        # Try to match new faces with previous faces
-        new_faces = []
-        for new_face in faces:
-            # Find closest previous face
-            best_match = None
-            min_distance = float('inf')
-            
-            for i, prev_face in enumerate(self.prev_faces):
-                # Calculate distance between centers
-                dx = new_face['center_x'] - prev_face['center_x']
-                dy = new_face['center_y'] - prev_face['center_y']
-                distance = (dx*dx + dy*dy) ** 0.5
-                
-                if distance < min_distance:
-                    min_distance = distance
-                    best_match = i
-            
-            # If we found a close enough match, smooth the transition
-            if best_match is not None and min_distance < 100:  # Threshold distance
-                prev_face = self.prev_faces[best_match]
-                
-                # Smooth position and size
-                smoothed_face = {
-                    'center_x': int(self.smoothing_factor * prev_face['center_x'] + 
-                                    (1 - self.smoothing_factor) * new_face['center_x']),
-                    'center_y': int(self.smoothing_factor * prev_face['center_y'] + 
-                                    (1 - self.smoothing_factor) * new_face['center_y']),
-                    'radius': int(self.smoothing_factor * prev_face['radius'] + 
-                                 (1 - self.smoothing_factor) * new_face['radius']),
-                    'confidence': new_face['confidence']
-                }
-                
-                # Calculate new bounding box from smoothed center and radius
-                r = smoothed_face['radius']
-                cx = smoothed_face['center_x']
-                cy = smoothed_face['center_y']
-                smoothed_face['x1'] = cx - r
-                smoothed_face['y1'] = cy - r
-                smoothed_face['x2'] = cx + r
-                smoothed_face['y2'] = cy + r
-                
-                new_faces.append(smoothed_face)
-                # Remove the matched face to prevent double matching
-                self.prev_faces.pop(best_match)
-            else:
-                # No match, add as new face
-                new_faces.append(new_face)
-        
-        # Add any remaining unmatched previous faces with decayed confidence
-        for face in self.prev_faces:
-            face['confidence'] *= 0.5  # Faster decay for unmatched faces
-            if face['confidence'] > 0.3:  # Only keep if still confident enough
-                new_faces.append(face)
-        
-        # Update previous faces for next frame
-        self.prev_faces = new_faces
-        return new_faces
+
     
-    def draw_face_circles(self, frame, faces):
-        """Draw transparent circles over detected faces with IDs"""
-        if not faces:
-            return frame
-        
-        # Create an overlay for transparency
-        overlay = frame.copy()
-        
-        # Draw circles and face data on overlay
-        for i, face in enumerate(faces):
-            # Get face ID if available
-            face_id = face.get('id', 'Unknown')
-            
-            # Choose color based on face ID
-            if face_id != 'Unknown':
-                # Use different color for recognized faces
-                color = (0, 200, 255)  # Orange for recognized faces
-            else:
-                color = (0, 255, 0)  # Green for detected faces
-            
-            # Draw circle on overlay
-            cv2.circle(overlay, 
-                      (face['center_x'], face['center_y']), 
-                      face['radius'], 
-                      color, 
-                      -1)
-            
-            # Draw rectangle around face
-            cv2.rectangle(frame, (face['x1'], face['y1']), (face['x2'], face['y2']), color, 2)
-            
-            # Display face ID and confidence
-            face_conf = face.get('confidence', 0.0)
-            id_text = f"ID: {face_id}" if face_id != 'Unknown' else "Unknown"
-            conf_text = f"Conf: {face_conf:.2f}"
-            
-            cv2.putText(frame, id_text, (face['x1'], face['y1'] - 10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            cv2.putText(frame, conf_text, (face['x1'], face['y1'] + face['height'] if 'height' in face else (face['y2']-face['y1']) + 20),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-        
-        # Blend the overlay with the original frame for transparency
-        alpha = 0.3  # Transparency factor
-        cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
-        
-        # Add indicator text if faces detected
-        cv2.putText(frame, f"Faces: {len(faces)}", (10, 70), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        # Display number of recognized faces
-        recog_count = len([f for f in faces if f.get('id', 'Unknown') != 'Unknown'])
-        if recog_count > 0:
-            cv2.putText(frame, f"Recognized: {recog_count}/{len(faces)}", (10, 110), 
-                      cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        return frame
+
     
     def _capture_loop(self):
         """Main capture loop for camera frames"""
@@ -752,7 +529,8 @@ class FrameGrabber:
                 
                 if should_detect:
                     detection_start = time.time()
-                    faces = self.detect_faces_dnn(frame)
+                    faces = self.face_detector.detect_faces(frame)
+                    faces = self.face_detector.smooth_detections(faces)
                     detection_time = time.time() - detection_start
                     
                     # If detection took too long, increase skip frames
@@ -779,7 +557,7 @@ class FrameGrabber:
                 
                 # Draw faces if available
                 if self.current_faces:
-                    frame = self.draw_face_circles(frame, self.current_faces)
+                    frame = self.face_detector.draw_debug_overlay(frame, self.current_faces)
                 
                 # Update FPS counter
                 frame_count += 1
