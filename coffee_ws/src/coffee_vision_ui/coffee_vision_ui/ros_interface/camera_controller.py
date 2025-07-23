@@ -37,6 +37,7 @@ class CameraController(QObject):
     cameras_updated = pyqtSignal(list)      # Available cameras: [(index, name), ...]
     camera_status_updated = pyqtSignal(str) # Current camera status
     diagnostics_ready = pyqtSignal(str)     # Diagnostic information
+    state_received = pyqtSignal(dict)       # Full camera state for synchronization
     
     def __init__(self, node):
         """
@@ -156,19 +157,27 @@ with camera_node for complete system diagnostics."""
     
     def _available_cameras_callback(self, msg):
         """
-        Handle available cameras list from camera_node.
+        Handle available cameras list or state response from camera_node.
         
         Args:
-            msg: String message containing JSON list of cameras
+            msg: String message containing JSON list of cameras or full state
         """
         try:
-            cameras_data = json.loads(msg.data)
-            # Expected format: [{"index": 0, "name": "Camera 0"}, ...]
-            cameras_list = [(cam["index"], cam["name"]) for cam in cameras_data]
-            self.cameras_updated.emit(cameras_list)
+            data = json.loads(msg.data)
+            
+            # Check if this is a full state response (has camera_index, high_quality, etc.)
+            if isinstance(data, dict) and 'camera_index' in data:
+                # This is a state response - emit for state sync
+                self.node.get_logger().info("Received camera_node state for synchronization")
+                self.state_received.emit(data)
+            else:
+                # This is a regular camera list
+                # Expected format: [{"index": 0, "name": "Camera 0"}, ...]
+                cameras_list = [(cam["index"], cam["name"]) for cam in data]
+                self.cameras_updated.emit(cameras_list)
         except json.JSONDecodeError as e:
             self.node.get_logger().error(f"Error parsing cameras data: {e}")
-        except KeyError as e:
+        except (KeyError, TypeError) as e:
             self.node.get_logger().error(f"Invalid camera data format: {e}")
     
     def _diagnostics_callback(self, msg):

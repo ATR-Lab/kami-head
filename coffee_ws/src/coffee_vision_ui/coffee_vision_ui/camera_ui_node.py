@@ -28,6 +28,7 @@ import rclpy
 from rclpy.node import Node
 from python_qt_binding.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QVBoxLayout, QWidget
 from python_qt_binding.QtCore import QTimer
+from std_msgs.msg import String
 
 # Import our modular components
 from .ros_interface import CameraController, FrameReceiver
@@ -72,11 +73,14 @@ class CameraUIWindow(QMainWindow):
         
         # Initialize ROS communication components
         self.camera_controller = CameraController(node)
-        self.frame_receiver = FrameReceiver(node, 'camera_frame')
+        self.frame_receiver = FrameReceiver(node, '/coffee_bot/camera/image_raw')
         
         # Initialize UI components
         self.camera_display = CameraDisplay()
         self.control_panel = ControlPanel()
+        
+        # Set up state query publisher
+        self.state_query_pub = node.create_publisher(String, '/coffee_bot/camera/query/state', 10)
         
         # Set up connection timeout monitoring
         self.connection_timer = QTimer()
@@ -86,8 +90,8 @@ class CameraUIWindow(QMainWindow):
         self.init_ui()
         self.setup_connections()
         
-        # Request initial camera scan after a short delay
-        QTimer.singleShot(1000, self.control_panel.refresh_cameras_requested.emit)
+        # Query camera_node state instead of sending commands
+        QTimer.singleShot(1000, self._query_camera_node_state)
     
     def init_ui(self):
         """Initialize the user interface layout and components."""
@@ -120,6 +124,7 @@ class CameraUIWindow(QMainWindow):
         self.camera_controller.cameras_updated.connect(self.control_panel.update_camera_list)
         self.camera_controller.camera_status_updated.connect(self.control_panel.update_status)
         self.camera_controller.diagnostics_ready.connect(self.control_panel.show_diagnostics)
+        self.camera_controller.state_received.connect(self.control_panel.sync_to_camera_state)
         
         # Control panel to camera controller connections
         self.control_panel.camera_selected.connect(self.camera_controller.select_camera)
@@ -129,6 +134,24 @@ class CameraUIWindow(QMainWindow):
         self.control_panel.diagnostics_requested.connect(self.camera_controller.request_diagnostics)
         
         self.node.get_logger().info('Signal connections established between all components')
+    
+    def _query_camera_node_state(self):
+        """Query camera_node for its current state instead of sending commands"""
+        self.node.get_logger().info('Querying camera_node for current state')
+        
+        # Send state query
+        query_msg = String()
+        query_msg.data = "get_state"
+        self.state_query_pub.publish(query_msg)
+        
+        # Set up one-time listener for state response
+        QTimer.singleShot(2000, self._setup_state_listener)
+    
+    def _setup_state_listener(self):
+        """Set up listener for state response from camera_node"""
+        # The state response comes through the same topic as camera list updates
+        # We'll handle it in the existing camera_controller callback
+        self.node.get_logger().info('Listening for camera_node state response')
     
     def _check_connection(self):
         """Periodically check frame receiver connection status."""

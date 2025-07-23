@@ -297,4 +297,45 @@ class ControlPanel(QWidget):
                         self.current_camera_index = camera_index
                         break
         finally:
+            self._updating_controls = False
+    
+    def sync_to_camera_state(self, state_data):
+        """
+        Sync control panel to camera_node state without triggering commands.
+        
+        Args:
+            state_data: Dictionary with current camera state
+        """
+        self._updating_controls = True
+        try:
+            # Sync camera selection
+            if 'camera_index' in state_data and 'available_cameras' in state_data:
+                self.available_cameras = [
+                    (cam["index"], cam["name"]) 
+                    for cam in state_data['available_cameras']
+                ]
+                self.camera_combo.clear()
+                
+                current_camera_index = state_data['camera_index']
+                for i, (idx, name) in enumerate(self.available_cameras):
+                    self.camera_combo.addItem(name, idx)
+                    if idx == current_camera_index:
+                        self.camera_combo.setCurrentIndex(i)
+                        self.current_camera_index = current_camera_index
+            
+            # Sync quality setting
+            if 'high_quality' in state_data:
+                self.high_quality = state_data['high_quality']
+                self.quality_checkbox.setChecked(self.high_quality)
+            
+            # Sync face detection setting
+            if 'face_detection_enabled' in state_data:
+                self.face_detection_enabled = state_data['face_detection_enabled']
+                self.face_detection_checkbox.setChecked(self.face_detection_enabled)
+            
+            # Update status
+            camera_count = len(self.available_cameras)
+            self.update_status(f"Synced with camera_node - {camera_count} camera(s) available")
+            
+        finally:
             self._updating_controls = False 
