@@ -1063,6 +1063,9 @@ class CameraViewer(QMainWindow):
                 except Exception as e:
                     self.node.get_logger().warn(f"Error scanning camera {i}: {e}")
         
+        # Store for state queries
+        self.available_cameras = available_cameras
+        
         # Add available cameras to combo box
         for idx, name in available_cameras:
             self.camera_combo.addItem(name, idx)
