@@ -46,6 +46,7 @@ class VoiceAgentBridge(Node):
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         self.connection_active = False
         self.reconnect_task: Optional[asyncio.Task] = None
+        self.websocket_loop: Optional[asyncio.AbstractEventLoop] = None  # Store event loop reference
         
         # Callback group for async operations
         self.callback_group = ReentrantCallbackGroup()
@@ -109,12 +110,14 @@ class VoiceAgentBridge(Node):
         """Run WebSocket client in separate thread with its own event loop"""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        self.websocket_loop = loop  # Store loop reference for thread-safe calls
         
         try:
             loop.run_until_complete(self._maintain_connection())
         except Exception as e:
             self.get_logger().error(f"WebSocket client error: {e}")
         finally:
+            self.websocket_loop = None  # Clear reference
             loop.close()
     
     async def _maintain_connection(self):
@@ -209,10 +212,13 @@ class VoiceAgentBridge(Node):
             }
             
             # Send to voice agent
-            asyncio.run_coroutine_threadsafe(
-                self._send_to_voice_agent(command),
-                self.websocket_thread._target.__globals__.get('loop') if hasattr(self.websocket_thread, '_target') else None
-            )
+            if self.websocket_loop and not self.websocket_loop.is_closed():
+                asyncio.run_coroutine_threadsafe(
+                    self._send_to_voice_agent(command),
+                    self.websocket_loop
+                )
+            else:
+                self.get_logger().warn("Cannot send virtual request - WebSocket event loop not available")
             
             self.get_logger().info(f"Forwarded virtual request: {request_data.get('request_type')}")
             
@@ -236,10 +242,13 @@ class VoiceAgentBridge(Node):
             }
             
             # Send to voice agent
-            asyncio.run_coroutine_threadsafe(
-                self._send_to_voice_agent(command),
-                self.websocket_thread._target.__globals__.get('loop') if hasattr(self.websocket_thread, '_target') else None
-            )
+            if self.websocket_loop and not self.websocket_loop.is_closed():
+                asyncio.run_coroutine_threadsafe(
+                    self._send_to_voice_agent(command),
+                    self.websocket_loop
+                )
+            else:
+                self.get_logger().warn("Cannot send command - WebSocket event loop not available")
             
             self.get_logger().info(f"Forwarded command: {command_data.get('action')}")
             
