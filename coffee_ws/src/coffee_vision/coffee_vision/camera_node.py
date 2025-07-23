@@ -14,7 +14,7 @@ from rclpy.node import Node
 from python_qt_binding.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QHBoxLayout, QCheckBox, QMessageBox
 from python_qt_binding.QtGui import QImage, QPixmap
 from python_qt_binding.QtCore import Qt, QTimer, pyqtSignal, QObject
-from std_msgs.msg import Float32MultiArray, String
+from std_msgs.msg import Float32MultiArray, String, Bool, Int32
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Point
 from cv_bridge import CvBridge
@@ -108,7 +108,7 @@ class FrameGrabber(QObject):
             self.face_pub = node.create_publisher(String, 'face_detection_data', 10)
             self.face_position_pub = node.create_publisher(Point, '/vision/face_position', 10)
             self.face_position_pub_v2 = node.create_publisher(String, '/vision/face_position_v2', 10)
-            self.frame_pub = node.create_publisher(Image, 'camera_frame', 10)
+            self.frame_pub = node.create_publisher(Image, '/coffee_bot/camera/image_raw', 10)
             self.face_image_pub = node.create_publisher(Image, 'face_images', 10)
             self.bridge = CvBridge()
             
@@ -1157,6 +1157,9 @@ class CameraNode(Node):
         self.ui = CameraViewer(self)
         self.ui.show()
         
+        # Set up ROS control interface for separated UI communication
+        self._setup_ros_control_interface()
+        
         # Start a background thread for ROS spinning
         self.spinning = True
         self.ros_thread = threading.Thread(target=self.spin_thread)
@@ -1184,6 +1187,135 @@ class CameraNode(Node):
         except KeyboardInterrupt:
             self.spinning = False
             self.destroy_node()
+    
+    def _setup_ros_control_interface(self):
+        """Set up ROS subscribers and publishers for separated UI control"""
+        self.get_logger().info('Setting up ROS control interface for separated UI communication')
+        
+        # Publishers for status updates to separated UI
+        self.camera_status_pub = self.create_publisher(String, '/coffee_bot/camera/status/info', 10)
+        self.available_cameras_pub = self.create_publisher(String, '/coffee_bot/camera/status/available', 10)
+        self.diagnostics_pub = self.create_publisher(String, '/coffee_bot/camera/status/diagnostics', 10)
+        
+        # Subscribers for commands from separated UI
+        self.camera_select_sub = self.create_subscription(
+            Int32, '/coffee_bot/camera/cmd/select', self._on_camera_select_command, 10)
+        self.quality_control_sub = self.create_subscription(
+            Bool, '/coffee_bot/camera/cmd/quality', self._on_quality_change_command, 10)
+        self.face_detection_sub = self.create_subscription(
+            Bool, '/coffee_bot/camera/cmd/face_detection', self._on_face_detection_command, 10)
+        self.camera_refresh_sub = self.create_subscription(
+            String, '/coffee_bot/camera/cmd/refresh', self._on_camera_refresh_command, 10)
+        
+        # Subscriber for state queries from separated UI
+        self.state_query_sub = self.create_subscription(
+            String, '/coffee_bot/camera/query/state', self._on_state_query, 10)
+        
+        self.get_logger().info('ROS control interface setup complete')
+    
+    def _on_camera_select_command(self, msg):
+        """Handle camera selection command from separated UI"""
+        camera_index = msg.data
+        self.get_logger().info(f'Received camera selection command: {camera_index}')
+        
+        # Forward command to the integrated UI if it exists
+        if hasattr(self, 'ui') and hasattr(self.ui, 'change_camera'):
+            # Find the combo box index for this camera index
+            for i in range(self.ui.camera_combo.count()):
+                if self.ui.camera_combo.itemData(i) == camera_index:
+                    self.ui.camera_combo.setCurrentIndex(i)
+                    break
+        
+        # Publish status update
+        status_msg = String()
+        status_msg.data = f"Camera selection changed to index {camera_index}"
+        self.camera_status_pub.publish(status_msg)
+    
+    def _on_quality_change_command(self, msg):
+        """Handle quality change command from separated UI"""
+        high_quality = msg.data
+        self.get_logger().info(f'Received quality change command: {"high" if high_quality else "standard"}')
+        
+        # Forward command to the integrated UI if it exists
+        if hasattr(self, 'ui') and hasattr(self.ui, 'quality_checkbox'):
+            self.ui.quality_checkbox.setChecked(high_quality)
+        
+        # Publish status update
+        status_msg = String()
+        status_msg.data = f"Quality changed to {'high (1080p)' if high_quality else 'standard (480p)'}"
+        self.camera_status_pub.publish(status_msg)
+    
+    def _on_face_detection_command(self, msg):
+        """Handle face detection toggle command from separated UI"""
+        enabled = msg.data
+        self.get_logger().info(f'Received face detection command: {"enabled" if enabled else "disabled"}')
+        
+        # Forward command to the integrated UI if it exists
+        if hasattr(self, 'ui') and hasattr(self.ui, 'face_detection_checkbox'):
+            self.ui.face_detection_checkbox.setChecked(enabled)
+        
+        # Publish status update
+        status_msg = String()
+        status_msg.data = f"Face detection {'enabled' if enabled else 'disabled'}"
+        self.camera_status_pub.publish(status_msg)
+    
+    def _on_camera_refresh_command(self, msg):
+        """Handle camera refresh command from separated UI"""
+        self.get_logger().info('Received camera refresh command')
+        
+        # Forward command to the integrated UI if it exists
+        if hasattr(self, 'ui') and hasattr(self.ui, 'scan_cameras'):
+            self.ui.scan_cameras()
+        
+        # Publish status update
+        status_msg = String()
+        status_msg.data = "Camera scan completed"
+        self.camera_status_pub.publish(status_msg)
+    
+    def _on_state_query(self, msg):
+        """Handle state query from separated UI and respond with current camera state"""
+        self.get_logger().info('Received state query from separated UI')
+        
+        # Gather current state from integrated UI
+        current_state = {}
+        
+        if hasattr(self, 'ui'):
+            # Get current camera index
+            current_camera_index = -1
+            if hasattr(self.ui, 'camera_combo') and self.ui.camera_combo.count() > 0:
+                current_camera_index = self.ui.camera_combo.itemData(self.ui.camera_combo.currentIndex())
+            current_state['camera_index'] = current_camera_index
+            
+            # Get quality setting
+            high_quality = False
+            if hasattr(self.ui, 'quality_checkbox'):
+                high_quality = self.ui.quality_checkbox.isChecked()
+            current_state['high_quality'] = high_quality
+            
+            # Get face detection setting
+            face_detection = True
+            if hasattr(self.ui, 'face_detection_checkbox'):
+                face_detection = self.ui.face_detection_checkbox.isChecked()
+            current_state['face_detection_enabled'] = face_detection
+            
+            # Get available cameras
+            available_cameras = []
+            if hasattr(self.ui, 'available_cameras'):
+                available_cameras = [
+                    {"index": idx, "name": name} 
+                    for idx, name in self.ui.available_cameras
+                ]
+            current_state['available_cameras'] = available_cameras
+        
+        # Publish current state as JSON
+        import json
+        state_msg = String()
+        state_msg.data = json.dumps(current_state)
+        self.available_cameras_pub.publish(state_msg)  # Reuse existing publisher
+        
+        self.get_logger().info(f'Published current state: camera_index={current_state.get("camera_index", -1)}, '
+                              f'high_quality={current_state.get("high_quality", False)}, '
+                              f'face_detection={current_state.get("face_detection_enabled", True)}')
     
     def spin_thread(self):
         """Background thread for ROS spinning"""
