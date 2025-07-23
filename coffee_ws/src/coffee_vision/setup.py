@@ -28,6 +28,7 @@ setup(
     entry_points={
         'console_scripts': [
             'camera_node = coffee_vision.camera_node:main',
+            'camera_node_mono = coffee_vision.camera_node_mono:main',
             'camera_viewer_test = coffee_vision.camera_viewer_test:main',
             # 'face_detection_node = coffee_vision.face_detection_node:main',
         ],
