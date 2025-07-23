@@ -11,7 +11,7 @@ import subprocess
 import json
 import collections
 from rclpy.node import Node
-from python_qt_binding.QtCore import pyqtSignal, QObject
+
 from std_msgs.msg import Float32MultiArray, String, Bool, Int32
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Point
@@ -22,13 +22,10 @@ MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 os.makedirs(MODELS_DIR, exist_ok=True)
 
 
-class FrameGrabber(QObject):
+class FrameGrabber:
     """Dedicated thread for frame capture to improve performance"""
-    frame_ready = pyqtSignal(np.ndarray)
-    error = pyqtSignal(str)
     
     def __init__(self, node=None):
-        super().__init__()
         self.node = node
         # Camera properties
         self.camera = None
@@ -64,9 +61,8 @@ class FrameGrabber(QObject):
         self.frame_lock = threading.Lock()
         self.frame_timestamp = 0  # Track frame freshness
         
-        # UI frame rate control
-        self.last_ui_update = 0
-        self.min_ui_interval = 1.0 / 30  # Target 30 FPS for UI
+        # Frame processing control
+        # (UI-related frame rate controls removed in headless mode)
         
         # Face detection control
         self.last_detection_time = 0
@@ -463,8 +459,7 @@ class FrameGrabber(QObject):
             
             print(f"Quality changed to: {actual_width}x{actual_height} @ {actual_fps:.1f} FPS")
             
-            # Update UI with blank frame of new size
-            self.frame_ready.emit(np.zeros((self.frame_height, self.frame_width, 3), dtype=np.uint8))
+            # No UI update needed in headless mode
     
     def toggle_face_detection(self, enable):
         """Enable or disable face detection"""
@@ -691,7 +686,8 @@ class FrameGrabber(QObject):
                     continue
             
             if not success:
-                self.error.emit(f"Failed to open camera: {error_msg}")
+                if self.node:
+                    self.node.get_logger().error(f"Failed to open camera: {error_msg}")
                 return
             
             # Configure camera with optimal settings
@@ -736,7 +732,8 @@ class FrameGrabber(QObject):
                     self.frame_timestamp = time.time()
                         
         except Exception as e:
-            self.error.emit(f"Error in capture thread: {str(e)}")
+            if self.node:
+                self.node.get_logger().error(f"Error in capture thread: {str(e)}")
         finally:
             if self.camera and self.camera.isOpened():
                 self.camera.release()
@@ -825,13 +822,10 @@ class FrameGrabber(QObject):
                 with self.frame_lock:
                     self.processed_frame = frame
                 
-                # Emit frame for UI with rate limiting
-                current_time = time.time()
-                if current_time - self.last_ui_update >= self.min_ui_interval:
-                    self.frame_ready.emit(frame)
-                    self.last_ui_update = current_time
+                # No UI frame emission needed in headless mode
         except Exception as e:
-            self.error.emit(f"Error in process thread: {str(e)}")
+            if self.node:
+                self.node.get_logger().error(f"Error in process thread: {str(e)}")
     
     def _publish_loop(self):
         """Handle ROS publishing at controlled rate"""
@@ -861,7 +855,8 @@ class FrameGrabber(QObject):
                         
                         self.last_publish_time = current_time
         except Exception as e:
-            self.error.emit(f"Error in publish thread: {str(e)}")
+            if self.node:
+                self.node.get_logger().error(f"Error in publish thread: {str(e)}")
 
 
 class CameraNode(Node):
