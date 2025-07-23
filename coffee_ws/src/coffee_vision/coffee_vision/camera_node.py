@@ -1209,6 +1209,8 @@ class CameraNode(Node):
             Bool, '/coffee_bot/camera/cmd/face_detection', self._on_face_detection_command, 10)
         self.camera_refresh_sub = self.create_subscription(
             String, '/coffee_bot/camera/cmd/refresh', self._on_camera_refresh_command, 10)
+        self.diagnostics_request_sub = self.create_subscription(
+            String, '/coffee_bot/camera/cmd/diagnostics', self._on_diagnostics_request, 10)
         
         # Subscriber for state queries from separated UI
         self.state_query_sub = self.create_subscription(
@@ -1274,6 +1276,80 @@ class CameraNode(Node):
         status_msg = String()
         status_msg.data = "Camera scan completed"
         self.camera_status_pub.publish(status_msg)
+    
+    def _on_diagnostics_request(self, msg):
+        """Handle diagnostics request from separated UI"""
+        self.get_logger().info('Received diagnostics request from separated UI')
+        
+        # Generate diagnostics information
+        diagnostics_info = self._generate_diagnostics_info()
+        
+        # Publish diagnostics response
+        diagnostics_msg = String()
+        diagnostics_msg.data = diagnostics_info
+        self.diagnostics_pub.publish(diagnostics_msg)
+        
+        self.get_logger().info('Published diagnostics information')
+    
+    def _generate_diagnostics_info(self):
+        """Generate comprehensive diagnostics information"""
+        import os
+        import subprocess
+        import cv2
+        
+        info = "Camera Node Diagnostics:\n\n"
+        
+        # Check for video devices
+        video_devices = []
+        if os.path.exists('/dev'):
+            for device in os.listdir('/dev'):
+                if device.startswith('video'):
+                    full_path = f"/dev/{device}"
+                    access = os.access(full_path, os.R_OK)
+                    video_devices.append(f"{full_path} (Readable: {access})")
+        
+        if video_devices:
+            info += "Video Devices:\n" + "\n".join(video_devices) + "\n\n"
+        else:
+            info += "No video devices found!\n\n"
+        
+        # OpenCV version and backend info
+        info += f"OpenCV Version: {cv2.__version__}\n"
+        
+        # Camera state
+        if hasattr(self, 'ui') and hasattr(self.ui, 'frame_grabber'):
+            info += f"Frame Grabber Running: {self.ui.frame_grabber.running}\n"
+            info += f"Current Camera Index: {getattr(self.ui.frame_grabber, 'camera_index', 'Unknown')}\n"
+            info += f"Frame Dimensions: {getattr(self.ui.frame_grabber, 'frame_width', 'Unknown')}x{getattr(self.ui.frame_grabber, 'frame_height', 'Unknown')}\n"
+            info += f"Face Detection: {'Enabled' if getattr(self.ui.frame_grabber, 'enable_face_detection', False) else 'Disabled'}\n\n"
+        
+        # ROS Topics
+        info += "Active ROS Publishers:\n"
+        info += "- /coffee_bot/camera/image_raw (camera frames)\n"
+        info += "- /coffee_bot/camera/status/info (status updates)\n"
+        info += "- /coffee_bot/camera/status/available (camera list)\n"
+        info += "- /coffee_bot/camera/status/diagnostics (this message)\n"
+        info += "- /vision/face_position (face tracking)\n"
+        info += "- face_detection_data (face data)\n\n"
+        
+        info += "Active ROS Subscribers:\n"
+        info += "- /coffee_bot/camera/cmd/select (camera selection)\n"
+        info += "- /coffee_bot/camera/cmd/quality (quality control)\n"
+        info += "- /coffee_bot/camera/cmd/face_detection (face detection toggle)\n"
+        info += "- /coffee_bot/camera/cmd/refresh (camera refresh)\n"
+        info += "- /coffee_bot/camera/cmd/diagnostics (this request)\n"
+        info += "- /coffee_bot/camera/query/state (state queries)\n\n"
+        
+        # Available cameras
+        if hasattr(self, 'ui') and hasattr(self.ui, 'available_cameras'):
+            camera_count = len(getattr(self.ui, 'available_cameras', []))
+            info += f"Available Cameras: {camera_count}\n"
+            for idx, name in getattr(self.ui, 'available_cameras', []):
+                info += f"  - {name} (index: {idx})\n"
+        else:
+            info += "Available Cameras: Not scanned yet\n"
+        
+        return info
     
     def _on_state_query(self, msg):
         """Handle state query from separated UI and respond with current camera state"""

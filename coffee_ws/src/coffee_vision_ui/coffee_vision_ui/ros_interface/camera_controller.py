@@ -66,6 +66,8 @@ class CameraController(QObject):
             Bool, '/coffee_bot/camera/cmd/face_detection', 10)
         self.camera_refresh_pub = self.node.create_publisher(
             String, '/coffee_bot/camera/cmd/refresh', 10)
+        self.diagnostics_request_pub = self.node.create_publisher(
+            String, '/coffee_bot/camera/cmd/diagnostics', 10)
     
     def _setup_subscribers(self):
         """Set up ROS subscribers for receiving status from camera_node."""
@@ -126,25 +128,13 @@ class CameraController(QObject):
         """
         Request camera node to provide diagnostic information.
         
-        Note: This is a placeholder - in full implementation this might
-        be a service call rather than a topic.
+        Sends a diagnostics command to camera_node, which will respond
+        by publishing detailed diagnostic information.
         """
-        # TODO: Implement service call for diagnostics
-        # For now, emit a placeholder diagnostic
-        self._generate_placeholder_diagnostics()
-    
-    def _generate_placeholder_diagnostics(self):
-        """Generate placeholder diagnostic information."""
-        diagnostics = """Camera Diagnostics (UI-side placeholder):
-
-Status: Camera controller operational
-ROS Communication: Active
-Namespace: /coffee_bot/
-
-TODO: Implement full diagnostic service integration
-with camera_node for complete system diagnostics."""
-        
-        self.diagnostics_ready.emit(diagnostics)
+        msg = String()
+        msg.data = "get_diagnostics"
+        self.diagnostics_request_pub.publish(msg)
+        self.node.get_logger().info("Requested camera diagnostics from camera_node")
     
     def _camera_status_callback(self, msg):
         """
