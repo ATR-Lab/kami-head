@@ -17,6 +17,8 @@ from sensor_msgs.msg import Image
 from geometry_msgs.msg import Point
 from cv_bridge import CvBridge
 
+from .coordinate_utils import transform_camera_to_eye_coords
+
 # Models directory for face detection models
 MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 os.makedirs(MODELS_DIR, exist_ok=True)
@@ -223,9 +225,16 @@ class FrameGrabber:
                 self.node.get_logger().debug(f"Face detected at ({face_x:.1f}, {face_y:.1f}), offset from center: ({dx:.1f}, {dy:.1f})")
                 
                 # Transform camera coordinates to eye controller coordinates
-                eye_position = self.transform_camera_to_eye_coords(
-                    self.target_face_position[0],
-                    self.target_face_position[1]
+                eye_position = transform_camera_to_eye_coords(
+                    camera_x=self.target_face_position[0],
+                    camera_y=self.target_face_position[1],
+                    frame_width=self.frame_width,
+                    frame_height=self.frame_height,
+                    eye_range=self.eye_range,
+                    sensitivity=1.5,
+                    invert_x=self.invert_x,
+                    invert_y=self.invert_y,
+                    logger=self.node.get_logger() if self.node else None
                 )
                 
                 # Call go_to_pos only if we have a valid position
@@ -286,40 +295,7 @@ class FrameGrabber:
             if self.node:
                 self.node.get_logger().error(f"Error publishing face images: {e}")
 
-    def transform_camera_to_eye_coords(self, camera_x, camera_y):
-        """Transform camera coordinates to eye controller coordinates (-3.0 to 3.0 range)"""
-        # Normalize to -1.0 to 1.0
-        # Note: We invert the coordinates to ensure proper eye direction
-        # (When face is on right side, eyes should look right)
-        norm_x = (camera_x - self.frame_width/2) / (self.frame_width/2)
-        norm_y = (camera_y - self.frame_height/2) / (self.frame_height/2)
-        
-        # Add sensitivity multiplier (like in eye_tracking.py)
-        sensitivity = 1.5  # Higher = more sensitive eye movement
-        norm_x *= sensitivity
-        norm_y *= sensitivity
-        
-        # Apply inversions if configured
-        # Note: By default we want norm_x to be positive when face is on right side
-        # So default should have invert_x=False
-        # TODO: Fix / look into
-        if self.invert_x:
-            norm_x = -norm_x
-        if self.invert_y:
-            norm_y = -norm_y
-        
-        # Scale to eye controller range (-3.0 to 3.0)
-        eye_x = norm_x * self.eye_range
-        eye_y = norm_y * self.eye_range
-        
-        # Clamp values to valid range
-        eye_x = max(-self.eye_range, min(self.eye_range, eye_x))
-        eye_y = max(-self.eye_range, min(self.eye_range, eye_y))
-        
-        # Debug output for tuning
-        self.node.get_logger().debug(f'Camera coords: ({camera_x}, {camera_y}) -> Eye coords: ({eye_x}, {eye_y})')
-        
-        return (eye_x, eye_y)
+
 
     def publish_frame(self, frame):
         """Publish camera frame to ROS topics"""
