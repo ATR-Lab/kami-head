@@ -5,13 +5,15 @@ from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     """
-    Launch file for testing ROS camera transport performance.
+    Launch file for separated camera UI architecture.
     
     This launches both:
-    1. camera_node (publisher) - captures and publishes camera frames
-    2. camera_viewer_test (subscriber) - receives and displays frames via ROS
+    1. camera_node (publisher) - captures and publishes camera frames + handles commands
+    2. camera_viewer_test (subscriber/UI) - full-featured UI that controls camera via ROS
     
-    Use this to test the latency and performance of UI separation via ROS transport.
+    The UI communicates via /coffee_bot/ namespace topics for camera control,
+    status updates, and video streaming. This tests the feasibility of complete
+    UI separation from camera processing.
     """
     
     # Declare launch arguments
@@ -37,11 +39,11 @@ def generate_launch_description():
         ]
     )
     
-    # Camera viewer test - the subscriber
+    # Camera UI - the separated interface
     camera_viewer_test = Node(
         package='coffee_vision',
         executable='camera_viewer_test',
-        name='camera_viewer_test',
+        name='camera_ui',
         output='screen'
     )
     

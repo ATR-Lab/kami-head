@@ -308,36 +308,45 @@ Key parameters for optimization:
 
 ## Testing UI Separation
 
-### Camera Viewer Test
+### Separated Camera UI
 
-To test the feasibility of separating the UI layer from the camera node (enabling headless operation), use the `camera_viewer_test` node:
+The `camera_viewer_test` node provides a **full-featured camera UI** that communicates with `camera_node` via ROS topics, enabling complete UI separation from camera processing.
 
 ```bash
-# Test both publisher and subscriber together
+# Run both camera processing and separated UI
 ros2 launch coffee_vision camera_viewer_test.launch.py
 
 # Or run them separately:
-# Terminal 1: Run camera node (publisher)
+# Terminal 1: Run camera node (headless processing)
 ros2 run coffee_vision camera_node
 
-# Terminal 2: Run viewer test (subscriber)
+# Terminal 2: Run separated UI
 ros2 run coffee_vision camera_viewer_test
 ```
 
-**What this tests:**
-- ROS Image transport latency vs direct Qt display
-- Frame rate and smoothness via ROS topics
-- Bandwidth requirements for video streaming
-- Feasibility of remote UI operation
+**Features:**
+- **Complete camera control**: Camera selection, quality settings, face detection toggle
+- **Real-time video display**: Full video streaming with performance metrics
+- **Diagnostics**: System and camera diagnostic information
+- **ROS communication**: All control via standardized `/coffee_bot/` topics
 
-**Performance Metrics:**
-The viewer test displays real-time metrics:
-- **Display FPS**: How smoothly frames are rendered in the UI
-- **Frame Interval**: Time between received frames
-- **Transport Latency**: Estimated ROS transport delay
-- **Frame Size**: Resolution being transmitted
+**ROS Topics:**
+- Control: `/coffee_bot/camera/cmd/{select,quality,face_detection,refresh}`
+- Status: `/coffee_bot/camera/status/{info,available,diagnostics}`
+- Video: `/coffee_bot/camera/image_raw`
 
-Use this to evaluate whether ROS transport performance is acceptable for separating the camera processing from the UI layer.
+**Benefits:**
+- **Headless operation**: Camera node can run without GUI dependencies
+- **Remote monitoring**: UI can run on different machine than camera processing
+- **Scalability**: Multiple UIs can monitor same camera node
+- **Development flexibility**: UI and camera processing can be developed independently
+
+**Performance Testing:**
+The UI displays real-time performance metrics to evaluate ROS transport vs integrated approach:
+- **Display FPS**: UI rendering smoothness
+- **Frame Interval**: Time between received frames  
+- **Transport Latency**: ROS communication overhead
+- **Connection Status**: Real-time connection monitoring
 
 ## Known Limitations
 
