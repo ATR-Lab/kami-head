@@ -108,7 +108,7 @@ class FrameGrabber(QObject):
             self.face_pub = node.create_publisher(String, 'face_detection_data', 10)
             self.face_position_pub = node.create_publisher(Point, '/vision/face_position', 10)
             self.face_position_pub_v2 = node.create_publisher(String, '/vision/face_position_v2', 10)
-            self.frame_pub = node.create_publisher(Image, 'camera_frame', 10)
+            self.frame_pub = node.create_publisher(Image, '/coffee_bot/camera/image_raw', 10)
             self.face_image_pub = node.create_publisher(Image, 'face_images', 10)
             self.bridge = CvBridge()
             
