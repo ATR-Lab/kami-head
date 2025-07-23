@@ -11,9 +11,7 @@ import subprocess
 import json
 import collections
 from rclpy.node import Node
-from python_qt_binding.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QHBoxLayout, QCheckBox, QMessageBox
-from python_qt_binding.QtGui import QImage, QPixmap
-from python_qt_binding.QtCore import Qt, QTimer, pyqtSignal, QObject
+from python_qt_binding.QtCore import pyqtSignal, QObject
 from std_msgs.msg import Float32MultiArray, String, Bool, Int32
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Point
@@ -865,309 +863,24 @@ class FrameGrabber(QObject):
         except Exception as e:
             self.error.emit(f"Error in publish thread: {str(e)}")
 
-class CameraViewer(QMainWindow):
-    def __init__(self, node):
-        super().__init__()
-        self.node = node
-        self.frame_grabber = FrameGrabber(node)
-        self.frame_grabber.frame_ready.connect(self.process_frame)
-        self.frame_grabber.error.connect(self.handle_camera_error)
-        self.high_quality = False
-        self.face_detection_enabled = True
-        self.initUI()
-        self.check_video_devices()
-        self.scan_cameras()
-        
-    def initUI(self):
-        self.setWindowTitle('Coffee Camera - Webcam Viewer')
-        self.setGeometry(100, 100, 800, 600)
-        
-        # Main widget and layout
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        main_layout = QVBoxLayout(main_widget)
-        
-        # Camera feed display
-        self.image_label = QLabel("No camera feed available")
-        self.image_label.setAlignment(Qt.AlignCenter)
-        main_layout.addWidget(self.image_label)
-        
-        # Controls layout
-        controls_layout = QHBoxLayout()  # Horizontal layout
-        
-        # Camera selection
-        camera_selection_layout = QVBoxLayout()
-        camera_label = QLabel("Camera:")
-        self.camera_combo = QComboBox()
-        self.camera_combo.currentIndexChanged.connect(self.change_camera)
-        
-        camera_selection_layout.addWidget(camera_label)
-        camera_selection_layout.addWidget(self.camera_combo)
-        
-        # Refresh camera list button
-        self.refresh_button = QPushButton("Refresh")
-        self.refresh_button.clicked.connect(self.scan_cameras)
-        camera_selection_layout.addWidget(self.refresh_button)
-        
-        controls_layout.addLayout(camera_selection_layout)
-        
-        # Quality controls
-        quality_layout = QVBoxLayout()
-        quality_label = QLabel("Quality:")
-        
-        self.quality_checkbox = QCheckBox("High Quality (1080p)")
-        self.quality_checkbox.setChecked(self.high_quality)
-        self.quality_checkbox.stateChanged.connect(self.toggle_quality)
-        
-        quality_layout.addWidget(quality_label)
-        quality_layout.addWidget(self.quality_checkbox)
-        
-        # Face detection toggle
-        self.face_detection_checkbox = QCheckBox("Face Detection")
-        self.face_detection_checkbox.setChecked(self.face_detection_enabled)
-        self.face_detection_checkbox.stateChanged.connect(self.toggle_face_detection)
-        quality_layout.addWidget(self.face_detection_checkbox)
-        
-        controls_layout.addLayout(quality_layout)
-        
-        # Camera diagnostics button
-        self.diagnostics_button = QPushButton("Camera Diagnostics")
-        self.diagnostics_button.clicked.connect(self.show_diagnostics)
-        controls_layout.addWidget(self.diagnostics_button)
-        
-        # Add some spacer for better layout
-        controls_layout.addStretch(1)
-        
-        main_layout.addLayout(controls_layout)
-        
-        # Pre-allocate buffers for better performance
-        self.qt_image = None
-        self.pixmap = None
-    
-    def toggle_face_detection(self, state):
-        """Toggle face detection on/off"""
-        self.face_detection_enabled = bool(state)
-        self.node.get_logger().info(f"Face detection {'enabled' if self.face_detection_enabled else 'disabled'}")
-        self.frame_grabber.toggle_face_detection(self.face_detection_enabled)
-    
-    def check_video_devices(self):
-        """Check what video devices are available in the system"""
-        if not os.path.exists('/dev'):
-            self.node.get_logger().warn("No /dev directory found - not a Linux system?")
-            return
-        
-        video_devices = []
-        for device in os.listdir('/dev'):
-            if device.startswith('video'):
-                full_path = f"/dev/{device}"
-                if os.access(full_path, os.R_OK):
-                    video_devices.append(full_path)
-        
-        if not video_devices:
-            self.node.get_logger().warn("No video devices found in /dev/")
-            return
-        
-        self.node.get_logger().info(f"Found video devices: {', '.join(video_devices)}")
-        
-        # Check if any are in use
-        try:
-            output = subprocess.check_output(['fuser'] + video_devices, stderr=subprocess.STDOUT, text=True)
-            self.node.get_logger().warn(f"Some video devices are in use: {output}")
-        except subprocess.CalledProcessError:
-            # No devices in use (fuser returns non-zero if no processes found)
-            self.node.get_logger().info("No video devices appear to be in use")
-        except Exception as e:
-            # Some other error with fuser
-            self.node.get_logger().warn(f"Error checking device usage: {e}")
-    
-    def show_diagnostics(self):
-        """Show camera diagnostics information"""
-        info = "Camera Diagnostics:\n\n"
-        
-        # Check for video devices
-        video_devices = []
-        for device in os.listdir('/dev'):
-            if device.startswith('video'):
-                full_path = f"/dev/{device}"
-                access = os.access(full_path, os.R_OK)
-                video_devices.append(f"{full_path} (Readable: {access})")
-        
-        if video_devices:
-            info += "Video Devices:\n" + "\n".join(video_devices) + "\n\n"
-        else:
-            info += "No video devices found!\n\n"
-        
-        # OpenCV version
-        info += f"OpenCV Version: {cv2.__version__}\n"
-        
-        # Face detection status
-        info += f"Face Detection: {'Enabled' if self.face_detection_enabled else 'Disabled'}\n"
-        info += f"Using OpenCV DNN-based face detector\n\n"
-        
-        # Check which OpenCV backends are available
-        info += "Available OpenCV Backends:\n"
-        backends = [
-            (cv2.CAP_V4L2, "Linux V4L2"),
-            (cv2.CAP_GSTREAMER, "GStreamer"),
-            (cv2.CAP_FFMPEG, "FFMPEG"),
-            (cv2.CAP_IMAGES, "Images"),
-            (cv2.CAP_DSHOW, "DirectShow (Windows)"),
-            (cv2.CAP_ANY, "Auto-detect")
-        ]
-        
-        for backend_id, name in backends:
-            info += f"- {name}\n"
-        
-        # Show message box with diagnostic info
-        QMessageBox.information(self, "Camera Diagnostics", info)
-    
-    def scan_cameras(self):
-        """Scan for available cameras"""
-        self.camera_combo.clear()
-        
-        # Stop current camera if running
-        self.frame_grabber.stop()
-        
-        # Check for cameras using direct V4L2 access first
-        self.node.get_logger().info("Scanning for cameras...")
-        available_cameras = []
-        
-        # In Linux, we can check directly which devices are video capture devices
-        if os.path.exists('/dev'):
-            for i in range(10):
-                device_path = f"/dev/video{i}"
-                if os.path.exists(device_path) and os.access(device_path, os.R_OK):
-                    try:
-                        # Try to open the camera directly with V4L2
-                        cap = cv2.VideoCapture(i, cv2.CAP_V4L2)
-                        if cap.isOpened():
-                            # It's a valid camera
-                            camera_name = f"Camera {i} ({device_path})"
-                            available_cameras.append((i, camera_name))
-                            cap.release()
-                        else:
-                            self.node.get_logger().info(f"Device {device_path} exists but couldn't be opened as a camera")
-                    except Exception as e:
-                        self.node.get_logger().warn(f"Error checking {device_path}: {e}")
-        
-        # Fallback to generic scanning
-        if not available_cameras:
-            self.node.get_logger().info("Direct scan failed, trying generic approach...")
-            for i in range(2):  # Only try the first two indices to avoid lengthy timeouts
-                try:
-                    cap = cv2.VideoCapture(i)
-                    if cap.isOpened():
-                        camera_name = f"Camera {i}"
-                        available_cameras.append((i, camera_name))
-                        cap.release()
-                except Exception as e:
-                    self.node.get_logger().warn(f"Error scanning camera {i}: {e}")
-        
-        # Store for state queries
-        self.available_cameras = available_cameras
-        
-        # Add available cameras to combo box
-        for idx, name in available_cameras:
-            self.camera_combo.addItem(name, idx)
-            
-        if not available_cameras:
-            self.node.get_logger().error("No cameras found!")
-            self.image_label.setText("No cameras found! Check connections and permissions.")
-            return
-            
-        # If any camera is available, start the first one
-        if self.camera_combo.count() > 0:
-            self.change_camera(self.camera_combo.currentIndex())
-    
-    def change_camera(self, index):
-        """Change to a different camera"""
-        if index >= 0:
-            camera_index = self.camera_combo.itemData(index)
-            self.node.get_logger().info(f"Changing to camera index {camera_index}")
-            self.frame_grabber.stop()
-            self.frame_grabber.set_quality(self.high_quality)
-            self.frame_grabber.toggle_face_detection(self.face_detection_enabled)
-            # Try with V4L2 backend specifically on Linux
-            if os.name == 'posix':
-                self.frame_grabber.start(camera_index, cv2.CAP_V4L2)
-            else:
-                self.frame_grabber.start(camera_index)
-    
-    def toggle_quality(self, state):
-        """Toggle between high and low quality modes"""
-        self.high_quality = bool(state)
-        self.node.get_logger().info(f"Quality set to {'high' if self.high_quality else 'standard'}")
-        self.frame_grabber.set_quality(self.high_quality)
-    
-    def handle_camera_error(self, error_msg):
-        """Handle errors from the camera thread"""
-        self.node.get_logger().error(f"Camera error: {error_msg}")
-        self.image_label.setText(f"Camera error: {error_msg}\nTry refreshing or check permissions.")
-    
-    def process_frame(self, frame):
-        """Process and display a camera frame - optimized for speed"""
-        if frame is None:
-            return
-            
-        # Convert colors - BGR to RGB (optimized)
-        rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # Scale image to fit label
-        label_width = self.image_label.width()
-        label_height = self.image_label.height()
-        
-        if label_width > 0 and label_height > 0:
-            h, w = rgb_image.shape[:2]
-            
-            # Calculate scale factor to fit in label while preserving aspect ratio
-            scale_w = label_width / w
-            scale_h = label_height / h
-            scale = min(scale_w, scale_h)
-            
-            # Always scale to fit the label
-            new_size = (int(w * scale), int(h * scale))
-            # Use INTER_LINEAR for better quality when upscaling, INTER_AREA for downscaling
-            interpolation = cv2.INTER_LINEAR if scale > 1.0 else cv2.INTER_AREA
-            rgb_image = cv2.resize(rgb_image, new_size, interpolation=interpolation)
-        
-        # Convert to QImage and display (reusing objects when possible)
-        h, w, ch = rgb_image.shape
-        bytes_per_line = ch * w
-        
-        # Convert to QImage efficiently
-        qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(qt_image)
-        self.image_label.setPixmap(pixmap)
-    
-    def closeEvent(self, event):
-        """Clean up when window is closed"""
-        self.frame_grabber.stop()
-        event.accept()
-
 
 class CameraNode(Node):
-    def __init__(self, executor):
+    def __init__(self):
         # Initialize node
         super().__init__('coffee_camera_node')
         self.get_logger().info('Camera node is starting...')
         
-        # Store executor
-        self.executor = executor
-        self.executor.add_node(self)
-        
-        # Start the UI
-        app = QApplication(sys.argv)
-        self.ui = CameraViewer(self)
-        self.ui.show()
+        # Initialize frame grabber for camera processing
+        self.frame_grabber = FrameGrabber(self)
         
         # Set up ROS control interface for separated UI communication
         self._setup_ros_control_interface()
         
-        # Start a background thread for ROS spinning
-        self.spinning = True
-        self.ros_thread = threading.Thread(target=self.spin_thread)
-        self.ros_thread.daemon = True
-        self.ros_thread.start()
+        # Camera state tracking
+        self.available_cameras = []
+        self.current_camera_index = -1
+        self.high_quality = False
+        self.face_detection_enabled = True
         
         # # Add parameters for mapping
         # self.declare_parameter('invert_x', False)  # Default FALSE for correct eye movement
@@ -1183,13 +896,88 @@ class CameraNode(Node):
         self.invert_y = False
         # self.eye_range = 3.0
         self.eye_range = 1.0 # The constraint for the values of the eye movement in the UI
-
-        try:
-            # Start Qt event loop
-            app.exec_()
-        except KeyboardInterrupt:
-            self.spinning = False
-            self.destroy_node()
+        
+        # Initialize camera system
+        self.scan_cameras()
+    
+    def scan_cameras(self):
+        """Scan for available cameras"""
+        self.get_logger().info("Scanning for cameras...")
+        available_cameras = []
+        
+        # Stop current camera if running
+        if hasattr(self, 'frame_grabber'):
+            self.frame_grabber.stop()
+        
+        # Check for cameras using direct V4L2 access first
+        if os.path.exists('/dev'):
+            for i in range(10):
+                device_path = f"/dev/video{i}"
+                if os.path.exists(device_path) and os.access(device_path, os.R_OK):
+                    try:
+                        # Try to open the camera directly with V4L2
+                        cap = cv2.VideoCapture(i, cv2.CAP_V4L2)
+                        if cap.isOpened():
+                            # It's a valid camera
+                            camera_name = f"Camera {i} ({device_path})"
+                            available_cameras.append((i, camera_name))
+                            cap.release()
+                        else:
+                            self.get_logger().info(f"Device {device_path} exists but couldn't be opened as a camera")
+                    except Exception as e:
+                        self.get_logger().warn(f"Error checking {device_path}: {e}")
+        
+        # Fallback to generic scanning
+        if not available_cameras:
+            self.get_logger().info("Direct scan failed, trying generic approach...")
+            for i in range(2):  # Only try the first two indices to avoid lengthy timeouts
+                try:
+                    cap = cv2.VideoCapture(i)
+                    if cap.isOpened():
+                        camera_name = f"Camera {i}"
+                        available_cameras.append((i, camera_name))
+                        cap.release()
+                except Exception as e:
+                    self.get_logger().warn(f"Error scanning camera {i}: {e}")
+        
+        # Store for state queries
+        self.available_cameras = available_cameras
+        
+        if not available_cameras:
+            self.get_logger().error("No cameras found!")
+            return
+            
+        # Start the first available camera
+        if available_cameras:
+            first_camera_index = available_cameras[0][0]
+            self.change_camera(first_camera_index)
+    
+    def change_camera(self, camera_index):
+        """Change to a different camera"""
+        self.get_logger().info(f"Changing to camera index {camera_index}")
+        self.current_camera_index = camera_index
+        
+        self.frame_grabber.stop()
+        self.frame_grabber.set_quality(self.high_quality)
+        self.frame_grabber.toggle_face_detection(self.face_detection_enabled)
+        
+        # Try with V4L2 backend specifically on Linux
+        if os.name == 'posix':
+            self.frame_grabber.start(camera_index, cv2.CAP_V4L2)
+        else:
+            self.frame_grabber.start(camera_index)
+    
+    def set_quality(self, high_quality):
+        """Set camera quality"""
+        self.high_quality = high_quality
+        self.get_logger().info(f"Quality set to {'high' if high_quality else 'standard'}")
+        self.frame_grabber.set_quality(high_quality)
+    
+    def set_face_detection(self, enabled):
+        """Set face detection state"""
+        self.face_detection_enabled = enabled
+        self.get_logger().info(f"Face detection {'enabled' if enabled else 'disabled'}")
+        self.frame_grabber.toggle_face_detection(enabled)
     
     def _setup_ros_control_interface(self):
         """Set up ROS subscribers and publishers for separated UI control"""
@@ -1223,13 +1011,8 @@ class CameraNode(Node):
         camera_index = msg.data
         self.get_logger().info(f'Received camera selection command: {camera_index}')
         
-        # Forward command to the integrated UI if it exists
-        if hasattr(self, 'ui') and hasattr(self.ui, 'change_camera'):
-            # Find the combo box index for this camera index
-            for i in range(self.ui.camera_combo.count()):
-                if self.ui.camera_combo.itemData(i) == camera_index:
-                    self.ui.camera_combo.setCurrentIndex(i)
-                    break
+        # Directly control camera
+        self.change_camera(camera_index)
         
         # Publish status update
         status_msg = String()
@@ -1241,9 +1024,8 @@ class CameraNode(Node):
         high_quality = msg.data
         self.get_logger().info(f'Received quality change command: {"high" if high_quality else "standard"}')
         
-        # Forward command to the integrated UI if it exists
-        if hasattr(self, 'ui') and hasattr(self.ui, 'quality_checkbox'):
-            self.ui.quality_checkbox.setChecked(high_quality)
+        # Directly control quality
+        self.set_quality(high_quality)
         
         # Publish status update
         status_msg = String()
@@ -1255,9 +1037,8 @@ class CameraNode(Node):
         enabled = msg.data
         self.get_logger().info(f'Received face detection command: {"enabled" if enabled else "disabled"}')
         
-        # Forward command to the integrated UI if it exists
-        if hasattr(self, 'ui') and hasattr(self.ui, 'face_detection_checkbox'):
-            self.ui.face_detection_checkbox.setChecked(enabled)
+        # Directly control face detection
+        self.set_face_detection(enabled)
         
         # Publish status update
         status_msg = String()
@@ -1268,9 +1049,8 @@ class CameraNode(Node):
         """Handle camera refresh command from separated UI"""
         self.get_logger().info('Received camera refresh command')
         
-        # Forward command to the integrated UI if it exists
-        if hasattr(self, 'ui') and hasattr(self.ui, 'scan_cameras'):
-            self.ui.scan_cameras()
+        # Directly scan cameras
+        self.scan_cameras()
         
         # Publish status update
         status_msg = String()
@@ -1317,11 +1097,11 @@ class CameraNode(Node):
         info += f"OpenCV Version: {cv2.__version__}\n"
         
         # Camera state
-        if hasattr(self, 'ui') and hasattr(self.ui, 'frame_grabber'):
-            info += f"Frame Grabber Running: {self.ui.frame_grabber.running}\n"
-            info += f"Current Camera Index: {getattr(self.ui.frame_grabber, 'camera_index', 'Unknown')}\n"
-            info += f"Frame Dimensions: {getattr(self.ui.frame_grabber, 'frame_width', 'Unknown')}x{getattr(self.ui.frame_grabber, 'frame_height', 'Unknown')}\n"
-            info += f"Face Detection: {'Enabled' if getattr(self.ui.frame_grabber, 'enable_face_detection', False) else 'Disabled'}\n\n"
+        if hasattr(self, 'frame_grabber'):
+            info += f"Frame Grabber Running: {self.frame_grabber.running}\n"
+            info += f"Current Camera Index: {getattr(self.frame_grabber, 'camera_index', 'Unknown')}\n"
+            info += f"Frame Dimensions: {getattr(self.frame_grabber, 'frame_width', 'Unknown')}x{getattr(self.frame_grabber, 'frame_height', 'Unknown')}\n"
+            info += f"Face Detection: {'Enabled' if getattr(self.frame_grabber, 'enable_face_detection', False) else 'Disabled'}\n\n"
         
         # ROS Topics
         info += "Active ROS Publishers:\n"
@@ -1341,13 +1121,10 @@ class CameraNode(Node):
         info += "- /coffee_bot/camera/query/state (state queries)\n\n"
         
         # Available cameras
-        if hasattr(self, 'ui') and hasattr(self.ui, 'available_cameras'):
-            camera_count = len(getattr(self.ui, 'available_cameras', []))
-            info += f"Available Cameras: {camera_count}\n"
-            for idx, name in getattr(self.ui, 'available_cameras', []):
-                info += f"  - {name} (index: {idx})\n"
-        else:
-            info += "Available Cameras: Not scanned yet\n"
+        camera_count = len(self.available_cameras)
+        info += f"Available Cameras: {camera_count}\n"
+        for idx, name in self.available_cameras:
+            info += f"  - {name} (index: {idx})\n"
         
         return info
     
@@ -1355,36 +1132,16 @@ class CameraNode(Node):
         """Handle state query from separated UI and respond with current camera state"""
         self.get_logger().info('Received state query from separated UI')
         
-        # Gather current state from integrated UI
-        current_state = {}
-        
-        if hasattr(self, 'ui'):
-            # Get current camera index
-            current_camera_index = -1
-            if hasattr(self.ui, 'camera_combo') and self.ui.camera_combo.count() > 0:
-                current_camera_index = self.ui.camera_combo.itemData(self.ui.camera_combo.currentIndex())
-            current_state['camera_index'] = current_camera_index
-            
-            # Get quality setting
-            high_quality = False
-            if hasattr(self.ui, 'quality_checkbox'):
-                high_quality = self.ui.quality_checkbox.isChecked()
-            current_state['high_quality'] = high_quality
-            
-            # Get face detection setting
-            face_detection = True
-            if hasattr(self.ui, 'face_detection_checkbox'):
-                face_detection = self.ui.face_detection_checkbox.isChecked()
-            current_state['face_detection_enabled'] = face_detection
-            
-            # Get available cameras
-            available_cameras = []
-            if hasattr(self.ui, 'available_cameras'):
-                available_cameras = [
-                    {"index": idx, "name": name} 
-                    for idx, name in self.ui.available_cameras
-                ]
-            current_state['available_cameras'] = available_cameras
+        # Gather current state directly from CameraNode
+        current_state = {
+            'camera_index': self.current_camera_index,
+            'high_quality': self.high_quality,
+            'face_detection_enabled': self.face_detection_enabled,
+            'available_cameras': [
+                {"index": idx, "name": name} 
+                for idx, name in self.available_cameras
+            ]
+        }
         
         # Publish current state as JSON
         import json
@@ -1396,22 +1153,14 @@ class CameraNode(Node):
                               f'high_quality={current_state.get("high_quality", False)}, '
                               f'face_detection={current_state.get("face_detection_enabled", True)}')
     
-    def spin_thread(self):
-        """Background thread for ROS spinning"""
-        while self.spinning:
-            self.executor.spin_once(timeout_sec=0.1)
-        self.destroy_node()
-    
     def destroy_node(self):
         """Clean shutdown"""
         self.get_logger().info('Shutting down camera node')
-        self.spinning = False
         
         # Stop the frame grabber
-        if hasattr(self, 'ui') and hasattr(self.ui, 'frame_grabber'):
-            # Stop frame grabber
+        if hasattr(self, 'frame_grabber'):
             try:
-                self.ui.frame_grabber.stop()
+                self.frame_grabber.stop()
                 self.get_logger().info('Frame grabber stopped')
             except Exception as e:
                 self.get_logger().error(f'Error stopping frame grabber: {e}')
@@ -1425,11 +1174,17 @@ def main(args=None):
         # Initialize ROS2
         rclpy.init(args=args)
         
-        # Create executor first
-        executor = rclpy.executors.SingleThreadedExecutor()
-        
         # Create and run the node
-        node = CameraNode(executor)
+        node = CameraNode()
+        
+        # Standard ROS spinning
+        try:
+            rclpy.spin(node)
+        except KeyboardInterrupt:
+            node.get_logger().info('Camera node interrupted by user')
+        finally:
+            node.destroy_node()
+            
     except Exception as e:
         print(f"Error in camera node: {str(e)}")
         import traceback
