@@ -126,9 +126,25 @@ ros2 topic pub /voice_agent/virtual_requests std_msgs/String '{
 
 # Order ready notification
 ros2 topic pub /voice_agent/virtual_requests std_msgs/String '{
-  "data": "{\"request_type\": \"ORDER_READY\", \"content\": \"Americano (Order: abc123)\", \"priority\": \"urgent\"}"
+  "data": "{\"request_type\": \"ORDER_READY\", \"content\": \"Americano\", \"priority\": \"urgent\"}"
+}'
+
+# Order processing update
+ros2 topic pub /voice_agent/virtual_requests std_msgs/String '{
+  "data": "{\"request_type\": \"ORDER_PROCESSING\", \"content\": \"Cappuccino\", \"priority\": \"normal\"}"
 }'
 ```
+
+**Note:** The bridge automatically adds order IDs to create announcements like:
+- *"New order alert! We have a Espresso (Order ABC123) request coming in!"*
+- *"Order ready for pickup: Americano (Order XYZ789)!"*
+
+**Message Format:**
+- `request_type`: Type of request (NEW_COFFEE_REQUEST, ORDER_READY, ORDER_PROCESSING, etc.)
+- `content`: Coffee type or order description  
+- `priority`: Request priority (normal, urgent, low)
+
+**⚠️ Important:** The `content` field should avoid colons (`:`) as they interfere with the voice agent's `emotion:text` delimiter system. Order IDs are automatically formatted as `(Order ABC123)` instead of `(Order: ABC123)` to prevent parsing conflicts.
 
 ## Monitoring
 
@@ -192,7 +208,7 @@ ros2 topic echo /voice_agent/emotion
 ```bash
 # Send machine status updates to voice agent
 ros2 topic pub /voice_agent/virtual_requests std_msgs/String '{
-  "data": "{\"request_type\": \"ORDER_PROCESSING\", \"content\": \"Your Espresso is brewing!\"}"
+  "data": "{\"request_type\": \"ORDER_PROCESSING\", \"content\": \"Your Espresso is brewing!\", \"priority\": \"normal\"}"
 }'
 ```
 
@@ -232,6 +248,18 @@ IncludeLaunchDescription(
 
 # Check WebSocket server status
 curl -I http://localhost:8080
+```
+
+### Message Format Issues
+```bash
+# Voice agent only speaks partial announcements or order IDs
+[WARNING] Invalid emotion 'Your coffee (Order', keeping current emotion
+# Problem: Message content contains colons which conflict with emotion:text delimiter
+# Solution: Avoid colons in virtual request content - use "(Order ABC)" not "(Order: ABC)"
+
+# Voice agent speaks wrong emotion or text
+# Problem: The voice agent uses emotion:text format for TTS processing
+# Solution: Ensure content doesn't contain colons that would split incorrectly
 ```
 
 ### Build Issues
@@ -279,4 +307,4 @@ ros2 launch coffee_voice_agent voice_agent_system.launch.py
 - [ ] Add parameter server integration for dynamic configuration
 - [ ] Add diagnostics and health monitoring
 - [ ] Add audio stream bridging for ROS2 audio topics
-- [ ] Add behavior tree integration for complex interaction flows 
+- [ ] Add behavior tree integration for complex interaction flows
