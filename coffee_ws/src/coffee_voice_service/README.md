@@ -99,7 +99,7 @@ ros2 run coffee_voice_service tts_node
 
 **Test TTS service:**
 ```bash
-ros2 service call /coffee/voice/tts/query coffee_buddy_msgs/srv/TTSQuery "{text: 'Hello, I am Coffee Buddy!'}"
+ros2 service call /coffee/voice/tts/query coffee_speech_msgs/srv/TTSQuery "{text: 'Testing refactored speech messages'}
 ```
 
 **Monitor status:**
