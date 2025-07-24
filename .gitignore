@@ -2,6 +2,7 @@
 install/
 build/
 log/
+data/
 *.bag
 .catkin_workspace
 
