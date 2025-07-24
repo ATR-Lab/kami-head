@@ -84,7 +84,7 @@ source "$VENV_PATH/bin/activate"
 # Step 2: Change to coffee_ws directory and source ROS environment
 echo "  [2/3] Sourcing ROS2 environment..."
 pushd "$COFFEE_WS_PATH" > /dev/null
-source "$SCRIPTS_PATH/ros-source.sh"
+source "$SCRIPTS_PATH/ros_source.sh"
 
 # Step 3: Run ros-source function to set up ROS2 and workspace
 echo "  [3/3] Configuring workspace overlay..."
