@@ -64,8 +64,12 @@ COFFEE_WS_PATH="$REPO_ROOT/coffee_ws"
 # Check if the venv exists
 if [ ! -d "$VENV_PATH" ]; then
     echo "Error: Virtual environment not found at $VENV_PATH"
-    echo "Please create the virtual environment first:"
-    echo "  python3 -m venv $VENV_PATH"
+    echo ""
+    echo "It looks like you haven't run the initial setup yet."
+    echo "Please run the setup script first:"
+    echo "  ./scripts/setup_workspace.sh"
+    echo ""
+    echo "This will install system dependencies and create the virtual environment."
     return 1
 fi
 
