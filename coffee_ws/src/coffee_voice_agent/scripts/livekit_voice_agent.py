@@ -1107,7 +1107,7 @@ class CoffeeBaristaAgent(Agent):
                     priority = data.get("priority", "normal")
                     
                     # Format content for voice announcement
-                    content = f"{coffee_type} (Order: {order_id[:8]}...)"
+                    content = f"{coffee_type} (Order {order_id[:8]})"
                     
                     # Queue virtual request using thread-safe method
                     # Use run_coroutine_threadsafe for async function calls
