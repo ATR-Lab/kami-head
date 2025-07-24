@@ -12,7 +12,7 @@ empy==3.3.4  # Required for ROS2 Jazzy package creation (newer versions cause At
 # Audio processing
 elevenlabs==1.57.0
 pyaudio==0.2.14
-sounddevice==0.4.6
+sounddevice>=0.5
 soundfile==0.13.1
 wave==0.0.2
 pulsectl==23.5.2
