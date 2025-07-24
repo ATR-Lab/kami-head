@@ -14,8 +14,6 @@ setup(
     ],
     install_requires=[
         'setuptools',
-        'elevenlabs==1.57.0',
-        'PyAudio==0.2.14',
     ],
     zip_safe=True,
     maintainer='vr-workstation-2',

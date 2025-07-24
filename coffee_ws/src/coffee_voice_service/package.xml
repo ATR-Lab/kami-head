@@ -15,7 +15,7 @@
   <depend>coffee_speech_msgs</depend>
   
   <!-- System dependencies for audio -->
-  <depend>python3-pyaudio</depend>
+  <!-- <depend>python3-pyaudio</depend> --> <!-- Managed by virtual environment -->
 
   <!-- Test dependencies -->
   <test_depend>ament_copyright</test_depend>

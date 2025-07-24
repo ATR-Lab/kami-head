@@ -16,9 +16,6 @@ setup(
     ],
     install_requires=[
         'setuptools',
-        'numpy',
-        'opencv-python',
-        'PyQt5',
     ],
     zip_safe=True,
     maintainer='kpatch',
