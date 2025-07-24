@@ -5,6 +5,7 @@ generator client {
     provider             = "prisma-client-py"
     interface           = "asyncio"
     recursive_type_depth = 5
+    output              = "../../../data/sui_indexer/prisma_client"
 }
 
 /// We can setup the provider to our database

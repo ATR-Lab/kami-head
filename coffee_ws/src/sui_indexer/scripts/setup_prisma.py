@@ -13,30 +13,36 @@ class PrismaSetupNode(Node):
         super().__init__('prisma_setup')
         
         try:
-            # Get package paths
-            self.pkg_share = get_package_share_directory('sui_indexer')
-            self.prisma_path = os.path.join(self.pkg_share, 'prisma')
+            # Get package share for prisma schema location only
+            pkg_share = get_package_share_directory('sui_indexer')
+            self.prisma_path = os.path.join(pkg_share, 'prisma')
             
             # Ensure prisma directory exists
             if not os.path.exists(self.prisma_path):
                 raise FileNotFoundError(f"Prisma schema directory not found at {self.prisma_path}")
             
-            # Create data directory in package share
-            self.data_dir = os.path.join(self.pkg_share, 'data')
-            os.makedirs(self.data_dir, exist_ok=True)
+            # Use workspace root for persistent data (NOT install directory)
+            workspace_root = Path.cwd()  # Should be coffee_ws when launched properly
+            self.data_dir = workspace_root / "data" / "sui_indexer"
+            self.data_dir.mkdir(parents=True, exist_ok=True)
             
-            # Set absolute database path
-            self.db_path = os.path.abspath(os.path.join(self.data_dir, 'sui_indexer.db'))
+            # Set absolute database path in workspace data directory
+            self.db_path = self.data_dir / "sui_indexer.db"
             
-            # Set database URL with absolute path
-            os.environ['DATABASE_URL'] = f'file:{self.db_path}'
+            # Prisma client generation directory
+            self.prisma_client_dir = self.data_dir / "prisma_client"
+            self.prisma_client_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Database URL for this setup session only
+            self.database_url = f'file:{self.db_path}'
             
             # Log all paths for verification
-            self.get_logger().info(f"Package share directory: {self.pkg_share}")
+            self.get_logger().info(f"Package share directory: {pkg_share}")
             self.get_logger().info(f"Prisma directory: {self.prisma_path}")
-            self.get_logger().info(f"Data directory: {self.data_dir}")
+            self.get_logger().info(f"Workspace data directory: {self.data_dir}")
             self.get_logger().info(f"Database absolute path: {self.db_path}")
-            self.get_logger().info(f"Database URL: {os.environ['DATABASE_URL']}")
+            self.get_logger().info(f"Prisma client directory: {self.prisma_client_dir}")
+            self.get_logger().info(f"Database URL: {self.database_url}")
             
             # Run setup
             self.setup_prisma()
@@ -49,15 +55,13 @@ class PrismaSetupNode(Node):
         """Run Prisma generate and migrate."""
         try:
             # Remove existing database if it exists
-            if os.path.exists(self.db_path):
+            if self.db_path.exists():
                 self.get_logger().info(f"Removing existing database at: {self.db_path}")
-                os.remove(self.db_path)
+                self.db_path.unlink()
             
-            # Also check and remove any database in workspace data directory
-            workspace_db = os.path.join(os.getcwd(), 'data', 'sui_indexer.db')
-            if os.path.exists(workspace_db):
-                self.get_logger().info(f"Removing duplicate database at: {workspace_db}")
-                os.remove(workspace_db)
+            # Create isolated environment for Prisma commands
+            prisma_env = os.environ.copy()
+            prisma_env['DATABASE_URL'] = self.database_url
             
             # Generate Prisma client
             self.get_logger().info('Generating Prisma client...')
@@ -67,7 +71,7 @@ class PrismaSetupNode(Node):
                 check=True,
                 capture_output=True,
                 text=True,
-                env=dict(os.environ)
+                env=prisma_env
             )
             self.get_logger().info('Prisma generate output:')
             self.get_logger().info(result.stdout)
@@ -79,7 +83,7 @@ class PrismaSetupNode(Node):
             push_cmd = ['prisma', 'db', 'push', '--force-reset', '--accept-data-loss']
             self.get_logger().info(f"Running command: {' '.join(push_cmd)}")
             self.get_logger().info(f"In directory: {self.prisma_path}")
-            self.get_logger().info(f"With DATABASE_URL: {os.environ['DATABASE_URL']}")
+            self.get_logger().info(f"With DATABASE_URL: {self.database_url}")
             
             result = subprocess.run(
                 push_cmd,
@@ -87,7 +91,7 @@ class PrismaSetupNode(Node):
                 check=True,
                 capture_output=True,
                 text=True,
-                env=dict(os.environ)
+                env=prisma_env
             )
             self.get_logger().info('Prisma db push output:')
             self.get_logger().info(result.stdout)
@@ -95,24 +99,21 @@ class PrismaSetupNode(Node):
                 self.get_logger().warn(f'Prisma db push stderr: {result.stderr}')
             
             # Verify database was created in correct location
-            if os.path.exists(self.db_path):
-                size = os.path.getsize(self.db_path)
+            if self.db_path.exists():
+                size = self.db_path.stat().st_size
                 self.get_logger().info(f"Database file created successfully at: {self.db_path}")
                 self.get_logger().info(f"Database file size: {size} bytes")
                 
-                # Double check no duplicate was created
-                if os.path.exists(workspace_db):
-                    self.get_logger().error(f"Unexpected duplicate database created at: {workspace_db}")
-                    raise RuntimeError("Prisma created database in unexpected location")
-                
                 # Verify tables by connecting and querying
                 try:
+                    # Add the generated prisma client to Python path
+                    sys.path.insert(0, str(self.prisma_client_dir))
                     from prisma import Prisma
                     
                     # Initialize Prisma client with absolute path
                     db = Prisma(
                         datasource={
-                            "url": f"file:{self.db_path}"
+                            "url": str(self.database_url)
                         }
                     )
                     
@@ -137,8 +138,6 @@ class PrismaSetupNode(Node):
                     raise
             else:
                 self.get_logger().error(f"Database file not created at expected location: {self.db_path}")
-                if os.path.exists(workspace_db):
-                    self.get_logger().error(f"Database was created in wrong location: {workspace_db}")
                 raise FileNotFoundError(f"Database file not created at {self.db_path}")
             
             self.get_logger().info('Prisma setup completed successfully')

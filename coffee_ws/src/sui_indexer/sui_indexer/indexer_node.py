@@ -121,14 +121,14 @@ class SuiIndexerNode(Node):
         self.indexer_thread = None
         self.loop = None
         
-        # Get database URL from parameter or use default in package share
+        # Get database URL from parameter or use default in workspace data directory
         database_url = self.get_parameter('database_url').value
         if not database_url or database_url == 'file:sui_indexer.db':
-            # Use package share directory for default database location
-            pkg_share = get_package_share_directory('sui_indexer')
-            data_dir = os.path.join(pkg_share, 'data')
-            os.makedirs(data_dir, exist_ok=True)
-            db_path = os.path.join(data_dir, 'sui_indexer.db')
+            # Use workspace data directory for default database location (NOT install directory)
+            workspace_root = Path(os.getcwd())  # Should be coffee_ws when launched properly
+            data_dir = workspace_root / "data" / "sui_indexer"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            db_path = data_dir / "sui_indexer.db"
             database_url = f'file:{db_path}'
         
         self.database_url = database_url
@@ -232,6 +232,13 @@ class SuiIndexerNode(Node):
         """Initialize database and Sui clients."""
         try:
             self.get_logger().info("Initializing clients...")
+            
+            # Add workspace-generated Prisma client to Python path
+            workspace_root = Path(os.getcwd())
+            prisma_client_dir = workspace_root / "data" / "sui_indexer" / "prisma_client"
+            if prisma_client_dir.exists():
+                import sys
+                sys.path.insert(0, str(prisma_client_dir))
             
             # Initialize Prisma with database URL from parameter
             self.db = Prisma(
