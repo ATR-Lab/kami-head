@@ -78,16 +78,22 @@ echo "Virtual environment: $VENV_NAME"
 echo "Workspace: $COFFEE_WS_PATH"
 
 # Step 1: Activate the virtual environment
-echo "  [1/3] Activating virtual environment..."
+echo "  [1/4] Activating virtual environment..."
 source "$VENV_PATH/bin/activate"
 
-# Step 2: Change to coffee_ws directory and source ROS environment
-echo "  [2/3] Sourcing ROS2 environment..."
+# Step 2: Configure PYTHONPATH to allow system Python (used by ROS2 entry points) 
+#         to find ALL packages installed in the virtual environment
+echo "  [2/4] Configuring PYTHONPATH for ROS2 entry points..."
+VENV_SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
+export PYTHONPATH="$VENV_SITE_PACKAGES:$PYTHONPATH"
+
+# Step 3: Change to coffee_ws directory and source ROS environment
+echo "  [3/4] Sourcing ROS2 environment..."
 pushd "$COFFEE_WS_PATH" > /dev/null
 source "$SCRIPTS_PATH/ros_source.sh"
 
-# Step 3: Run ros-source function to set up ROS2 and workspace
-echo "  [3/3] Configuring workspace overlay..."
+# Step 4: Run ros-source function to set up ROS2 and workspace
+echo "  [4/4] Configuring workspace overlay..."
 ros-source
 
 # Return to original directory
@@ -95,12 +101,24 @@ popd > /dev/null
 
 # Quick verification that critical packages are available
 echo "  [Verification] Checking critical dependencies..."
-if ! python -c "import pyaudio" 2>/dev/null; then
+
+# Verify virtual environment packages are accessible to system Python via PYTHONPATH
+# Test with PyAudio and elevenlabs as representative virtual environment packages
+if ! /usr/bin/python3 -c "import pyaudio" 2>/dev/null; then
     echo ""
-    echo "⚠️  Warning: PyAudio not available in virtual environment"
+    echo "⚠️  Warning: PyAudio not accessible to system Python via PYTHONPATH"
     echo "   This is required for TTS functionality."
     echo "   Please run the setup script to install dependencies:"
     echo "   ./scripts/setup_workspace.sh"
+    echo ""
+    return 1
+fi
+
+if ! /usr/bin/python3 -c "import elevenlabs" 2>/dev/null; then
+    echo ""
+    echo "⚠️  Warning: Virtual environment packages not accessible to system Python"
+    echo "   PYTHONPATH may not be configured correctly."
+    echo "   Please check the setup or re-run this script."
     echo ""
     return 1
 fi
@@ -109,6 +127,6 @@ echo ""
 echo "✓ Workspace activation complete!"
 echo "  Virtual environment: $VENV_NAME"
 echo "  Python: $(which python)"
-echo "  PyAudio: Available ✓"
+echo "  Virtual env packages: Available to system Python (via PYTHONPATH) ✓"
 echo "  ROS2 workspace ready for development"
 echo ""
