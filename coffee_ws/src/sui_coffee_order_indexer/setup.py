@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 import os
 from glob import glob
 
-package_name = 'sui_indexer'
+package_name = 'sui_coffee_order_indexer'
 package_dir = os.path.dirname(os.path.abspath(__file__))
 
 setup(
@@ -30,12 +30,12 @@ setup(
     zip_safe=True,
     maintainer='kpatch',
     maintainer_email='irvsteve@gmail.com',
-    description='A ROS2 package for indexing Sui blockchain events',
+    description='A ROS2 package for indexing coffee order events from the Sui blockchain',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'indexer_node = sui_indexer.indexer_node:main',
+            'indexer_node = sui_coffee_order_indexer.indexer_node:main',
             'prisma_setup = scripts.setup_prisma:main',
         ],
     },

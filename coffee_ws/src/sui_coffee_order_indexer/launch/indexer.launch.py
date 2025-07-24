@@ -37,20 +37,20 @@ def generate_launch_description():
         description='Database URL for the indexer. If not provided, will use database in package share directory at "data/sui_indexer.db".'
     )
     
-    pkg_share = FindPackageShare('sui_indexer')
+    pkg_share = FindPackageShare('sui_coffee_order_indexer')
     
     # First run Prisma setup
     setup_prisma = ExecuteProcess(
-        cmd=['ros2', 'run', 'sui_indexer', 'prisma_setup'],
+        cmd=['ros2', 'run', 'sui_coffee_order_indexer', 'prisma_setup'],
         name='prisma_setup',
         output='screen'
     )
     
     # Then start the indexer node
     indexer_node = Node(
-        package='sui_indexer',
+        package='sui_coffee_order_indexer',
         executable='indexer_node',
-        name='sui_indexer',
+        name='coffee_order_indexer',
         output='screen',
         parameters=[{
             'polling_interval_ms': LaunchConfiguration('polling_interval_ms'),

@@ -23,7 +23,7 @@ from sui_py.exceptions import SuiRPCError, SuiValidationError
 # Import event handlers
 try:
     # Try direct package import (works for installed package)
-    from sui_indexer.handlers import handle_escrow_objects, handle_lock_objects
+    from sui_coffee_order_indexer.handlers import handle_escrow_objects, handle_lock_objects
 except ImportError:
     try:
         # Try relative import (works when run as module)
@@ -52,7 +52,7 @@ class SuiIndexerNode(Node):
     """ROS2 node for indexing Sui blockchain events."""
     
     def __init__(self):
-        super().__init__('sui_indexer')
+        super().__init__('coffee_order_indexer')
         
         # Declare parameters with proper types
         self.declare_parameter('package_id', '', descriptor=ParameterDescriptor(

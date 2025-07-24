@@ -14,7 +14,7 @@ class PrismaSetupNode(Node):
         
         try:
             # Get package share for prisma schema location only
-            pkg_share = get_package_share_directory('sui_indexer')
+            pkg_share = get_package_share_directory('sui_coffee_order_indexer')
             self.prisma_path = os.path.join(pkg_share, 'prisma')
             
             # Ensure prisma directory exists
