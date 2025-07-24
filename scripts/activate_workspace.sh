@@ -93,9 +93,22 @@ ros-source
 # Return to original directory
 popd > /dev/null
 
+# Quick verification that critical packages are available
+echo "  [Verification] Checking critical dependencies..."
+if ! python -c "import pyaudio" 2>/dev/null; then
+    echo ""
+    echo "⚠️  Warning: PyAudio not available in virtual environment"
+    echo "   This is required for TTS functionality."
+    echo "   Please run the setup script to install dependencies:"
+    echo "   ./scripts/setup_workspace.sh"
+    echo ""
+    return 1
+fi
+
 echo ""
 echo "✓ Workspace activation complete!"
 echo "  Virtual environment: $VENV_NAME"
 echo "  Python: $(which python)"
+echo "  PyAudio: Available ✓"
 echo "  ROS2 workspace ready for development"
 echo ""
