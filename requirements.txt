@@ -6,8 +6,10 @@ pydantic_core==2.27.2
 setuptools==79.0.1
 typing_extensions==4.13.2
 
-# ROS2 compatibility
+# ROS2 compatibility and build tools
 empy==3.3.4  # Required for ROS2 Jazzy package creation (newer versions cause AttributeError)
+catkin_pkg==1.0.0  # Required for ROS2 build system
+lark==1.1.9  # Required for ROS2 message generation
 
 # Audio processing
 elevenlabs==1.57.0
@@ -41,6 +43,9 @@ regex==2024.11.6
 PyQt5==5.15.11
 pygame==2.6.1
 pyqtgraph==0.13.7
+
+# Computer vision (for ROS2 vision packages)
+opencv-python==4.10.0.84
 
 # Utility libraries
 tqdm==4.67.1
