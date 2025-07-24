@@ -8,9 +8,11 @@ The Sui Indexer node monitors and indexes events from a specified Sui package. I
 
 ## Database Location
 
-For development, the SQLite database is stored in the package source directory as `sui_indexer.db`. 
+**Development:** The SQLite database is stored in the workspace data directory at `<workspace_root>/data/sui_indexer/sui_indexer.db`. This ensures the database persists across `colcon build` cycles and is not affected by install directory changes.
 
-For production deployments, you should specify an absolute path using the `database_url` parameter to ensure proper data persistence and access permissions.
+**Production:** You can specify an absolute path using the `database_url` parameter to ensure proper data persistence and access permissions for production deployments.
+
+**Important:** The database location has been moved out of the install directory to prevent data loss during builds. The Prisma client is also generated locally within the workspace to avoid virtual environment pollution.
 
 ## Usage
 
@@ -37,7 +39,7 @@ The following parameters can be configured when launching the indexer:
 - `network` (Optional, default: 'testnet'): Sui network to connect to (testnet, mainnet, devnet)
 - `polling_interval_ms` (Optional, default: 1000): Polling interval in milliseconds
 - `default_limit` (Optional, default: 50): Default limit for event queries
-- `database_url` (Optional, default: 'file:sui_indexer.db'): Database URL for the indexer. For production, use an absolute path (e.g., 'file:/var/lib/sui_indexer/sui_indexer.db')
+- `database_url` (Optional, default: workspace data directory): Database URL for the indexer. When not specified, defaults to `<workspace_root>/data/sui_indexer/sui_indexer.db`. For production, use an absolute path (e.g., 'file:/var/lib/sui_indexer/sui_indexer.db')
 
 Example with multiple parameters:
 ```bash
@@ -52,4 +54,12 @@ ros2 launch sui_indexer indexer.launch.py \
 
 The indexer publishes to the following topics:
 - `/sui_events`: Published events from the Sui blockchain
-- `/indexer_status`: Status updates from the indexer 
+- `/indexer_status`: Status updates from the indexer
+
+## Architecture Notes
+
+**Workspace Integration:** This package follows ROS2 best practices by:
+- Storing persistent data outside the install directory
+- Generating Prisma client locally within workspace data directory
+- Using environment isolation to prevent global variable pollution
+- Supporting both development and production deployment patterns 
