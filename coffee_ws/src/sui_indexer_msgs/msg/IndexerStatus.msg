@@ -1,0 +1,4 @@
+builtin_interfaces/Time timestamp
+string status
+string message
+uint64 last_processed_seq 
