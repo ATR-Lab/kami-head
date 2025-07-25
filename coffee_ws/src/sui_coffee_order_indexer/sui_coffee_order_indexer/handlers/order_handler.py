@@ -208,8 +208,7 @@ async def _handle_order_created(order_created: CoffeeOrderCreated, db: Prisma) -
                 "createdAt": datetime.now(),
             },
             "update": {
-                "coffeeType": order_created.coffee_type,
-                "updatedAt": datetime.now(),
+                # Don't update existing orders on creation events
             }
         }
     )
@@ -219,38 +218,42 @@ async def _handle_order_created(order_created: CoffeeOrderCreated, db: Prisma) -
 
 async def _handle_order_updated(order_updated: CoffeeOrderUpdated, db: Prisma) -> None:
     """Process an updated coffee order."""
-    logger.info(f"📝 Updating order {order_updated.order_id} to status: {order_updated.status}")
+    order_id = order_updated.order_id
+    new_status = order_updated.status
+    logger.info(f"🔄 Processing order update for {order_id} to status {new_status}")
     
-    # Update order in database
-    await db.coffeeorder.upsert(
-        where={"objectId": order_updated.order_id},
+    # Get current order from database to check for duplicates and get coffee type
+    order = await db.coffeeorder.find_unique(where={"objectId": order_id})
+    
+    if not order:
+        logger.error(f"❌ Order {order_id} not found in database")
+        return
+    
+    # Check if the order is already at this status to avoid duplicates
+    if order.status == new_status:
+        logger.info(f"⚠️ Order {order_id} already has status {new_status}, skipping")
+        return
+    
+    # Update order status in database (no upsert needed - order exists!)
+    await db.coffeeorder.update(
+        where={"objectId": order_id},
         data={
-            "create": {
-                "objectId": order_updated.order_id,
-                "status": order_updated.status,
-                "createdAt": datetime.now(),
-            },
-            "update": {
-                "status": order_updated.status,
-                "updatedAt": datetime.now(),
-            }
+            "status": new_status,
+            "updatedAt": datetime.now(),
         }
     )
     
-    # If order is now being processed, trigger coffee machine
-    if order_updated.status.lower() == "processing":
-        logger.info(f"🚀 Order {order_updated.order_id} is being processed - triggering coffee machine")
-        
-        # Get order details to determine coffee type
-        order = await db.coffeeorder.find_unique(where={"objectId": order_updated.order_id})
-        
-        if order and order.coffeeType:
-            success = await _trigger_coffee_machine(order.coffeeType)
-            if success:
-                logger.info(f"✅ Coffee machine triggered for order {order_updated.order_id}")
-            else:
-                logger.error(f"❌ Failed to trigger coffee machine for order {order_updated.order_id}")
-        else:
-            logger.warning(f"⚠️  Order {order_updated.order_id} has no coffee type - cannot trigger machine")
+    logger.info(f"📊 Updated order {order_id} status to {new_status}")
     
-    logger.info(f"✅ Order {order_updated.order_id} updated to status: {order_updated.status}") 
+    # If status is "Processing", trigger coffee machine using stored coffee type
+    if new_status == "Processing" and order.coffeeType:
+        logger.info(f"🚀 Order {order_id} is being processed - triggering coffee machine")
+        success = await _trigger_coffee_machine(order.coffeeType)
+        if success:
+            logger.info(f"✅ Coffee machine triggered for order {order_id}")
+        else:
+            logger.error(f"❌ Failed to trigger coffee machine for order {order_id}")
+    elif new_status == "Processing" and not order.coffeeType:
+        logger.warning(f"⚠️  Order {order_id} has no coffee type - cannot trigger machine")
+    
+    logger.info(f"✅ Order {order_id} updated to status: {new_status}") 
