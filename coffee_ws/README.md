@@ -307,7 +307,7 @@ ros2 run coffee_machine_control coffee_machine_control_node --ros-args -p mac_ad
 
 Or use the launch file (recommended)
 ```
-ros2 launch coffee_machine_control coffee_machine_control.launch.py  # Uses default MAC: 9C:95:6E:61:B6:2C
+ros2 launch coffee_machine_control coffee_machine_control.launch.py  # Uses default MAC: 9C:95:6E:61B6:2C
 ros2 launch coffee_machine_control coffee_machine_control.launch.py mac_address:=<your_machine_mac>
 ```
 
@@ -335,6 +335,67 @@ ros2 service call /coffee_command coffee_machine_control_msgs/srv/CoffeeCommand 
 
 # Get ALL Status
 ros2 service call /coffee_machine/get_status coffee_machine_control_msgs/srv/MachineStatusRequest "{}"
+```
+
+## Launching Sui Coffee Order Indexer
+
+### Sui Blockchain Coffee Ordering System
+The Sui Coffee Order Indexer monitors coffee club events from the Sui blockchain and publishes them to ROS2 topics for coffee machine automation.
+
+```bash
+# Build the indexer package
+colcon build --packages-select sui_coffee_order_indexer
+source install/setup.bash
+
+# Launch with coffee club contract (replace with actual package ID)
+ros2 launch sui_coffee_order_indexer indexer.launch.py \
+    "package_id:='0x2ee032ffc863a74a785ac3003fb8b61d639d9095b4431fdc1b12181c0a2a8c13'"
+
+# Launch with different network (mainnet, testnet, devnet)
+ros2 launch sui_coffee_order_indexer indexer.launch.py \
+    "package_id:='0x2ee032ffc863a74a785ac3003fb8b61d639d9095b4431fdc1b12181c0a2a8c13'" \
+    "network:='mainnet'"
+
+# Launch with custom polling interval and database location
+ros2 launch sui_coffee_order_indexer indexer.launch.py \
+    "package_id:='0x2ee032ffc863a74a785ac3003fb8b61d639d9095b4431fdc1b12181c0a2a8c13'" \
+    "polling_interval_ms:=2000" \
+    "database_url:='file:/var/lib/sui_indexer/sui_indexer.db'"
+```
+
+**Architecture:** The indexer follows a decoupled design - it only publishes blockchain events to ROS2 topics. Coffee machine integration is handled by separate controller nodes that subscribe to these events.
+
+**Topics Published:**
+- `/sui_events` - Coffee club events from the Sui blockchain
+- `/indexer_status` - Indexer status and health information
+
+**Events Monitored:**
+- `CafeCreated` - New coffee shop registrations
+- `CoffeeOrderCreated` - New coffee orders placed
+- `CoffeeOrderUpdated` - Order status changes (Processing, Completed, etc.)
+
+**Database:** Events are stored persistently in `<workspace_root>/data/sui_indexer/sui_indexer.db` to survive builds and restarts.
+
+### Integration with Coffee Machine
+To create a complete blockchain-to-coffee flow, combine with a coffee controller node:
+
+```bash
+# Terminal 1: Run the blockchain indexer
+ros2 launch sui_coffee_order_indexer indexer.launch.py "package_id:='0x...'"
+
+# Terminal 2: Run coffee machine control
+ros2 launch coffee_machine_control coffee_machine_control.launch.py
+
+# Terminal 3: Run a custom coffee controller node (to be implemented)
+# This node would:
+# - Subscribe to /sui_events
+# - Filter for "Processing" status orders  
+# - Call /coffee_command service to make coffee
+```
+
+**Example Event Flow:**
+```
+Sui Blockchain → Indexer → /sui_events → Coffee Controller → /coffee_command → Coffee Machine
 ```
 
 ## Launching Voice Agent (NEW)
@@ -657,4 +718,5 @@ source install/setup.bash && ros2 run coffee_expressions_test_ui expressions_tes
 
 ```
 ros2 topic echo /robot/affective_state --field gaze_target_v2
+```
 ```
