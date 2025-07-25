@@ -9,4 +9,14 @@ REQUEST_ANNOUNCEMENT_TEMPLATES = {
     "ORDER_UPDATED": "friendly:Order update: {content}",
     "CUSTOMER_WAITING": "helpful:Customer notification: {content}",
     "DEFAULT": "friendly:Update: {content}"
-} 
+}
+
+
+def format_virtual_request_announcement(request: dict) -> str:
+    """Format virtual request as emotional announcement"""
+    request_type = request["type"]
+    content = request["content"]
+    
+    # Get template from dictionary, default to "DEFAULT" if type not found
+    template = REQUEST_ANNOUNCEMENT_TEMPLATES.get(request_type, REQUEST_ANNOUNCEMENT_TEMPLATES["DEFAULT"])
+    return template.format(content=content) 

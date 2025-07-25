@@ -1,5 +1,9 @@
 """Animation data constants for emotional expressions"""
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # Eye animation descriptions for different emotions
 EYE_ANIMATIONS = {
     "excited": "👀 EXCITED: Eyes wide open, rapid blinking, pupils dilated, eyebrows raised high",
@@ -15,4 +19,10 @@ EYE_ANIMATIONS = {
     "focused": "🎯 FOCUSED: Intense stare, minimal blinking, laser-focused pupils, determined expression",
     "surprised": "😲 SURPRISED: Eyes suddenly wide, rapid blinking, eyebrows shot up, pupils contracted",
     "excuse": "😅 EXCUSE: Apologetic gaze, slight head tilt, gentle blinking, eyebrows raised politely"
-} 
+}
+
+
+def log_animated_eyes(emotion: str):
+    """Log how this emotion would appear as animated eyes"""
+    animation_desc = EYE_ANIMATIONS.get(emotion, "😐 NEUTRAL: Standard eye animation")
+    logger.info(f"🎨 Eye Animation: {animation_desc}") 
