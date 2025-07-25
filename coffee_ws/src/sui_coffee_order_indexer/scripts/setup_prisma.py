@@ -29,20 +29,15 @@ class PrismaSetupNode(Node):
             # Set absolute database path in workspace data directory
             self.db_path = self.data_dir / "sui_indexer.db"
             
-            # Prisma client generation directory
-            self.prisma_client_dir = self.data_dir / "prisma_client"
-            self.prisma_client_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Database URL for this setup session only
-            self.database_url = f'file:{self.db_path}'
+            # Set database URL 
+            os.environ['DATABASE_URL'] = f'file:{self.db_path}'
             
             # Log all paths for verification
             self.get_logger().info(f"Package share directory: {pkg_share}")
             self.get_logger().info(f"Prisma directory: {self.prisma_path}")
             self.get_logger().info(f"Workspace data directory: {self.data_dir}")
             self.get_logger().info(f"Database absolute path: {self.db_path}")
-            self.get_logger().info(f"Prisma client directory: {self.prisma_client_dir}")
-            self.get_logger().info(f"Database URL: {self.database_url}")
+            self.get_logger().info(f"Database URL: {os.environ['DATABASE_URL']}")
             
             # Run setup
             self.setup_prisma()
@@ -54,16 +49,12 @@ class PrismaSetupNode(Node):
     def setup_prisma(self):
         """Run Prisma generate and migrate."""
         try:
-            # Remove existing database if it exists
+            # Remove existing database if it exists for fresh start
             if self.db_path.exists():
                 self.get_logger().info(f"Removing existing database at: {self.db_path}")
                 self.db_path.unlink()
             
-            # Create isolated environment for Prisma commands
-            prisma_env = os.environ.copy()
-            prisma_env['DATABASE_URL'] = self.database_url
-            
-            # Generate Prisma client
+            # Generate Prisma client (will use default location)
             self.get_logger().info('Generating Prisma client...')
             result = subprocess.run(
                 ['prisma', 'generate'], 
@@ -71,19 +62,17 @@ class PrismaSetupNode(Node):
                 check=True,
                 capture_output=True,
                 text=True,
-                env=prisma_env
+                env=dict(os.environ)
             )
-            self.get_logger().info('Prisma generate output:')
-            self.get_logger().info(result.stdout)
+            self.get_logger().info('Prisma generate completed successfully')
+            if result.stdout:
+                self.get_logger().info(f'Generate output: {result.stdout}')
             if result.stderr:
-                self.get_logger().warn(f'Prisma generate stderr: {result.stderr}')
+                self.get_logger().warn(f'Generate stderr: {result.stderr}')
             
             # Push the schema to the database
             self.get_logger().info('Pushing schema to database...')
             push_cmd = ['prisma', 'db', 'push', '--force-reset', '--accept-data-loss']
-            self.get_logger().info(f"Running command: {' '.join(push_cmd)}")
-            self.get_logger().info(f"In directory: {self.prisma_path}")
-            self.get_logger().info(f"With DATABASE_URL: {self.database_url}")
             
             result = subprocess.run(
                 push_cmd,
@@ -91,12 +80,13 @@ class PrismaSetupNode(Node):
                 check=True,
                 capture_output=True,
                 text=True,
-                env=prisma_env
+                env=dict(os.environ)
             )
-            self.get_logger().info('Prisma db push output:')
-            self.get_logger().info(result.stdout)
+            self.get_logger().info('Prisma db push completed successfully')
+            if result.stdout:
+                self.get_logger().info(f'Push output: {result.stdout}')
             if result.stderr:
-                self.get_logger().warn(f'Prisma db push stderr: {result.stderr}')
+                self.get_logger().warn(f'Push stderr: {result.stderr}')
             
             # Verify database was created in correct location
             if self.db_path.exists():
@@ -106,16 +96,10 @@ class PrismaSetupNode(Node):
                 
                 # Verify tables by connecting and querying
                 try:
-                    # Add the generated prisma client to Python path
-                    sys.path.insert(0, str(self.prisma_client_dir))
                     from prisma import Prisma
                     
-                    # Initialize Prisma client with absolute path
-                    db = Prisma(
-                        datasource={
-                            "url": str(self.database_url)
-                        }
-                    )
+                    # Initialize Prisma client 
+                    db = Prisma()
                     
                     # Connect and verify tables exist
                     async def verify_tables():
