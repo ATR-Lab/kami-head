@@ -461,23 +461,14 @@ class StateManager:
 
     def _format_virtual_request_announcement(self, request: dict) -> str:
         """Format virtual request as emotional announcement"""
+        from utils.announcement_data import REQUEST_ANNOUNCEMENT_TEMPLATES
+        
         request_type = request["type"]
         content = request["content"]
         
-        if request_type == "NEW_COFFEE_REQUEST":
-            return f"excited:New order alert! We have a {content} request coming in!"
-        elif request_type == "ORDER_READY":
-            return f"professional:Order ready for pickup: {content}!"
-        elif request_type == "ORDER_PROCESSING":
-            return f"helpful:Order update: {content} is now being prepared!"
-        elif request_type == "ORDER_COMPLETED":
-            return f"cheerful:Great news! {content} has been completed and delivered!"
-        elif request_type == "ORDER_UPDATED":
-            return f"friendly:Order update: {content}"
-        elif request_type == "CUSTOMER_WAITING":
-            return f"helpful:Customer notification: {content}"
-        else:
-            return f"friendly:Update: {content}"
+        # Get template from dictionary, default to "DEFAULT" if type not found
+        template = REQUEST_ANNOUNCEMENT_TEMPLATES.get(request_type, REQUEST_ANNOUNCEMENT_TEMPLATES["DEFAULT"])
+        return template.format(content=content)
 
     def process_emotional_response(self, llm_response: str) -> tuple[str, str]:
         """Process LLM response and extract emotion + text from delimiter format (emotion:text)"""
