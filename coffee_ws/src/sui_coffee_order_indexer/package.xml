@@ -3,7 +3,7 @@
 <package format="3">
   <name>sui_coffee_order_indexer</name>
   <version>0.0.0</version>
-  <description>A ROS2 package for indexing coffee club events from the Sui blockchain and controlling coffee machines</description>
+  <description>A ROS2 package for indexing coffee club events from the Sui blockchain</description>
   <maintainer email="irvsteve@gmail.com">kpatch</maintainer>
   <license>Apache-2.0</license>
 
@@ -15,8 +15,6 @@
   <!-- Message dependencies -->
   <build_depend>sui_indexer_msgs</build_depend>
   <exec_depend>sui_indexer_msgs</exec_depend>
-  <build_depend>coffee_machine_control_msgs</build_depend>
-  <exec_depend>coffee_machine_control_msgs</exec_depend>
   
   <!-- Build dependencies -->
   <buildtool_depend>ament_cmake</buildtool_depend>
@@ -27,9 +25,8 @@
   <exec_depend>rosidl_runtime_py</exec_depend>
   
   <!-- Test dependencies -->
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
   <test_depend>python3-pytest</test_depend>
 
   <export>

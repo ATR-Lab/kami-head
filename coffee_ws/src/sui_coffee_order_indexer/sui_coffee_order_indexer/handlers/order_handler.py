@@ -2,27 +2,20 @@
 Order event handler for the Sui Coffee Order Indexer.
 
 This module handles CoffeeOrderCreated and CoffeeOrderUpdated events emitted by the 
-coffee club contract, processing order lifecycle events and triggering coffee machine
-operations via ROS2 services when orders reach the "Processing" status.
+coffee club contract, processing order lifecycle events and storing them in the database.
+
+Coffee machine integration is handled by separate controller nodes that subscribe to 
+the indexer's published events, following proper ROS2 architectural patterns.
 """
 
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-import threading
 
-import rclpy
-from rclpy.node import Node
 from prisma import Prisma
 from sui_py import SuiEvent as SuiPySuiEvent
-from coffee_machine_control_msgs.srv import CoffeeCommand
 
 logger = logging.getLogger(__name__)
-
-# Global ROS2 service client instance (shared across handler calls)
-_coffee_service_client = None
-_coffee_service_node = None
-_ros_initialized = False
 
 
 class CoffeeOrderCreated:
@@ -55,97 +48,6 @@ class CoffeeOrderUpdated:
             self.status = status_data["variant"]  # Extract "Processing" from {'variant': 'Processing', 'fields': {}}
         else:
             self.status = str(status_data)  # Fallback for simple strings
-
-
-def _init_coffee_service_client():
-    """Initialize ROS2 service client for coffee machine control."""
-    global _coffee_service_client, _coffee_service_node, _ros_initialized
-    
-    if _coffee_service_client is not None:
-        return _coffee_service_client
-    
-    try:
-        if not _ros_initialized:
-            if not rclpy.ok():
-                rclpy.init()
-            _ros_initialized = True
-        
-        # Create a minimal node for service client
-        _coffee_service_node = Node('order_handler_client')
-        _coffee_service_client = _coffee_service_node.create_client(CoffeeCommand, 'coffee_command')
-        
-        # Wait for service to be available
-        if not _coffee_service_client.wait_for_service(timeout_sec=1.0):
-            logger.warning("Coffee machine control service not available")
-            
-    except Exception as e:
-        logger.error(f"Failed to initialize coffee service client: {e}")
-        
-    return _coffee_service_client
-
-
-async def _trigger_coffee_machine(coffee_type: str) -> bool:
-    """
-    Trigger coffee machine via ROS2 service call.
-    
-    Args:
-        coffee_type: Type of coffee to make (espresso, americano, etc.)
-        
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    client = _init_coffee_service_client()
-    if not client:
-        logger.error("Coffee service client not available")
-        return False
-    
-    try:
-        # Map coffee types to machine parameters
-        coffee_type_map = {
-            'espresso': 'espresso',
-            'americano': 'americano',
-            'doppio': 'doppio',
-            'long': 'long',
-            'coffee': 'coffee',
-            'hotwater': 'hot_water'
-        }
-        
-        machine_parameter = coffee_type_map.get(coffee_type.lower(), coffee_type.lower())
-        
-        # Create service request
-        request = CoffeeCommand.Request()
-        request.action = 'make'
-        request.parameter = machine_parameter
-        
-        logger.info(f"☕ Triggering coffee machine: {machine_parameter}")
-        
-        # Call service (this is synchronous, but quick)
-        future = client.call_async(request)
-        
-        # Spin briefly to get response
-        def spin_until_future_complete():
-            rclpy.spin_until_future_complete(_coffee_service_node, future, timeout_sec=5.0)
-        
-        # Run in thread to avoid blocking the asyncio loop
-        thread = threading.Thread(target=spin_until_future_complete)
-        thread.start()
-        thread.join(timeout=10.0)  # Overall timeout
-        
-        if future.done():
-            response = future.result()
-            if response.success:
-                logger.info(f"✅ Coffee machine triggered successfully: {response.message}")
-                return True
-            else:
-                logger.error(f"❌ Coffee machine error: {response.message}")
-                return False
-        else:
-            logger.error("❌ Coffee machine service call timed out")
-            return False
-            
-    except Exception as e:
-        logger.error(f"❌ Error triggering coffee machine: {e}")
-        return False
 
 
 async def handle_order_events(events: List[SuiPySuiEvent], event_type: str, db: Prisma) -> None:
@@ -245,15 +147,17 @@ async def _handle_order_updated(order_updated: CoffeeOrderUpdated, db: Prisma) -
     
     logger.info(f"📊 Updated order {order_id} status to {new_status}")
     
-    # If status is "Processing", trigger coffee machine using stored coffee type
+    # PHASE 1 ARCHITECTURAL CHANGE: Removed coffee machine service calls
+    # Coffee machine integration is now handled by separate controller nodes
+    # that subscribe to the indexer's published ROS2 events.
+    #
+    # This eliminates threading conflicts and follows proper ROS2 patterns:
+    # Indexer (blockchain events) → ROS2 Topics → Coffee Controller → Coffee Machine
+    
     if new_status == "Processing" and order.coffeeType:
-        logger.info(f"🚀 Order {order_id} is being processed - triggering coffee machine")
-        success = await _trigger_coffee_machine(order.coffeeType)
-        if success:
-            logger.info(f"✅ Coffee machine triggered for order {order_id}")
-        else:
-            logger.error(f"❌ Failed to trigger coffee machine for order {order_id}")
+        logger.info(f"☕ Order {order_id} ({order.coffeeType}) ready for coffee machine processing")
+        logger.info(f"📢 Event will be published to ROS2 topics for coffee controller to handle")
     elif new_status == "Processing" and not order.coffeeType:
-        logger.warning(f"⚠️  Order {order_id} has no coffee type - cannot trigger machine")
+        logger.warning(f"⚠️  Order {order_id} has no coffee type specified")
     
     logger.info(f"✅ Order {order_id} updated to status: {new_status}") 

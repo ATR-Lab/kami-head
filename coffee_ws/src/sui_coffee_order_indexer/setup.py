@@ -25,12 +25,11 @@ setup(
         'prisma',  # Prisma Client Python
         'sui-py>=0.1.0',  # New Sui Python SDK
         'python-dotenv',  # For environment configuration
-
     ],
     zip_safe=True,
     maintainer='kpatch',
     maintainer_email='irvsteve@gmail.com',
-    description='A ROS2 package for indexing coffee club events from the Sui blockchain and controlling coffee machines',
+    description='A ROS2 package for indexing coffee club events from the Sui blockchain',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
