@@ -123,10 +123,10 @@ class PrismaSetupNode(Node):
                         
                         # Try to query each table
                         cursor_count = await db.cursor.count()
-                        escrow_count = await db.escrow.count()
-                        locked_count = await db.locked.count()
+                        cafe_count = await db.cafe.count()
+                        coffeeorder_count = await db.coffeeorder.count()
                         
-                        self.get_logger().info(f"Verified tables exist - Counts: Cursor={cursor_count}, Escrow={escrow_count}, Locked={locked_count}")
+                        self.get_logger().info(f"Verified tables exist - Counts: Cursor={cursor_count}, Cafe={cafe_count}, CoffeeOrder={coffeeorder_count}")
                         await db.disconnect()
                     
                     # Run verification
