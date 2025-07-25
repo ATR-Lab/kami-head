@@ -23,14 +23,14 @@ from sui_py.exceptions import SuiRPCError, SuiValidationError
 # Import event handlers
 try:
     # Try direct package import (works for installed package)
-    from sui_coffee_order_indexer.handlers import handle_escrow_objects, handle_lock_objects
+    from sui_coffee_order_indexer.handlers import handle_cafe_events, handle_order_events
 except ImportError:
     try:
         # Try relative import (works when run as module)
-        from .handlers import handle_escrow_objects, handle_lock_objects
+        from .handlers import handle_cafe_events, handle_order_events
     except ImportError:
         # Try direct import (works when running from source)
-        from handlers import handle_escrow_objects, handle_lock_objects
+        from handlers import handle_cafe_events, handle_order_events
 
 @dataclass
 class EventExecutionResult:
@@ -136,18 +136,23 @@ class SuiIndexerNode(Node):
         self.get_logger().info(f"Working directory: {os.getcwd()}")
         self.get_logger().info(f"Using database URL: {database_url}")
         
-        # Set up event trackers
+        # Set up event trackers for coffee club events
         package_id = self.get_parameter('package_id').value
         self.events_to_track: List[EventTracker] = [
             EventTracker(
-                type=f"{package_id}::lock",
-                filter=EventFilter.by_module(package_id, "lock"),
-                callback=handle_lock_objects
+                type=f"{package_id}::suihub_cafe::CafeCreated",
+                filter=EventFilter.by_event_type(f"{package_id}::suihub_cafe::CafeCreated"),
+                callback=handle_cafe_events
             ),
             EventTracker(
-                type=f"{package_id}::shared",
-                filter=EventFilter.by_module(package_id, "shared"),
-                callback=handle_escrow_objects
+                type=f"{package_id}::suihub_cafe::CoffeeOrderCreated",
+                filter=EventFilter.by_event_type(f"{package_id}::suihub_cafe::CoffeeOrderCreated"),
+                callback=handle_order_events
+            ),
+            EventTracker(
+                type=f"{package_id}::suihub_cafe::CoffeeOrderUpdated",
+                filter=EventFilter.by_event_type(f"{package_id}::suihub_cafe::CoffeeOrderUpdated"),
+                callback=handle_order_events
             )
         ]
         
