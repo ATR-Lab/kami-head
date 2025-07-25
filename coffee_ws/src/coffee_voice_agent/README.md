@@ -6,6 +6,67 @@ A ROS2 package that integrates the LiveKit Coffee Barista Voice Agent with the C
 
 This package provides ROS2 integration for the Coffee Barista Voice Agent while preserving its interactive console mode functionality. The voice agent runs as a standalone application with full console controls, while a separate ROS2 bridge node provides system integration via WebSocket communication.
 
+## Implementation Versions
+
+This package now includes **two implementations** of the voice agent:
+
+### **🏗️ Refactored Version (Recommended)**
+- **Files**: `main.py` + modular structure (`state/`, `agents/`, `tools/`)
+- **Launcher**: `./run_main.sh`
+- **Architecture**: Clean file-based modular organization
+- **Benefits**: Better maintainability, easier testing, cleaner separation of concerns
+- **Status**: ✅ **Production ready** - Same functionality with better organization
+
+### **📚 Original Version (Reference)**
+- **Files**: `livekit_voice_agent.py` (monolithic, 1109 lines)
+- **Launcher**: `./run_voice_agent_original.sh` 
+- **Architecture**: Single-file implementation
+- **Benefits**: Proven, stable, all logic in one place
+- **Status**: 📖 **Preserved for reference** - Fully functional but less maintainable
+
+**Both implementations provide identical functionality** - choose based on your preference for code organization.
+
+## Refactoring Details
+
+The refactored version was created through careful **file-based modular extraction** while preserving all original functionality:
+
+### **What Was Extracted**
+
+| **Component** | **Original Location** | **New Location** | **Lines** | **Purpose** |
+|---------------|----------------------|------------------|-----------|-------------|
+| **StateManager** | Lines 40-566 in monolith | `state/state_manager.py` | 540 | State transitions, timeouts, virtual queue |
+| **CoffeeBaristaAgent** | Lines 568-1039 in monolith | `agents/simple_coffee_agent.py` | 358 | I/O services, TTS, wake word, WebSocket |
+| **Function Tools** | Agent methods | `tools/coffee_tools.py` | 82 | Coffee-related functions (menu, time, etc.) |
+| **Configuration** | Scattered constants | `config/settings.py` | 25 | Environment variables, timeouts |
+| **Instructions** | Large string | `config/instructions.py` | 50 | LLM system prompt |
+| **Utilities** | Helper methods | `utils/*.py` | 150 | Greetings, animations, announcements |
+
+### **Key Improvements**
+
+- **🧩 Modular Design**: 1109-line monolith → 7 focused files
+- **🔧 Clean Tool Registration**: Programmatic `function_tool()` registration vs duplicate methods
+- **🧪 Testable Components**: Each class can be unit tested independently  
+- **📝 Maintainable**: Add features by editing specific files, not searching through monolith
+- **⚙️ Configuration Management**: Environment variables and settings centralized
+- **🛠️ Reusable Utilities**: Greeting selection, animation descriptions, announcement formatting
+
+### **What Was Preserved**
+
+✅ **All complex logic**: State management, timeout handling, virtual request batching  
+✅ **Threading model**: Same 3-thread architecture (main, wake word, WebSocket)  
+✅ **Session events**: Conversation flow, goodbye detection, timer management  
+✅ **TTS processing**: Emotion extraction from `emotion:text` format  
+✅ **Resource management**: Proper cleanup, state transitions, error handling  
+✅ **Behavior**: Identical user experience and functionality
+
+### **Refactoring Principles**
+
+- **No Logic Changes**: Pure organizational refactoring, zero behavior modification
+- **Composition over Services**: Avoided over-engineering with service abstractions  
+- **Single Responsibility**: Each file has a clear, focused purpose
+- **Dependency Injection**: Components accept dependencies for better testing
+- **Proven Patterns**: Used established LiveKit patterns (programmatic tool registration)
+
 ## Features
 
 - **🎙️ Wake Word Detection**: "Hey barista" activation with Porcupine
@@ -18,17 +79,41 @@ This package provides ROS2 integration for the Coffee Barista Voice Agent while 
 
 ## Architecture
 
+### **File Structure**
 ```
 coffee_voice_agent/
 ├── scripts/
-│   ├── livekit_voice_agent.py         # Original LiveKit voice agent
-│   └── run_voice_agent.sh             # Smart bash launcher
+│   ├── main.py                        # 🏗️ Refactored voice agent entry point
+│   ├── run_main.sh                    # 🏗️ Refactored version launcher  
+│   ├── livekit_voice_agent.py         # 📚 Original monolithic voice agent
+│   ├── run_voice_agent_original.sh   # 📚 Original version launcher
+│   ├── state/
+│   │   └── state_manager.py           # 🏗️ Extracted StateManager (540 lines)
+│   ├── agents/
+│   │   └── simple_coffee_agent.py     # 🏗️ CoffeeBaristaAgent with programmatic tools
+│   ├── tools/
+│   │   └── coffee_tools.py            # 🏗️ Function tool implementations
+│   ├── config/
+│   │   ├── settings.py                # 🏗️ Configuration and environment variables
+│   │   └── instructions.py            # 🏗️ LLM system instructions
+│   └── utils/
+│       ├── greeting_data.py           # 🏗️ Greeting utilities
+│       ├── animation_data.py          # 🏗️ Eye animation descriptions
+│       └── announcement_data.py       # 🏗️ Order announcement templates
 ├── coffee_voice_agent/
 │   └── voice_agent_bridge.py          # ROS2 bridge node
 └── launch/
     ├── voice_agent_bridge.launch.py   # Bridge only
     └── voice_agent_system.launch.py   # Voice agent + bridge together
 ```
+
+### **Refactored Architecture Benefits**
+- **🧩 Modular**: StateManager (540 lines) separate from Agent (358 lines)
+- **🔧 Clean Tools**: Programmatic function registration, no code duplication
+- **⚙️ Configuration**: Environment variables and instructions extracted
+- **🛠️ Utilities**: Reusable components for greetings, animations, announcements
+- **🧪 Testable**: Each component can be tested independently
+- **📝 Maintainable**: Easy to add/remove features, clear responsibilities
 
 ### Communication Flow
 ```
@@ -76,19 +161,42 @@ source install/setup.bash
 
 ### 2. Run Voice Agent (Console Mode)
 
-**Primary Method - Direct Execution:**
+#### **🏗️ Refactored Version (Recommended)**
 ```bash
-# Run directly for full console mode with interactive controls
-./src/coffee_voice_agent/scripts/run_voice_agent.sh
+# Run refactored version with modular architecture
+./src/coffee_voice_agent/scripts/run_main.sh
 
 # Or after building:
-./install/coffee_voice_agent/share/coffee_voice_agent/scripts/run_voice_agent.sh
+./install/coffee_voice_agent/share/coffee_voice_agent/scripts/run_main.sh
 ```
 
-**Console Controls:**
+#### **📚 Original Version (Reference)**
+```bash
+# Run original monolithic version
+./src/coffee_voice_agent/scripts/run_voice_agent_original.sh
+
+# Or after building:
+./install/coffee_voice_agent/share/coffee_voice_agent/scripts/run_voice_agent_original.sh
+```
+
+**Console Controls (Both Versions):**
 - `[Ctrl+B]` - Toggle between Text/Audio mode
 - `[Q]` - Quit the application
 - Wake word: Say **"hey barista"** to activate
+
+**Which Version to Use?**
+- **🏗️ Use refactored version** (`./run_main.sh`) for new development, easier maintenance, better testing
+- **📚 Use original version** (`./run_voice_agent_original.sh`) if you prefer single-file simplicity or need proven stability
+
+### **Quick Start Guide**
+
+```bash
+# 🚀 RECOMMENDED: Run refactored modular version
+./run_main.sh
+
+# 📚 REFERENCE: Run original monolithic version  
+./run_voice_agent_original.sh
+```
 
 ### 3. ROS2 Integration (Optional)
 
@@ -272,24 +380,63 @@ AttributeError: module 'em' has no attribute 'BUFFERED_OPT'
 ## Development
 
 ### Package Structure
-- **Voice Agent**: Standalone CLI application in `scripts/`
+- **🏗️ Refactored Voice Agent**: Modular structure in `scripts/` (main.py + subdirectories)
+- **📚 Original Voice Agent**: Monolithic implementation in `scripts/livekit_voice_agent.py`
 - **Bridge Node**: ROS2 integration in `coffee_voice_agent/`
 - **Launch Files**: System orchestration in `launch/`
 
 ### Adding New Features
-1. **Voice functionality**: Modify `livekit_voice_agent.py`
-2. **ROS2 integration**: Modify `voice_agent_bridge.py` 
+
+#### **🏗️ Refactored Version (Recommended for Development)**
+1. **Function Tools**: Add to `tools/coffee_tools.py` and register in `agents/simple_coffee_agent.py`
+2. **State Logic**: Modify `state/state_manager.py` for conversation flow changes
+3. **Configuration**: Update `config/settings.py` or `config/instructions.py`
+4. **Utilities**: Add to appropriate `utils/*.py` file
+5. **Agent Behavior**: Modify `agents/simple_coffee_agent.py` for I/O changes
+6. **ROS2 Integration**: Modify `voice_agent_bridge.py`
+
+#### **📚 Original Version**
+1. **Voice functionality**: Modify `livekit_voice_agent.py` (search through 1109 lines)
+2. **ROS2 integration**: Modify `voice_agent_bridge.py`
 3. **System integration**: Update launch files
 
+### Development Benefits - Refactored Version
+- **🔍 Easy Navigation**: Find features in dedicated files vs searching monolith
+- **🧪 Component Testing**: Test StateManager, tools, utilities independently
+- **🔧 Clean Changes**: Modify specific files without side effects
+- **📝 Code Reviews**: Smaller, focused diffs instead of large file changes
+- **🏗️ Parallel Development**: Multiple developers can work on different components
+
 ### Testing Components
+
+#### **🏗️ Refactored Version**
 ```bash
-# Test voice agent directly
-./scripts/run_voice_agent.sh
+# Test refactored voice agent directly
+./scripts/run_main.sh
+
+# Test individual components (Python REPL)
+python3 -c "
+from state.state_manager import StateManager
+from tools.coffee_tools import get_current_time_impl
+# Test components independently
+"
 
 # Test bridge connection
 ros2 run coffee_voice_agent voice_agent_bridge
 
 # Test complete system
+ros2 launch coffee_voice_agent voice_agent_system.launch.py
+```
+
+#### **📚 Original Version**
+```bash
+# Test original voice agent directly
+./scripts/run_voice_agent_original.sh
+
+# Test bridge connection
+ros2 run coffee_voice_agent voice_agent_bridge
+
+# Test complete system  
 ros2 launch coffee_voice_agent voice_agent_system.launch.py
 ```
 
