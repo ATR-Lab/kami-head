@@ -3,7 +3,7 @@
 <package format="3">
   <name>sui_coffee_order_indexer</name>
   <version>0.0.0</version>
-  <description>A ROS2 package for indexing coffee order events from the Sui blockchain</description>
+  <description>A ROS2 package for indexing coffee club events from the Sui blockchain and controlling coffee machines</description>
   <maintainer email="irvsteve@gmail.com">kpatch</maintainer>
   <license>Apache-2.0</license>
 
@@ -15,6 +15,8 @@
   <!-- Message dependencies -->
   <build_depend>sui_indexer_msgs</build_depend>
   <exec_depend>sui_indexer_msgs</exec_depend>
+  <build_depend>coffee_machine_control_msgs</build_depend>
+  <exec_depend>coffee_machine_control_msgs</exec_depend>
   
   <!-- Build dependencies -->
   <buildtool_depend>ament_cmake</buildtool_depend>
