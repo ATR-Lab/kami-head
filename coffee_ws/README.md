@@ -400,39 +400,52 @@ Sui Blockchain → Indexer → /sui_events → Coffee Controller → /coffee_com
 
 ## Launching Voice Agent (NEW)
 
-### Coffee Voice Agent ROS2 Node
-The new integrated voice agent that combines LiveKit voice communication with ROS2:
+### Coffee Voice Agent with Bridge Architecture
+The voice agent runs as a standalone console application with optional ROS2 integration via bridge:
 
 ```bash
 # Build the voice agent package
 colcon build --packages-select coffee_voice_agent
 source install/setup.bash
 
-# Run the voice agent
-ros2 launch coffee_voice_agent voice_agent.launch.py
+# 🚀 STEP 1: Run Voice Agent (Console Mode - Required)
+./src/coffee_voice_agent/scripts/run_main.sh                    # Refactored version (recommended)
+# OR
+./src/coffee_voice_agent/scripts/run_voice_agent_original.sh    # Original version (reference)
 
-# Or run directly
-ros2 run coffee_voice_agent voice_agent_node
+# 🌐 STEP 2: ROS2 Integration (Optional Bridge)
+ros2 launch coffee_voice_agent voice_agent_bridge.launch.py     # Bridge only  
+# OR
+ros2 launch coffee_voice_agent voice_agent_system.launch.py     # Complete system
 ```
 
+**Architecture:**
+- **Voice Agent**: Standalone console application (interactive controls)
+- **Bridge Node**: Optional ROS2 integration via WebSocket (port 8080)
+- **Communication**: WebSocket bridge connects standalone agent to ROS2
+
 **Features:**
-- Wake word detection ("hey barista")
+- Wake word detection ("hey barista") 
 - Full voice conversation (STT, LLM, TTS)
 - Emotion-aware responses
 - Coffee menu and recommendations
-- ROS2 integration with Coffee Buddy system
+- Console controls (`[Ctrl+B]`, `[Q]`)
+- ROS2 integration via bridge
 - Virtual request handling
 
-**Topics:**
-- `/coffee_voice_agent/state` - Agent state
-- `/coffee_voice_agent/emotion` - Current emotion
-- `/coffee_voice_agent/user_input` - User speech
-- `/coffee_voice_agent/agent_response` - Agent responses
-- `/coffee_voice_agent/virtual_request` - External requests
+**ROS2 Topics (Bridge Node):**
+- `/voice_agent/state` - Agent state changes
+- `/voice_agent/emotion` - Current emotion transitions
+- `/voice_agent/conversation` - Conversation transcripts
+- `/voice_agent/connected` - Bridge connection status
+- `/voice_agent/virtual_requests` - External coffee requests (input)
+- `/voice_agent/commands` - Voice agent commands (input)
 
 **Requirements:**
 - `OPENAI_API_KEY` environment variable
 - `PORCUPINE_ACCESS_KEY` for wake word (optional)
+
+**Note:** Voice agent must run in console mode due to interactive controls requirement. ROS2 bridge provides system integration while preserving console functionality.
 
 ## Launching Dialogue System (Legacy)
 
