@@ -1,10 +1,10 @@
-# Sui Indexer
+# Sui Coffee Order Indexer
 
-A ROS2 node for indexing Sui blockchain events.
+A ROS2 node for indexing coffee club events from the Sui blockchain and triggering coffee machine operations.
 
 ## Description
 
-The Sui Indexer node monitors and indexes events from a specified Sui package. It tracks events related to locks and shared objects, storing them in a local database for further processing.
+The Sui Coffee Order Indexer monitors and indexes events from the coffee club smart contract on Sui. It tracks cafe creation and coffee order events, storing them in a local database and automatically triggering coffee machine operations when orders are ready for processing.
 
 ## Database Location
 
@@ -21,12 +21,19 @@ The Sui Indexer node monitors and indexes events from a specified Sui package. I
 To run the indexer, use the following command:
 
 ```bash
-ros2 launch sui_indexer indexer.launch.py "package_id:='YOUR_PACKAGE_ID'"
+ros2 launch sui_coffee_order_indexer indexer.launch.py "package_id:='YOUR_PACKAGE_ID'"
 ```
 
 For example:
 ```bash
-ros2 launch sui_indexer indexer.launch.py "package_id:='0x052f4da5dddf486da555e6c6aea3818e8d8206931f74f7441be5417cf9eeb070'"
+ros2 launch sui_coffee_order_indexer indexer.launch.py "package_id:='0x2ee032ffc863a74a785ac3003fb8b61d639d9095b4431fdc1b12181c0a2a8c13'"
+```
+
+With specific network:
+```bash
+ros2 launch sui_coffee_order_indexer indexer.launch.py \
+    "package_id:='0x2ee032ffc863a74a785ac3003fb8b61d639d9095b4431fdc1b12181c0a2a8c13'" \
+    "network:='mainnet'"
 ```
 
 Note: The package_id must be enclosed in quotes to ensure it's treated as a string.
@@ -43,8 +50,8 @@ The following parameters can be configured when launching the indexer:
 
 Example with multiple parameters:
 ```bash
-ros2 launch sui_indexer indexer.launch.py \
-    "package_id:='0xfe09cf0b3d77678b99250572624bf74fe3b12af915c5db95f0ed5d755612eb68'" \
+ros2 launch sui_coffee_order_indexer indexer.launch.py \
+    "package_id:='0x2ee032ffc863a74a785ac3003fb8b61d639d9095b4431fdc1b12181c0a2a8c13'" \
     "network:='mainnet'" \
     "polling_interval_ms:=2000" \
     "database_url:='file:/var/lib/sui_indexer/sui_indexer.db'"  # Example production path
@@ -53,8 +60,13 @@ ros2 launch sui_indexer indexer.launch.py \
 ## Topics
 
 The indexer publishes to the following topics:
-- `/sui_events`: Published events from the Sui blockchain
+- `/sui_events`: Published coffee club events from the Sui blockchain
 - `/indexer_status`: Status updates from the indexer
+
+## Services
+
+The indexer calls the following services:
+- `/coffee_command`: Commands the coffee machine when orders are ready for processing (requires `coffee_machine_control` package)
 
 ## Architecture Notes
 
