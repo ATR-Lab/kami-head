@@ -1,10 +1,12 @@
 # Sui Coffee Order Indexer
 
-A ROS2 node for indexing coffee club events from the Sui blockchain and triggering coffee machine operations.
+A ROS2 node for indexing coffee club events from the Sui blockchain and publishing them to ROS2 topics.
 
 ## Description
 
-The Sui Coffee Order Indexer monitors and indexes events from the coffee club smart contract on Sui. It tracks cafe creation and coffee order events, storing them in a local database and automatically triggering coffee machine operations when orders are ready for processing.
+The Sui Coffee Order Indexer monitors and indexes events from the coffee club smart contract on Sui. It tracks cafe creation and coffee order events, storing them in a local database and publishing them to ROS2 topics for other nodes to consume.
+
+**Architecture:** This indexer follows a decoupled design where it focuses solely on blockchain event processing. Coffee machine integration is handled by separate controller nodes that subscribe to the indexer's published events, following proper ROS2 architectural patterns.
 
 ## Database Location
 
@@ -63,10 +65,22 @@ The indexer publishes to the following topics:
 - `/sui_events`: Published coffee club events from the Sui blockchain
 - `/indexer_status`: Status updates from the indexer
 
-## Services
+## Integration with Coffee Machines
 
-The indexer calls the following services:
-- `/coffee_command`: Commands the coffee machine when orders are ready for processing (requires `coffee_machine_control` package)
+**Decoupled Architecture:** This indexer does not directly control coffee machines. Instead, it publishes events to ROS2 topics that can be consumed by separate coffee controller nodes.
+
+**Recommended Integration Pattern:**
+```
+Blockchain → Indexer → ROS2 Topics → Coffee Controller Node → Coffee Machine
+```
+
+Coffee controller nodes should:
+- Subscribe to `/sui_events` topic
+- Filter for `CoffeeOrderUpdated` events with status "Processing"  
+- Queue and manage coffee machine operations
+- Handle machine status, retries, and error recovery
+
+This design provides better fault isolation, scalability, and follows ROS2 best practices.
 
 ## Architecture Notes
 
@@ -74,4 +88,10 @@ The indexer calls the following services:
 - Storing persistent data outside the install directory
 - Generating Prisma client locally within workspace data directory
 - Using environment isolation to prevent global variable pollution
-- Supporting both development and production deployment patterns 
+- Supporting both development and production deployment patterns
+
+**Decoupled Design:** The indexer focuses solely on blockchain event processing, while coffee machine integration is handled by separate controller nodes. This provides:
+- Better fault isolation (coffee machine issues don't crash the indexer)
+- Proper separation of concerns (blockchain vs hardware control)
+- Scalability (multiple coffee machines, queue management)
+- Easier testing and maintenance 
