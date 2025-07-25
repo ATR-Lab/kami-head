@@ -1,11 +1,14 @@
 #!/bin/bash
-# Coffee Voice Agent Launcher - Console Mode
+# Coffee Voice Agent Launcher - Original Version (Console Mode)
 # 
-# This script always launches the LiveKit voice agent in console mode,
+# This script launches the ORIGINAL monolithic LiveKit voice agent in console mode,
 # providing proper TTY context for interactive controls (Ctrl+B, Q to quit).
 #
+# NOTE: This is the legacy/reference implementation (livekit_voice_agent.py - 1109 lines)
+#       For the refactored modular version, use ./run_main.sh instead
+#
 # Usage:
-#   ./run_voice_agent.sh
+#   ./run_voice_agent_original.sh
 
 set -e  # Exit on any error
 
@@ -98,9 +101,13 @@ setup_environment() {
 show_banner() {
     echo
     echo "╔════════════════════════════════════════════════════════════════╗"
-    echo "║                    Coffee Voice Agent Launcher                ║"
+    echo "║             Coffee Voice Agent Launcher (Original)            ║"
     echo "║                        ${VOICE_AGENT_MODE^} Mode                            ║"
     echo "╠════════════════════════════════════════════════════════════════╣"
+    echo "║  📚 Implementation: Monolithic (livekit_voice_agent.py)        ║"
+    echo "║  🔍 Status: Legacy/Reference version (1109 lines)             ║"
+    echo "║  🏗️  For modular version: Use ./run_main.sh instead            ║"
+    echo "║                                                                ║"
     if [ "$VOICE_AGENT_MODE" = "console" ]; then
         echo "║  Interactive Controls:                                         ║"
         echo "║    [Ctrl+B] - Toggle between Text/Audio mode                  ║"
