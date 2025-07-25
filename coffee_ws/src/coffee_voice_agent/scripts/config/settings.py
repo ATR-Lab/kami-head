@@ -9,7 +9,7 @@ load_dotenv()
 # Configurable timeout settings
 USER_RESPONSE_TIMEOUT = int(os.getenv("USER_RESPONSE_TIMEOUT", "15"))  # seconds
 FINAL_TIMEOUT = int(os.getenv("FINAL_TIMEOUT", "10"))  # seconds after prompt
-MAX_CONVERSATION_TIME = int(os.getenv("MAX_CONVERSATION_TIME", "300"))  # 5 minutes total
+MAX_CONVERSATION_TIME = int(os.getenv("MAX_CONVERSATION_TIME", "180"))  # 3 minutes total
 
 # WebSocket server settings
 WEBSOCKET_HOST = os.getenv("WEBSOCKET_HOST", "localhost")
