@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import threading
+from datetime import datetime
 
 import pvporcupine
 import websockets
@@ -80,6 +81,7 @@ class CoffeeBaristaAgent(Agent):
         self.websocket_server = None
         self.websocket_thread = None
         self.websocket_active = False
+        self.connected_clients = set()  # Track connected WebSocket clients for event broadcasting
         
     async def tts_node(self, text, model_settings=None):
         """Override TTS node to process delimiter-based responses (emotion:text) with minimal buffering"""
@@ -339,6 +341,17 @@ class CoffeeBaristaAgent(Agent):
         client_info = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
         logger.info(f"🌐 WebSocket client connected: {client_info}")
         
+        # Add client to connected clients set for event broadcasting
+        self.connected_clients.add(websocket)
+        
+        # Send startup event to test bidirectional communication
+        startup_event = {
+            "timestamp": datetime.now().isoformat(),
+            "message": "Voice agent ready for events",
+            "version": "refactored"
+        }
+        await self._send_websocket_event("STARTUP", startup_event)
+        
         try:
             async for message in websocket:
                 try:
@@ -385,6 +398,9 @@ class CoffeeBaristaAgent(Agent):
             logger.info(f"🌐 WebSocket client disconnected: {client_info}")
         except Exception as e:
             logger.error(f"❌ WebSocket connection error: {e}")
+        finally:
+            # Remove client from connected clients set
+            self.connected_clients.discard(websocket)
 
     def stop_websocket_server(self):
         """Stop WebSocket server"""
@@ -393,4 +409,29 @@ class CoffeeBaristaAgent(Agent):
         if self.websocket_thread and self.websocket_thread.is_alive():
             self.websocket_thread.join(timeout=2.0)
         
-        logger.info("WebSocket server stopped") 
+        logger.info("WebSocket server stopped")
+
+    async def _send_websocket_event(self, event_type: str, event_data: dict):
+        """Send event to all connected WebSocket clients (like the ROS2 bridge)"""
+        if not self.connected_clients:
+            logger.debug(f"No WebSocket clients connected - skipping {event_type} event")
+            return
+            
+        # Format event message
+        message = {
+            "type": event_type,
+            "data": event_data
+        }
+        
+        # Send to all connected clients
+        disconnected_clients = set()
+        for client in self.connected_clients.copy():
+            try:
+                await client.send(json.dumps(message))
+                logger.debug(f"Sent {event_type} event to WebSocket client")
+            except Exception as e:
+                logger.error(f"Failed to send {event_type} event to client: {e}")
+                disconnected_clients.add(client)
+        
+        # Remove disconnected clients
+        self.connected_clients -= disconnected_clients 

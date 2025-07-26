@@ -190,6 +190,10 @@ class VoiceAgentBridge(Node):
                 # Handle status updates
                 self.get_logger().info(f"Voice agent status: {data.get('message', 'Unknown')}")
                 
+            elif message_type == 'STARTUP':
+                # Handle startup/ready events from voice agent
+                self.get_logger().info(f"Voice agent startup: {data.get('message', 'Ready')} (version: {data.get('version', 'unknown')})")
+                
             else:
                 self.get_logger().warn(f"Unknown message type from voice agent: {message_type}")
                 
