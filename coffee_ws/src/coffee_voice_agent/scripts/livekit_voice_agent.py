@@ -1,3 +1,54 @@
+#!/usr/bin/env python3
+"""
+Coffee Barista Voice Agent - Original Reference Implementation
+
+📚 REFERENCE VERSION - MONOLITHIC IMPLEMENTATION (1109 lines)
+
+This is the ORIGINAL single-file implementation of the Coffee Barista Voice Agent.
+It has been preserved as a reference while a refactored modular version has been created.
+
+STATUS:
+- ✅ Fully functional and battle-tested
+- 📖 Preserved for reference and stability
+- 🔒 No longer actively developed (use refactored version for new features)
+
+ARCHITECTURE:
+- Monolithic: All logic in one file (StateManager + CoffeeBaristaAgent + tools)
+- Proven: Extensively tested implementation
+- Complete: Contains all original functionality
+
+REFACTORED VERSION:
+For new development, use the modular refactored version:
+- Entry Point: main.py
+- Launcher: ./run_main.sh  
+- Structure: Organized into state/, agents/, tools/, config/, utils/
+- Benefits: Better maintainability, easier testing, cleaner separation
+
+USAGE:
+- Console Mode: ./run_voice_agent_original.sh
+- Features: Wake word, voice conversation, emotion processing, virtual requests
+- Requirements: OPENAI_API_KEY, optional PORCUPINE_ACCESS_KEY
+
+COMPARISON:
+┌─────────────────────┬─────────────────────┬─────────────────────┐
+│     ASPECT          │   ORIGINAL (THIS)   │    REFACTORED       │
+├─────────────────────┼─────────────────────┼─────────────────────┤
+│ File Count          │ 1 monolithic file  │ 7 focused files     │
+│ Lines of Code       │ 1109 lines          │ ~200 lines avg     │
+│ Maintainability     │ Harder to navigate  │ Easy to find logic │
+│ Testing             │ Integration only    │ Unit + Integration  │
+│ Feature Addition    │ Search entire file  │ Edit specific file  │
+│ Code Reviews        │ Large diffs         │ Focused diffs       │
+│ Development         │ Single developer    │ Parallel teams     │
+│ Learning Curve      │ See everything      │ Understand modules │
+│ Stability           │ Battle-tested       │ Same functionality  │
+└─────────────────────┴─────────────────────┴─────────────────────┘
+
+ORIGINAL AUTHOR: Coffee Buddy Team
+REFACTORING DATE: July 2025
+PRESERVED: All original functionality and behavior
+"""
+
 import asyncio
 import logging
 import os
