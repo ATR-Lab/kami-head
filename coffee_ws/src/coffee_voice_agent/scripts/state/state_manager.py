@@ -524,8 +524,17 @@ class StateManager:
         logger.info(f"🔍 DEBUG: say_with_emotion emotion: {emotion}")
         
         if self.session:
+            # Send TTS_STARTED event
+            await self._send_tts_event("started", text, emotion or self.current_emotion, "manual")
+            
             logger.info("🔍 DEBUG: Calling session.say() directly (bypasses llm_node)")
-            await self.session.say(text)
+            handle = await self.session.say(text)
+            
+            # Wait for TTS completion
+            await handle.wait_for_playout()
+            
+            # Send TTS_FINISHED event
+            await self._send_tts_event("finished", text, emotion or self.current_emotion, "manual")
             
             if emotion:
                 logger.info(f"🎭 Speaking with emotion: {emotion}")
@@ -537,4 +546,18 @@ class StateManager:
         """Get a random greeting from the greeting pool"""
         from utils.greeting_data import get_random_greeting
         
-        return get_random_greeting() 
+        return get_random_greeting()
+
+    async def _send_tts_event(self, event: str, text: str, emotion: str, source: str):
+        """Send TTS event through agent's WebSocket connection"""
+        if self.agent and hasattr(self.agent, '_send_websocket_event'):
+            event_data = {
+                "event": event,
+                "text": text[:100] + "..." if len(text) > 100 else text,  # Truncate long text
+                "emotion": emotion,
+                "source": source,
+                "timestamp": datetime.now().isoformat()
+            }
+            await self.agent._send_websocket_event("TTS_EVENT", event_data)
+        else:
+            logger.debug(f"Cannot send TTS {event} event - no agent WebSocket connection") 

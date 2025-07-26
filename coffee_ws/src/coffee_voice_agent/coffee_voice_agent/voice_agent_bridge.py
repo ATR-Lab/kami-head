@@ -194,6 +194,21 @@ class VoiceAgentBridge(Node):
                 # Handle startup/ready events from voice agent
                 self.get_logger().info(f"Voice agent startup: {data.get('message', 'Ready')} (version: {data.get('version', 'unknown')})")
                 
+            elif message_type == 'TTS_EVENT':
+                # Handle TTS started/finished events - parse nested data structure
+                event_data = data.get('data', {})
+                event = event_data.get('event', 'unknown')
+                emotion = event_data.get('emotion', 'unknown')
+                source = event_data.get('source', 'unknown')
+                text = event_data.get('text', '')
+                text_preview = text[:50] + "..." if len(text) > 50 else text
+                
+                self.get_logger().info(f"TTS {event}: emotion={emotion}, source={source}, text='{text_preview}'")
+                
+                # TODO: Publish to ROS2 topics when robot coordination is ready
+                # self.tts_started_pub.publish(...) for event == "started"
+                # self.tts_finished_pub.publish(...) for event == "finished"
+                
             else:
                 self.get_logger().warn(f"Unknown message type from voice agent: {message_type}")
                 
