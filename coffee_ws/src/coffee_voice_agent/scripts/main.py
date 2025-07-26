@@ -12,7 +12,7 @@ from livekit import agents
 from livekit.agents import JobContext, WorkerOptions
 
 from config.settings import REQUIRED_ENV_VARS, WEBSOCKET_HOST, WEBSOCKET_PORT
-from agents.simple_coffee_agent import CoffeeBaristaAgent
+from agents.coffee_barista_agent import CoffeeBaristaAgent
 from state.state_manager import AgentState
 
 # Configure logging

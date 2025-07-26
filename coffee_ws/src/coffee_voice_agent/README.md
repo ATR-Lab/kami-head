@@ -35,7 +35,7 @@ The refactored version was created through careful **file-based modular extracti
 | **Component** | **Original Location** | **New Location** | **Lines** | **Purpose** |
 |---------------|----------------------|------------------|-----------|-------------|
 | **StateManager** | Lines 40-566 in monolith | `state/state_manager.py` | 540 | State transitions, timeouts, virtual queue |
-| **CoffeeBaristaAgent** | Lines 568-1039 in monolith | `agents/simple_coffee_agent.py` | 358 | I/O services, TTS, wake word, WebSocket |
+| **CoffeeBaristaAgent** | Lines 568-1039 in monolith | `agents/coffee_barista_agent.py` | 358 | I/O services, TTS, wake word, WebSocket |
 | **Function Tools** | Agent methods | `tools/coffee_tools.py` | 82 | Coffee-related functions (menu, time, etc.) |
 | **Configuration** | Scattered constants | `config/settings.py` | 25 | Environment variables, timeouts |
 | **Instructions** | Large string | `config/instructions.py` | 50 | LLM system prompt |
@@ -90,7 +90,7 @@ coffee_voice_agent/
 │   ├── state/
 │   │   └── state_manager.py           # 🏗️ Extracted StateManager (540 lines)
 │   ├── agents/
-│   │   └── simple_coffee_agent.py     # 🏗️ CoffeeBaristaAgent with programmatic tools
+│   │   └── coffee_barista_agent.py   # 🏗️ CoffeeBaristaAgent with programmatic tools
 │   ├── tools/
 │   │   └── coffee_tools.py            # 🏗️ Function tool implementations
 │   ├── config/
@@ -388,11 +388,11 @@ AttributeError: module 'em' has no attribute 'BUFFERED_OPT'
 ### Adding New Features
 
 #### **🏗️ Refactored Version (Recommended for Development)**
-1. **Function Tools**: Add to `tools/coffee_tools.py` and register in `agents/simple_coffee_agent.py`
+1. **Function Tools**: Add to `tools/coffee_tools.py` and register in `agents/coffee_barista_agent.py`
 2. **State Logic**: Modify `state/state_manager.py` for conversation flow changes
 3. **Configuration**: Update `config/settings.py` or `config/instructions.py`
 4. **Utilities**: Add to appropriate `utils/*.py` file
-5. **Agent Behavior**: Modify `agents/simple_coffee_agent.py` for I/O changes
+5. **Agent Behavior**: Modify `agents/coffee_barista_agent.py` for I/O changes
 6. **ROS2 Integration**: Modify `voice_agent_bridge.py`
 
 #### **📚 Original Version**
