@@ -124,6 +124,100 @@ coffee_voice_agent/
 └─────────────────┘                 └─────────────────┘             └──────────────┘
 ```
 
+### **TTS and Audio Processing Flow**
+
+Understanding how text-to-speech and audio synthesis works in the refactored architecture:
+
+#### **🔄 Two TTS Pathways**
+
+**Path 1: Normal Conversation (User-initiated)**
+```
+User Speech → STT → LLM → CoffeeBaristaAgent.tts_node() → Emotion Processing → Audio Playback
+```
+
+**Path 2: Manual Announcements (System-initiated)**
+```
+Virtual Requests/Greetings → StateManager.say_with_emotion() → session.say() → CoffeeBaristaAgent.tts_node() → Audio Playback
+```
+
+#### **📍 TTS Processing Components**
+
+**1. TTS Override - `agents/coffee_barista_agent.py` (Lines 79-159)**
+- **Method**: `async def tts_node(self, text, model_settings=None)`
+- **Role**: **Central TTS bottleneck** - all speech goes through here
+- **Functions**:
+  - Intercepts streaming text from LLM or manual calls
+  - Processes `emotion:text` delimiter format in real-time
+  - Extracts emotions from first 50 characters of text stream
+  - Updates agent's emotional state
+  - Logs animated eye expressions
+  - Passes clean text to LiveKit's default TTS
+
+**2. Manual TTS - `state/state_manager.py` (Lines 512-528)**
+- **Method**: `async def say_with_emotion(self, text: str, emotion: str = None)`
+- **Role**: Direct TTS for system announcements
+- **Functions**:
+  - Used for greetings, virtual request announcements, timeouts
+  - Calls `await self.session.say(text)` directly
+  - Still routes through `tts_node()` override for emotion processing
+  - Bypasses LLM but preserves emotion handling
+
+#### **🎵 Audio Synthesis and Playback**
+
+**Final Audio Generation (Line 157 in `coffee_barista_agent.py`):**
+```python
+async for audio_frame in Agent.default.tts_node(self, processed_text, model_settings):
+    yield audio_frame
+```
+
+**Audio Pipeline:**
+1. **OpenAI TTS**: Uses model "tts-1" with voice "nova" (configurable)
+2. **LiveKit Streaming**: Real-time audio frame streaming to connected clients
+3. **Client Playback**: Audio plays through browser, room system, or connected devices
+
+#### **🎭 Emotion Processing Integration**
+
+**Emotion Flow in TTS Override:**
+```python
+# 1. Text stream arrives (with potential emotion:text format)
+async for text_chunk in text:
+    if ":" in first_chunk_buffer:
+        # 2. Extract emotion from delimiter
+        emotion = parts[0].strip()
+        text_after_delimiter = parts[1]
+        
+        # 3. Update emotional state
+        if emotion != self.state_manager.current_emotion:
+            self.state_manager.current_emotion = emotion
+            self.state_manager.log_animated_eyes(emotion)
+        
+        # 4. Yield clean text for audio synthesis
+        yield text_after_delimiter
+```
+
+#### **⚙️ Technical Details**
+
+**Threading Model:**
+- **Main Thread**: LiveKit agent and TTS processing
+- **Wake Word Thread**: Porcupine audio processing (synchronous)
+- **WebSocket Thread**: Order notification server
+
+**Audio Configuration:**
+- **STT**: OpenAI Whisper ("whisper-1")
+- **TTS**: OpenAI TTS ("tts-1", voice configurable via `VOICE_AGENT_VOICE`)
+- **VAD**: Silero Voice Activity Detection
+- **Streaming**: Real-time audio frame streaming via LiveKit
+
+**State Synchronization:**
+- All TTS calls update `StateManager.current_emotion`
+- Emotion changes trigger eye animation logging
+- Session events coordinate conversation flow and TTS timing
+
+**Performance Characteristics:**
+- **Minimal Buffering**: Only first 50 characters checked for emotion
+- **Streaming**: Audio synthesis starts as soon as clean text is available
+- **Low Latency**: Real-time processing for responsive conversations
+
 ## Dependencies
 
 ### Environment Variables
