@@ -209,6 +209,12 @@ class VoiceAgentBridge(Node):
                 # self.tts_started_pub.publish(...) for event == "started"
                 # self.tts_finished_pub.publish(...) for event == "finished"
                 
+            elif message_type == 'ACKNOWLEDGMENT':
+                # Handle acknowledgment messages from voice agent
+                status = data.get('status', 'unknown')
+                message = data.get('message', '')
+                self.get_logger().debug(f"Voice agent acknowledgment: {status} - {message}")
+                
             else:
                 self.get_logger().warn(f"Unknown message type from voice agent: {message_type}")
                 

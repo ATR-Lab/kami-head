@@ -379,6 +379,7 @@ class CoffeeBaristaAgent(Agent):
                     
                     # Send confirmation back to indexer
                     response = {
+                        "type": "ACKNOWLEDGMENT",
                         "status": "success",
                         "message": f"Order notification received: {coffee_type}"
                     }

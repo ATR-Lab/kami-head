@@ -49,8 +49,9 @@ class StateManager:
         
         # Phase 4: Mutual exclusion for virtual request processing
         self.virtual_request_processing_lock = asyncio.Lock()
-        self.batch_timer = None  # Timer for batching rapid requests
-        self.batch_window_duration = 2.0  # seconds to collect requests into a batch
+        # Removed batching complexity - no longer needed
+        # self.batch_timer = None
+        # self.batch_window_duration = 2.0
 
     async def transition_to_state(self, new_state: AgentState):
         """Handle state transitions with proper cleanup"""
@@ -76,11 +77,6 @@ class StateManager:
             # Reset conversation ending flag
             self.ending_conversation = False
         
-        # Cancel batch timer if transitioning away from DORMANT
-        if self.current_state == AgentState.DORMANT and self.batch_timer:
-            self.batch_timer.cancel()
-            self.batch_timer = None
-            logger.info("🔍 Cancelled batch collection timer during state transition")
 
     async def _enter_new_state(self):
         """Initialize new state"""
@@ -156,8 +152,15 @@ class StateManager:
         except asyncio.CancelledError:
             pass  # User spoke, timer cancelled
 
-    async def create_session(self, agent) -> AgentSession:
-        """Create new session when wake word detected"""
+    async def create_session(self, agent, for_conversation: bool = True) -> AgentSession:
+        """Create new session for voice interaction
+        
+        Args:
+            agent: The voice agent instance
+            for_conversation: If True, adds conversation event handlers for interactive sessions.
+                            If False, creates a minimal session for announcements only.
+                            This prevents race conditions during batch announcement processing.
+        """
         if self.session:
             await self.destroy_session()
             
@@ -175,98 +178,101 @@ class StateManager:
         )
         
         # Set up session event handlers using correct LiveKit 1.0+ events
-        @self.session.on("conversation_item_added")
-        def on_conversation_item_added(event):
-            """Handle conversation items being added - detect user goodbye and manage conversation flow"""
-            logger.info("🔍 DEBUG: conversation_item_added event fired!")
-            logger.info(f"🔍 DEBUG: event type: {type(event)}")
-            logger.info(f"🔍 DEBUG: item role: {event.item.role}")
-            logger.info(f"🔍 DEBUG: item text: {event.item.text_content}")
-            
-            async def handle_conversation_item():
-                try:
-                    # Handle user messages for goodbye detection
-                    if event.item.role == "user":
-                        # Cancel user response timer when user speaks
-                        if self.user_response_timer:
-                            self.user_response_timer.cancel()
-                            self.user_response_timer = None
-                        
-                        # Check for goodbye in user text
-                        user_text = event.item.text_content or ""
-                        text_lower = user_text.lower()
-                        logger.info(f"🔍 DEBUG: User said: '{user_text}'")
-                        
-                        goodbye_words = ['goodbye', 'thanks', 'that\'s all', 'see you', 'bye']
-                        
-                        if any(word in text_lower for word in goodbye_words):
-                            logger.info("🔍 DEBUG: User indicated conversation ending - goodbye detected!")
-                            # Set ending flag to prevent timer conflicts
-                            self.ending_conversation = True
-                            
-                            # Let agent say goodbye before ending conversation
-                            goodbye_response = "friendly:Thanks for chatting! Say 'hey barista' if you need me again."
-                            emotion, text = self.process_emotional_response(goodbye_response)
-                            await self.say_with_emotion(text, emotion)
-                            
-                            # Wait for goodbye to finish, then end conversation
-                            await asyncio.sleep(3)  # Give time for TTS to complete
-                            await self.end_conversation()
-                        else:
-                            logger.info(f"🔍 DEBUG: No goodbye detected in: '{user_text}'")
-                    
-                    # Handle agent messages for timer management
-                    elif event.item.role == "assistant":
-                        logger.info("🔍 DEBUG: Agent message added to conversation")
-                        
-                        # Only start new timer if we're not ending the conversation
-                        if not self.ending_conversation:
-                            # Start timer to wait for user response after agent speaks
+        # Only add conversation handlers for interactive sessions to prevent race conditions
+        # during DORMANT state batch announcement processing
+        if for_conversation:
+            @self.session.on("conversation_item_added")
+            def on_conversation_item_added(event):
+                """Handle conversation items being added - detect user goodbye and manage conversation flow"""
+                logger.info("🔍 DEBUG: conversation_item_added event fired!")
+                logger.info(f"🔍 DEBUG: event type: {type(event)}")
+                logger.info(f"🔍 DEBUG: item role: {event.item.role}")
+                logger.info(f"🔍 DEBUG: item text: {event.item.text_content}")
+                
+                async def handle_conversation_item():
+                    try:
+                        # Handle user messages for goodbye detection
+                        if event.item.role == "user":
+                            # Cancel user response timer when user speaks
                             if self.user_response_timer:
                                 self.user_response_timer.cancel()
+                                self.user_response_timer = None
                             
-                            self.user_response_timer = asyncio.create_task(self._wait_for_user_response())
-                            logger.info("🔍 DEBUG: Started user response timer")
-                        else:
-                            logger.info("🔍 DEBUG: Skipping user response timer - conversation ending")
+                            # Check for goodbye in user text
+                            user_text = event.item.text_content or ""
+                            text_lower = user_text.lower()
+                            logger.info(f"🔍 DEBUG: User said: '{user_text}'")
                             
-                except Exception as e:
-                    logger.error(f"🔍 DEBUG: Exception in conversation_item_added handler: {e}")
-                    import traceback
-                    logger.error(f"🔍 DEBUG: Traceback: {traceback.format_exc()}")
-                    
-            asyncio.create_task(handle_conversation_item())
-        
-        @self.session.on("user_state_changed")
-        def on_user_state_changed(event):
-            """Handle user state changes (speaking/listening)"""
-            logger.info(f"🔍 DEBUG: user_state_changed: {event.old_state} → {event.new_state}")
+                            goodbye_words = ['goodbye', 'thanks', 'that\'s all', 'see you', 'bye']
+                            
+                            if any(word in text_lower for word in goodbye_words):
+                                logger.info("🔍 DEBUG: User indicated conversation ending - goodbye detected!")
+                                # Set ending flag to prevent timer conflicts
+                                self.ending_conversation = True
+                                
+                                # Let agent say goodbye before ending conversation
+                                goodbye_response = "friendly:Thanks for chatting! Say 'hey barista' if you need me again."
+                                emotion, text = self.process_emotional_response(goodbye_response)
+                                await self.say_with_emotion(text, emotion)
+                                
+                                # Wait for goodbye to finish, then end conversation
+                                await asyncio.sleep(3)  # Give time for TTS to complete
+                                await self.end_conversation()
+                            else:
+                                logger.info(f"🔍 DEBUG: No goodbye detected in: '{user_text}'")
+                        
+                        # Handle agent messages for timer management
+                        elif event.item.role == "assistant":
+                            logger.info("🔍 DEBUG: Agent message added to conversation")
+                            
+                            # Only start new timer if we're not ending the conversation
+                            if not self.ending_conversation:
+                                # Start timer to wait for user response after agent speaks
+                                if self.user_response_timer:
+                                    self.user_response_timer.cancel()
+                                
+                                self.user_response_timer = asyncio.create_task(self._wait_for_user_response())
+                                logger.info("🔍 DEBUG: Started user response timer")
+                            else:
+                                logger.info("🔍 DEBUG: Skipping user response timer - conversation ending")
+                                
+                    except Exception as e:
+                        logger.error(f"🔍 DEBUG: Exception in conversation_item_added handler: {e}")
+                        import traceback
+                        logger.error(f"🔍 DEBUG: Traceback: {traceback.format_exc()}")
+                        
+                asyncio.create_task(handle_conversation_item())
             
-            if event.new_state == "speaking":
-                logger.info("🔍 DEBUG: User started speaking")
-            elif event.new_state == "listening":
-                logger.info("🔍 DEBUG: User stopped speaking")
-        
-        @self.session.on("agent_state_changed")
-        def on_agent_state_changed(event):
-            """Handle agent state changes (initializing/listening/thinking/speaking)"""
-            logger.info(f"🔍 DEBUG: agent_state_changed: {event.old_state} → {event.new_state}")
+            @self.session.on("user_state_changed")
+            def on_user_state_changed(event):
+                """Handle user state changes (speaking/listening)"""
+                logger.info(f"🔍 DEBUG: user_state_changed: {event.old_state} → {event.new_state}")
+                
+                if event.new_state == "speaking":
+                    logger.info("🔍 DEBUG: User started speaking")
+                elif event.new_state == "listening":
+                    logger.info("🔍 DEBUG: User stopped speaking")
             
-            if event.new_state == "speaking":
-                logger.info("🔍 DEBUG: Agent started speaking")
-            elif event.new_state == "listening":
-                logger.info("🔍 DEBUG: Agent is listening")
-            elif event.new_state == "thinking":
-                logger.info("🔍 DEBUG: Agent is thinking")
-        
-        @self.session.on("close")
-        def on_session_close(event):
-            """Handle session close events"""
-            logger.info("🔍 DEBUG: session close event fired!")
-            if event.error:
-                logger.error(f"🔍 DEBUG: Session closed with error: {event.error}")
-            else:
-                logger.info("🔍 DEBUG: Session closed normally")
+            @self.session.on("agent_state_changed")
+            def on_agent_state_changed(event):
+                """Handle agent state changes (initializing/listening/thinking/speaking)"""
+                logger.info(f"🔍 DEBUG: agent_state_changed: {event.old_state} → {event.new_state}")
+                
+                if event.new_state == "speaking":
+                    logger.info("🔍 DEBUG: Agent started speaking")
+                elif event.new_state == "listening":
+                    logger.info("🔍 DEBUG: Agent is listening")
+                elif event.new_state == "thinking":
+                    logger.info("🔍 DEBUG: Agent is thinking")
+            
+            @self.session.on("close")
+            def on_session_close(event):
+                """Handle session close events"""
+                logger.info("🔍 DEBUG: session close event fired!")
+                if event.error:
+                    logger.error(f"🔍 DEBUG: Session closed with error: {event.error}")
+                else:
+                    logger.info("🔍 DEBUG: Session closed normally")
         
         await self.session.start(agent=agent, room=self.ctx.room)
         
@@ -314,106 +320,62 @@ class StateManager:
             
         logger.info(f"📋 Queued virtual request: {request_type} - {content} (priority: {priority}) [Queue size: {len(self.virtual_request_queue)}]")
         
-        # If agent is in DORMANT state, trigger batch processing
+        # If agent is in DORMANT state, process requests immediately
         if self.current_state == AgentState.DORMANT:
-            await self._trigger_batch_processing()
+            await self._process_virtual_requests()
         else:
             logger.info(f"🔍 Agent in {self.current_state.value} state - request will be processed during conversation")
 
-    async def _trigger_batch_processing(self):
-        """Trigger batch processing with mutual exclusion and batching logic"""
+
+
+    async def _process_virtual_requests(self):
+        """Process all queued virtual requests with simple while loop - processes until queue is empty"""
         # Check if we're already processing (mutual exclusion)
         if self.virtual_request_processing_lock.locked():
-            logger.info("🔍 Virtual request processing already in progress - request will be included in current/next batch")
+            logger.info("🔍 Virtual request processing already in progress - skipping")
             return
         
-        # Check if there are urgent requests - process immediately
-        has_urgent = any(req.get("priority") == "urgent" for req in self.virtual_request_queue)
-        
-        if has_urgent:
-            logger.info("🔍 Urgent request detected - processing batch immediately")
-            # Cancel existing batch timer if running
-            if self.batch_timer:
-                self.batch_timer.cancel()
-                self.batch_timer = None
-            # Process immediately
-            await self._process_batch_with_lock()
-        else:
-            # If no batch timer is running, start one for normal priority requests
-            if self.batch_timer is None:
-                logger.info("🔍 Starting batch collection timer for normal priority requests")
-                self.batch_timer = asyncio.create_task(self._batch_collection_timer())
-
-    async def _batch_collection_timer(self):
-        """Collect requests for a time window, then process them as a batch"""
-        try:
-            # Wait for batch collection window
-            await asyncio.sleep(self.batch_window_duration)
-            
-            # Process collected batch
-            await self._process_batch_with_lock()
-            
-        except asyncio.CancelledError:
-            logger.info("🔍 Batch collection timer cancelled")
-        finally:
-            self.batch_timer = None
-
-    async def _process_batch_with_lock(self):
-        """Process all queued virtual requests as a single batch with mutual exclusion"""
         async with self.virtual_request_processing_lock:
-            if not self.virtual_request_queue:
-                logger.info("🔍 No virtual requests to process in batch")
-                return
-            
-            if self.current_state != AgentState.DORMANT:
-                logger.info("🔍 Agent no longer in DORMANT state - skipping batch processing")
-                return
-            
-            logger.info(f"🔍 Processing batch of {len(self.virtual_request_queue)} virtual requests")
-            
-            # Create single session for entire batch
+            # Create session if needed
             temp_session = None
             try:
                 if not self.session:
-                    temp_session = await self.create_session(self.agent)
-                    logger.info("🔍 Created temporary session for batch processing")
+                    temp_session = await self.create_session(self.agent, for_conversation=False)
+                    logger.info("🔍 Created temporary session for virtual request processing")
                 
-                # Process all requests in the batch (back to front for stable indices)
-                batch_size = len(self.virtual_request_queue)
-                for i in range(batch_size - 1, -1, -1):
+                # Process all requests until queue is empty
+                processed_count = 0
+                while self.virtual_request_queue and self.current_state == AgentState.DORMANT:
                     try:
-                        # Get request and remove by index (avoids race condition)
-                        request = self.virtual_request_queue[i]
-                        del self.virtual_request_queue[i]
+                        # Simple dequeue from front
+                        request = self.virtual_request_queue.pop(0)
+                        processed_count += 1
                         
                         # Announce the virtual request
                         announcement = self._format_virtual_request_announcement(request)
-                        logger.info(f"🔍 DEBUG: BATCH - Raw announcement: '{announcement}'")
                         emotion, text = self.process_emotional_response(announcement)
-                        logger.info(f"🔍 DEBUG: BATCH - Processed emotion: '{emotion}', text: '{text}'")
                         await self.say_with_emotion(text, emotion)
                         
-                        logger.info(f"📢 Announced batch request {batch_size-i}/{batch_size}: {request['type']}")
+                        logger.info(f"📢 Announced virtual request {processed_count}: {request['type']} [Queue size now: {len(self.virtual_request_queue)}]")
                         
-                        # Small delay between announcements in the same batch
-                        if i > 0:
+                        # Small delay between announcements
+                        if self.virtual_request_queue:
                             await asyncio.sleep(1.0)
                         
                     except Exception as e:
-                        logger.error(f"Error processing batch request {request['type']}: {e}")
+                        logger.error(f"Error processing virtual request {request.get('type', 'UNKNOWN') if 'request' in locals() else 'UNKNOWN'}: {e}")
                 
-                # Final pause before cleaning up session
-                await asyncio.sleep(1.0)
+                if processed_count > 0:
+                    logger.info(f"🔍 Virtual request processing completed - processed {processed_count} requests")
+                    await asyncio.sleep(1.0)  # Final pause
                 
             except Exception as e:
-                logger.error(f"Error in batch processing: {e}")
+                logger.error(f"Error in virtual request processing: {e}")
             finally:
                 # Clean up temporary session
                 if temp_session and self.session:
                     await self.destroy_session()
-                    logger.info("🔍 Cleaned up temporary batch processing session")
-                
-                logger.info(f"🔍 Batch processing completed - {len(self.virtual_request_queue)} requests remaining in queue")
+                    logger.info("🔍 Cleaned up temporary virtual request processing session")
 
     async def _process_virtual_request_during_conversation(self):
         """Process a virtual request during conversation pause"""
@@ -452,9 +414,9 @@ class StateManager:
             self.announcing_virtual_request = False
 
     async def _process_queued_virtual_requests(self):
-        """Legacy method - now delegates to new batch processing system"""
-        logger.info("🔍 Legacy _process_queued_virtual_requests called - delegating to batch processing")
-        await self._process_batch_with_lock()
+        """Legacy method - now delegates to simplified processing system"""
+        logger.info("🔍 Legacy _process_queued_virtual_requests called - delegating to simplified processing")
+        await self._process_virtual_requests()
 
     def _format_virtual_request_announcement(self, request: dict) -> str:
         """Format virtual request as emotional announcement"""
@@ -525,16 +487,27 @@ class StateManager:
         
         if self.session:
             # Send TTS_STARTED event
+            logger.info("🔍 DEBUG: About to send TTS_STARTED event")
             await self._send_tts_event("started", text, emotion or self.current_emotion, "manual")
+            logger.info("🔍 DEBUG: TTS_STARTED event sent successfully")
             
             logger.info("🔍 DEBUG: Calling session.say() directly (bypasses llm_node)")
             handle = await self.session.say(text)
+            logger.info(f"🔍 DEBUG: session.say() returned handle: {type(handle)}")
             
             # Wait for TTS completion
-            await handle.wait_for_playout()
+            logger.info("🔍 DEBUG: About to call handle.wait_for_playout() - this might hang!")
+            try:
+                await handle.wait_for_playout()
+                logger.info("🔍 DEBUG: handle.wait_for_playout() completed successfully!")
+            except Exception as e:
+                logger.error(f"🔍 DEBUG: handle.wait_for_playout() failed: {e}")
+                raise
             
             # Send TTS_FINISHED event
+            logger.info("🔍 DEBUG: About to send TTS_FINISHED event")
             await self._send_tts_event("finished", text, emotion or self.current_emotion, "manual")
+            logger.info("🔍 DEBUG: TTS_FINISHED event sent successfully")
             
             if emotion:
                 logger.info(f"🎭 Speaking with emotion: {emotion}")
