@@ -86,8 +86,14 @@ class CoffeeBaristaAgent(Agent):
     async def tts_node(self, text, model_settings=None):
         """Override TTS node to process delimiter-based responses (emotion:text) with minimal buffering"""
         
+        # Initialize text tracking for TTS events
+        self.state_manager.current_speech_preview = ""
+        self.state_manager.current_speech_full_text = ""
+        preview_set = False
+        
         # Process text stream with minimal buffering for emotion extraction
         async def process_text_stream():
+            nonlocal preview_set
             first_chunk_buffer = ""
             emotion_extracted = False
             emotion_check_limit = 50  # Only check first 50 characters for emotion delimiter
@@ -130,6 +136,11 @@ class CoffeeBaristaAgent(Agent):
                         # Immediately yield the text part (no more buffering)
                         if text_after_delimiter.strip():
                             logger.info(f"💬 TTS streaming text immediately: {text_after_delimiter[:30]}{'...' if len(text_after_delimiter) > 30 else ''}")
+                            # Accumulate text and set preview
+                            self.state_manager.current_speech_full_text += text_after_delimiter
+                            if not preview_set:
+                                self.state_manager.current_speech_preview = text_after_delimiter[:50] + "..." if len(text_after_delimiter) > 50 else text_after_delimiter
+                                preview_set = True
                             yield text_after_delimiter
                         else:
                             logger.warning("🔍 DEBUG: text_after_delimiter is empty or whitespace - nothing to yield!")
@@ -149,6 +160,11 @@ class CoffeeBaristaAgent(Agent):
                         
                         # Yield the buffered content immediately
                         logger.info(f"💬 TTS fallback streaming: {first_chunk_buffer[:30]}{'...' if len(first_chunk_buffer) > 30 else ''}")
+                        # Accumulate text and set preview
+                        self.state_manager.current_speech_full_text += first_chunk_buffer
+                        if not preview_set:
+                            self.state_manager.current_speech_preview = first_chunk_buffer[:50] + "..." if len(first_chunk_buffer) > 50 else first_chunk_buffer
+                            preview_set = True
                         yield first_chunk_buffer
                     
                     # If we haven't extracted emotion yet and haven't hit limit, continue buffering
@@ -157,6 +173,11 @@ class CoffeeBaristaAgent(Agent):
                 else:
                     # Either emotion already extracted, or we're past the check limit
                     # Stream everything immediately
+                    # Accumulate text and set preview if not set
+                    self.state_manager.current_speech_full_text += text_chunk
+                    if not preview_set:
+                        self.state_manager.current_speech_preview = text_chunk[:50] + "..." if len(text_chunk) > 50 else text_chunk
+                        preview_set = True
                     yield text_chunk
         
         # Process the text stream and pass clean text to default TTS

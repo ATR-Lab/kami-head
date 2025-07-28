@@ -42,6 +42,10 @@ class StateManager:
         self.current_emotion = "waiting"  # Track current emotional state
         self.emotion_history = []  # Log emotional journey
         self.ending_conversation = False  # Flag to prevent timer conflicts during goodbye
+        
+        # Text tracking for TTS events
+        self.current_speech_preview = ""  # Preview text for "started" events
+        self.current_speech_full_text = ""  # Accumulated full text for "finished" events
         self.virtual_request_queue = []  # Queue for virtual coffee requests
         self.announcing_virtual_request = False  # Flag to prevent conflicts during announcements
         self.recent_greetings = []  # Track recent greetings to avoid repetition
@@ -264,11 +268,15 @@ class StateManager:
                         if event.new_state == "speaking":
                             logger.info("🔍 DEBUG: Agent started speaking - sending TTS started event")
                             current_emotion = self.current_emotion
-                            await self._send_tts_event("started", "Agent Response", current_emotion, "session")
+                            # Use preview text for started event
+                            text_to_send = self.current_speech_preview or "Agent Response"
+                            await self._send_tts_event("started", text_to_send, current_emotion, "session")
                         elif event.old_state == "speaking" and event.new_state != "speaking":
                             logger.info("🔍 DEBUG: Agent stopped speaking - sending TTS finished event")
                             current_emotion = self.current_emotion
-                            await self._send_tts_event("finished", "Agent Response", current_emotion, "session")
+                            # Use full accumulated text for finished event
+                            text_to_send = self.current_speech_full_text or "Agent Response"
+                            await self._send_tts_event("finished", text_to_send, current_emotion, "session")
                     except Exception as e:
                         logger.error(f"Error handling agent state change TTS events: {e}")
                 
@@ -502,6 +510,10 @@ class StateManager:
         logger.info(f"🔍 DEBUG: say_with_emotion emotion: {emotion}")
         
         if self.session:
+            # Store text for TTS events
+            self.current_speech_preview = text[:50] + "..." if len(text) > 50 else text
+            self.current_speech_full_text = text
+            
             # Send TTS_STARTED event - COMMENTED OUT to prevent duplicates (using agent_state_changed instead)
             # logger.info("🔍 DEBUG: About to send TTS_STARTED event")
             # await self._send_tts_event("started", text, emotion or self.current_emotion, "manual")
