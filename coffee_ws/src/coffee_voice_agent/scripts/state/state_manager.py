@@ -258,6 +258,22 @@ class StateManager:
                 """Handle agent state changes (initializing/listening/thinking/speaking)"""
                 logger.info(f"🔍 DEBUG: agent_state_changed: {event.old_state} → {event.new_state}")
                 
+                # Send TTS events based on state transitions
+                async def handle_state_change():
+                    try:
+                        if event.new_state == "speaking":
+                            logger.info("🔍 DEBUG: Agent started speaking - sending TTS started event")
+                            current_emotion = self.current_emotion
+                            await self._send_tts_event("started", "Agent Response", current_emotion, "session")
+                        elif event.old_state == "speaking" and event.new_state != "speaking":
+                            logger.info("🔍 DEBUG: Agent stopped speaking - sending TTS finished event")
+                            current_emotion = self.current_emotion
+                            await self._send_tts_event("finished", "Agent Response", current_emotion, "session")
+                    except Exception as e:
+                        logger.error(f"Error handling agent state change TTS events: {e}")
+                
+                asyncio.create_task(handle_state_change())
+                
                 if event.new_state == "speaking":
                     logger.info("🔍 DEBUG: Agent started speaking")
                 elif event.new_state == "listening":
@@ -486,10 +502,10 @@ class StateManager:
         logger.info(f"🔍 DEBUG: say_with_emotion emotion: {emotion}")
         
         if self.session:
-            # Send TTS_STARTED event
-            logger.info("🔍 DEBUG: About to send TTS_STARTED event")
-            await self._send_tts_event("started", text, emotion or self.current_emotion, "manual")
-            logger.info("🔍 DEBUG: TTS_STARTED event sent successfully")
+            # Send TTS_STARTED event - COMMENTED OUT to prevent duplicates (using agent_state_changed instead)
+            # logger.info("🔍 DEBUG: About to send TTS_STARTED event")
+            # await self._send_tts_event("started", text, emotion or self.current_emotion, "manual")
+            # logger.info("🔍 DEBUG: TTS_STARTED event sent successfully")
             
             logger.info("🔍 DEBUG: Calling session.say() directly (bypasses llm_node)")
             handle = await self.session.say(text)
@@ -504,10 +520,10 @@ class StateManager:
                 logger.error(f"🔍 DEBUG: handle.wait_for_playout() failed: {e}")
                 raise
             
-            # Send TTS_FINISHED event
-            logger.info("🔍 DEBUG: About to send TTS_FINISHED event")
-            await self._send_tts_event("finished", text, emotion or self.current_emotion, "manual")
-            logger.info("🔍 DEBUG: TTS_FINISHED event sent successfully")
+            # Send TTS_FINISHED event - COMMENTED OUT to prevent duplicates (using agent_state_changed instead)
+            # logger.info("🔍 DEBUG: About to send TTS_FINISHED event")
+            # await self._send_tts_event("finished", text, emotion or self.current_emotion, "manual")
+            # logger.info("🔍 DEBUG: TTS_FINISHED event sent successfully")
             
             if emotion:
                 logger.info(f"🎭 Speaking with emotion: {emotion}")
