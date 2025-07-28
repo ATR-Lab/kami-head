@@ -12,6 +12,7 @@ import asyncio
 import threading
 import time
 import uuid
+import datetime
 from typing import Optional
 
 import rclpy
@@ -20,6 +21,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from std_msgs.msg import String, Bool
 from geometry_msgs.msg import Twist
+from coffee_voice_agent_msgs.msg import TtsEvent, AgentState, EmotionState, ConversationItem
 
 try:
     import websockets
@@ -55,22 +57,29 @@ class VoiceAgentBridge(Node):
         
         # ROS2 Publishers (Voice Agent → ROS2)
         self.state_pub = self.create_publisher(
-            String, 
+            AgentState, 
             'voice_agent/state', 
             10,
             callback_group=self.callback_group
         )
         
         self.conversation_pub = self.create_publisher(
-            String, 
+            ConversationItem, 
             'voice_agent/conversation', 
             10,
             callback_group=self.callback_group
         )
         
         self.emotion_pub = self.create_publisher(
-            String, 
+            EmotionState, 
             'voice_agent/emotion', 
+            10,
+            callback_group=self.callback_group
+        )
+        
+        self.tts_events_pub = self.create_publisher(
+            TtsEvent,
+            'voice_agent/tts_events',
             10,
             callback_group=self.callback_group
         )
@@ -158,32 +167,58 @@ class VoiceAgentBridge(Node):
             
             if message_type == 'STATE_CHANGE':
                 # Publish agent state change
-                state_msg = String()
-                state_msg.data = json.dumps({
-                    'state': data.get('state'),
-                    'timestamp': data.get('timestamp'),
-                    'previous_state': data.get('previous_state')
-                })
+                state_msg = AgentState()
+                state_msg.current_state = data.get('state', 'unknown')
+                state_msg.previous_state = data.get('previous_state', 'unknown')
+                # Parse timestamp if provided, otherwise use current time
+                timestamp_str = data.get('timestamp')
+                if timestamp_str:
+                    # Convert ISO timestamp to ROS Time if needed
+                    try:
+                        dt = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        state_msg.timestamp.sec = int(dt.timestamp())
+                        state_msg.timestamp.nanosec = int((dt.timestamp() % 1) * 1e9)
+                    except:
+                        # Fallback to current time
+                        state_msg.timestamp = self.get_clock().now().to_msg()
+                else:
+                    state_msg.timestamp = self.get_clock().now().to_msg()
                 self.state_pub.publish(state_msg)
                 
             elif message_type == 'CONVERSATION':
                 # Publish conversation transcript
-                conv_msg = String()
-                conv_msg.data = json.dumps({
-                    'role': data.get('role'),
-                    'text': data.get('text'),
-                    'timestamp': data.get('timestamp')
-                })
+                conv_msg = ConversationItem()
+                conv_msg.role = data.get('role', 'unknown')
+                conv_msg.text = data.get('text', '')
+                # Parse timestamp if provided, otherwise use current time
+                timestamp_str = data.get('timestamp')
+                if timestamp_str:
+                    try:
+                        dt = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        conv_msg.timestamp.sec = int(dt.timestamp())
+                        conv_msg.timestamp.nanosec = int((dt.timestamp() % 1) * 1e9)
+                    except:
+                        conv_msg.timestamp = self.get_clock().now().to_msg()
+                else:
+                    conv_msg.timestamp = self.get_clock().now().to_msg()
                 self.conversation_pub.publish(conv_msg)
                 
             elif message_type == 'EMOTION':
                 # Publish emotion change
-                emotion_msg = String()
-                emotion_msg.data = json.dumps({
-                    'emotion': data.get('emotion'),
-                    'previous_emotion': data.get('previous_emotion'),
-                    'timestamp': data.get('timestamp')
-                })
+                emotion_msg = EmotionState()
+                emotion_msg.emotion = data.get('emotion', 'unknown')
+                emotion_msg.previous_emotion = data.get('previous_emotion', 'unknown')
+                # Parse timestamp if provided, otherwise use current time
+                timestamp_str = data.get('timestamp')
+                if timestamp_str:
+                    try:
+                        dt = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        emotion_msg.timestamp.sec = int(dt.timestamp())
+                        emotion_msg.timestamp.nanosec = int((dt.timestamp() % 1) * 1e9)
+                    except:
+                        emotion_msg.timestamp = self.get_clock().now().to_msg()
+                else:
+                    emotion_msg.timestamp = self.get_clock().now().to_msg()
                 self.emotion_pub.publish(emotion_msg)
                 
             elif message_type == 'STATUS':
@@ -205,9 +240,24 @@ class VoiceAgentBridge(Node):
                 
                 self.get_logger().info(f"TTS {event}: emotion={emotion}, source={source}, text='{text_preview}'")
                 
-                # TODO: Publish to ROS2 topics when robot coordination is ready
-                # self.tts_started_pub.publish(...) for event == "started"
-                # self.tts_finished_pub.publish(...) for event == "finished"
+                # Publish TTS event to ROS2 topic
+                tts_msg = TtsEvent()
+                tts_msg.event = event
+                tts_msg.emotion = emotion
+                tts_msg.text = text_preview  # Use truncated text for efficiency
+                tts_msg.source = source
+                # Parse timestamp if provided, otherwise use current time
+                timestamp_str = event_data.get('timestamp')
+                if timestamp_str:
+                    try:
+                        dt = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        tts_msg.timestamp.sec = int(dt.timestamp())
+                        tts_msg.timestamp.nanosec = int((dt.timestamp() % 1) * 1e9)
+                    except:
+                        tts_msg.timestamp = self.get_clock().now().to_msg()
+                else:
+                    tts_msg.timestamp = self.get_clock().now().to_msg()
+                self.tts_events_pub.publish(tts_msg)
                 
             elif message_type == 'ACKNOWLEDGMENT':
                 # Handle acknowledgment messages from voice agent
