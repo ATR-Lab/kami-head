@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>coffee_voice_agent_ui</name>
+  <version>0.0.0</version>
+  <description>PyQt-based monitoring dashboard for Coffee Voice Agent system</description>
+  <maintainer email="irvsteve@gmail.com">kpatch</maintainer>
+  <license>TODO: License declaration</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>coffee_voice_agent_msgs</depend>
+  <depend>rqt_gui</depend>
+  <depend>rqt_gui_py</depend>
+  <depend>python_qt_binding</depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+    <rqt_gui plugin="${prefix}/plugin.xml"/>
+  </export>
+</package>

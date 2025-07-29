@@ -1,0 +1,20 @@
+<library path="coffee_voice_agent_ui">
+  <class name="VoiceAgentMonitor" 
+         type="coffee_voice_agent_ui.voice_agent_monitor.VoiceAgentMonitor" 
+         base_class_type="rqt_gui_py.plugin.Plugin">
+    <description>
+      Coffee Voice Agent Monitoring Dashboard - Real-time monitoring and visualization 
+      of voice agent status, emotions, tool usage, and conversation flow.
+    </description>
+    <qtgui>
+      <group>
+        <label>Coffee Robot</label>
+        <icon type="theme">applications-multimedia</icon>
+        <statustip>Coffee Robot monitoring tools</statustip>
+      </group>
+      <label>Voice Agent Monitor</label>
+      <icon type="theme">audio-input-microphone</icon>
+      <statustip>Monitor voice agent status, emotions, and conversations</statustip>
+    </qtgui>
+  </class>
+</library> 
