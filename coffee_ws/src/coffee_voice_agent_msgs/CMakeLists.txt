@@ -17,6 +17,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AgentState.msg" 
   "msg/EmotionState.msg"
   "msg/ConversationItem.msg"
+  "msg/AgentStatus.msg"
+  "msg/ToolEvent.msg"
   DEPENDENCIES builtin_interfaces std_msgs
 )
 
