@@ -40,12 +40,16 @@ class StateManager:
         self.ctx = None
         self.agent = agent
         self.current_emotion = "waiting"  # Track current emotional state
+        self.previous_emotion = ""  # Track previous emotion for smooth transitions
         self.emotion_history = []  # Log emotional journey
         self.ending_conversation = False  # Flag to prevent timer conflicts during goodbye
         
         # Text tracking for TTS events
         self.current_speech_preview = ""  # Preview text for "started" events
         self.current_speech_full_text = ""  # Accumulated full text for "finished" events
+        
+        # Tool tracking
+        self.last_tool_used = ""  # Last function tool called
         self.virtual_request_queue = []  # Queue for virtual coffee requests
         self.announcing_virtual_request = False  # Flag to prevent conflicts during announcements
         self.recent_greetings = []  # Track recent greetings to avoid repetition
@@ -67,6 +71,23 @@ class StateManager:
             await self._exit_current_state()
             self.current_state = new_state
             await self._enter_new_state()
+            
+            # Send agent status update for behavioral mode changes
+            behavioral_mode_map = {
+                AgentState.DORMANT: "dormant",
+                AgentState.CONNECTING: "connecting", 
+                AgentState.ACTIVE: "active",
+                AgentState.DISCONNECTING: "disconnecting"
+            }
+            
+            behavioral_mode = behavioral_mode_map.get(new_state, "dormant")
+            
+            # Determine conversation phase for greetings
+            conversation_phase = ""
+            if new_state == AgentState.ACTIVE:
+                conversation_phase = "greeting"
+            
+            await self._send_agent_status(behavioral_mode, "idle", conversation_phase)
 
     async def _exit_current_state(self):
         """Clean up current state"""
@@ -262,23 +283,26 @@ class StateManager:
                 """Handle agent state changes (initializing/listening/thinking/speaking)"""
                 logger.info(f"🔍 DEBUG: agent_state_changed: {event.old_state} → {event.new_state}")
                 
-                # Send TTS events based on state transitions
+                # Send unified agent status based on state transitions
                 async def handle_state_change():
                     try:
+                        # Map LiveKit agent states to our behavioral modes
+                        current_behavioral_mode = "dormant"  # Default
+                        if self.current_state == AgentState.ACTIVE:
+                            current_behavioral_mode = "active"
+                        elif self.current_state == AgentState.CONNECTING:
+                            current_behavioral_mode = "connecting"
+                        elif self.current_state == AgentState.DISCONNECTING:
+                            current_behavioral_mode = "disconnecting"
+                        
                         if event.new_state == "speaking":
-                            logger.info("🔍 DEBUG: Agent started speaking - sending TTS started event")
-                            current_emotion = self.current_emotion
-                            # Use preview text for started event
-                            text_to_send = self.current_speech_preview or "Agent Response"
-                            await self._send_tts_event("started", text_to_send, current_emotion, "session")
+                            logger.info("🔍 DEBUG: Agent started speaking - sending agent status")
+                            await self._send_agent_status(current_behavioral_mode, "speaking")
                         elif event.old_state == "speaking" and event.new_state != "speaking":
-                            logger.info("🔍 DEBUG: Agent stopped speaking - sending TTS finished event")
-                            current_emotion = self.current_emotion
-                            # Use full accumulated text for finished event
-                            text_to_send = self.current_speech_full_text or "Agent Response"
-                            await self._send_tts_event("finished", text_to_send, current_emotion, "session")
+                            logger.info("🔍 DEBUG: Agent stopped speaking - sending agent status")
+                            await self._send_agent_status(current_behavioral_mode, "idle")
                     except Exception as e:
-                        logger.error(f"Error handling agent state change TTS events: {e}")
+                        logger.error(f"Error handling agent state change status events: {e}")
                 
                 asyncio.create_task(handle_state_change())
                 
@@ -482,6 +506,7 @@ class StateManager:
             if emotion != self.current_emotion:
                 logger.info(f"🎭 Emotion transition: {self.current_emotion} → {emotion}")
                 self.log_animated_eyes(emotion)
+                self.previous_emotion = self.current_emotion  # Store previous before updating
                 self.current_emotion = emotion
                 
                 # Store in emotion history
@@ -561,4 +586,54 @@ class StateManager:
             }
             await self.agent._send_websocket_event("TTS_EVENT", event_data)
         else:
-            logger.debug(f"Cannot send TTS {event} event - no agent WebSocket connection") 
+            logger.debug(f"Cannot send TTS {event} event - no agent WebSocket connection")
+
+    async def _send_agent_status(self, behavioral_mode: str, speech_status: str, conversation_phase: str = ""):
+        """Send unified agent status through agent's WebSocket connection"""
+        if self.agent and hasattr(self.agent, '_send_websocket_event'):
+            # Determine conversation phase if not provided
+            if not conversation_phase:
+                if self.announcing_virtual_request:
+                    conversation_phase = "announcement"
+                elif behavioral_mode == "active":
+                    conversation_phase = "discussion"
+                # else conversation_phase remains empty for dormant
+            
+            # Get current speech text based on speech status
+            speech_text = ""
+            if speech_status == "speaking":
+                speech_text = self.current_speech_preview or ""
+            elif speech_status == "idle" and self.current_speech_full_text:
+                speech_text = self.current_speech_full_text
+            
+            status_data = {
+                "behavioral_mode": behavioral_mode,
+                "speech_status": speech_status,
+                "emotion": self.current_emotion,
+                "speech_text": speech_text,
+                "previous_emotion": getattr(self, 'previous_emotion', ''),
+                "conversation_phase": conversation_phase,
+                "last_tool_used": self.last_tool_used,
+                "timestamp": datetime.now().isoformat()
+            }
+            await self.agent._send_websocket_event("AGENT_STATUS", status_data)
+        else:
+            logger.debug(f"Cannot send agent status - no agent WebSocket connection")
+
+    async def _send_tool_event(self, tool_name: str, status: str, parameters: list = None, result: str = ""):
+        """Send tool event through agent's WebSocket connection"""
+        if self.agent and hasattr(self.agent, '_send_websocket_event'):
+            # Update last tool used when tool starts
+            if status == "started":
+                self.last_tool_used = tool_name
+            
+            tool_data = {
+                "tool_name": tool_name,
+                "status": status,
+                "parameters": parameters or [],
+                "result": result,
+                "timestamp": datetime.now().isoformat()
+            }
+            await self.agent._send_websocket_event("TOOL_EVENT", tool_data)
+        else:
+            logger.debug(f"Cannot send tool event - no agent WebSocket connection") 

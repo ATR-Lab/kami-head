@@ -23,7 +23,7 @@ from config.settings import WEBSOCKET_HOST, WEBSOCKET_PORT, VALID_EMOTIONS
 from state.state_manager import StateManager, AgentState
 from tools.coffee_tools import (
     get_current_time_impl, get_current_date_impl, get_coffee_menu_impl,
-    get_ordering_instructions_impl, recommend_drink_impl
+    get_ordering_instructions_impl, recommend_drink_impl, set_agent_instance
 )
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,9 @@ class CoffeeBaristaAgent(Agent):
         
         # State management
         self.state_manager = StateManager(self)
+        
+        # Set agent instance for tool event tracking
+        set_agent_instance(self)
         
         # Wake word detection setup
         self.porcupine_access_key = os.getenv("PORCUPINE_ACCESS_KEY")

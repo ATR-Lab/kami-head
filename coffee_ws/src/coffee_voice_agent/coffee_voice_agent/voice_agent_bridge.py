@@ -21,7 +21,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from std_msgs.msg import String, Bool
 from geometry_msgs.msg import Twist
-from coffee_voice_agent_msgs.msg import TtsEvent, AgentState, EmotionState, ConversationItem
+from coffee_voice_agent_msgs.msg import TtsEvent, AgentState, EmotionState, ConversationItem, AgentStatus, ToolEvent
 
 try:
     import websockets
@@ -80,6 +80,20 @@ class VoiceAgentBridge(Node):
         self.tts_events_pub = self.create_publisher(
             TtsEvent,
             'voice_agent/tts_events',
+            10,
+            callback_group=self.callback_group
+        )
+        
+        self.agent_status_pub = self.create_publisher(
+            AgentStatus,
+            'voice_agent/status',
+            10,
+            callback_group=self.callback_group
+        )
+        
+        self.tool_event_pub = self.create_publisher(
+            ToolEvent,
+            'voice_agent/tool_events',
             10,
             callback_group=self.callback_group
         )
@@ -258,6 +272,63 @@ class VoiceAgentBridge(Node):
                 else:
                     tts_msg.timestamp = self.get_clock().now().to_msg()
                 self.tts_events_pub.publish(tts_msg)
+                
+            elif message_type == 'AGENT_STATUS':
+                # Handle unified agent status events
+                status_data = data.get('data', {})
+                
+                self.get_logger().info(f"Agent Status: mode={status_data.get('behavioral_mode', 'unknown')}, speech={status_data.get('speech_status', 'unknown')}, emotion={status_data.get('emotion', 'unknown')}")
+                
+                # Publish unified agent status to ROS2 topic
+                status_msg = AgentStatus()
+                status_msg.behavioral_mode = status_data.get('behavioral_mode', 'unknown')
+                status_msg.speech_status = status_data.get('speech_status', 'unknown') 
+                status_msg.emotion = status_data.get('emotion', 'unknown')
+                status_msg.speech_text = status_data.get('speech_text', '')
+                status_msg.previous_emotion = status_data.get('previous_emotion', 'unknown')
+                status_msg.conversation_phase = status_data.get('conversation_phase', '')
+                status_msg.last_tool_used = status_data.get('last_tool_used', '')
+                
+                # Parse timestamp if provided, otherwise use current time
+                timestamp_str = status_data.get('timestamp')
+                if timestamp_str:
+                    try:
+                        dt = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        status_msg.timestamp.sec = int(dt.timestamp())
+                        status_msg.timestamp.nanosec = int((dt.timestamp() % 1) * 1e9)
+                    except:
+                        status_msg.timestamp = self.get_clock().now().to_msg()
+                else:
+                    status_msg.timestamp = self.get_clock().now().to_msg()
+                    
+                self.agent_status_pub.publish(status_msg)
+                
+            elif message_type == 'TOOL_EVENT':
+                # Handle function tool events
+                tool_data = data.get('data', {})
+                
+                self.get_logger().info(f"Tool Event: {tool_data.get('tool_name', 'unknown')} - {tool_data.get('status', 'unknown')}")
+                
+                # Publish tool event to ROS2 topic
+                tool_msg = ToolEvent()
+                tool_msg.tool_name = tool_data.get('tool_name', 'unknown')
+                tool_msg.parameters = tool_data.get('parameters', [])
+                tool_msg.result = tool_data.get('result', '')
+                tool_msg.status = tool_data.get('status', 'unknown')
+                
+                # Parse timestamp if provided, otherwise use current time
+                timestamp_str = tool_data.get('timestamp')
+                if timestamp_str:
+                    try:
+                        dt = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        tool_msg.timestamp.sec = int(dt.timestamp())
+                        tool_msg.timestamp.nanosec = int((dt.timestamp() % 1) * 1e9)
+                    except:
+                        tool_msg.timestamp = self.get_clock().now().to_msg()
+                else:
+                    tool_msg.timestamp = self.get_clock().now().to_msg()
+                    
+                self.tool_event_pub.publish(tool_msg)
                 
             elif message_type == 'ACKNOWLEDGMENT':
                 # Handle acknowledgment messages from voice agent
