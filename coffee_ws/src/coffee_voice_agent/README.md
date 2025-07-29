@@ -30,10 +30,11 @@ This package now includes **two implementations** of the voice agent:
 
 ### **Key Design Principle: Single Source of Truth**
 
-The voice agent now uses a **unified messaging approach** that provides all robot coordination information through two primary message types:
+The voice agent now uses a **unified messaging approach** that provides all robot coordination information through three primary message types:
 
 1. **`AgentStatus`** - Comprehensive agent state for robot coordination
 2. **`ToolEvent`** - Function tool call tracking for UI and analytics
+3. **`UserSpeech`** - Real-time STT transcription for conversation logging
 
 This replaces the previous fragmented approach of separate state, emotion, and TTS event messages, ensuring **atomic updates** and **consistent state** for the orchestrator.
 
@@ -83,6 +84,7 @@ The refactored version was created through careful **file-based modular extracti
 
 - **🎙️ Wake Word Detection**: "Hey barista" activation with Porcupine
 - **🗣️ Voice Conversation**: STT, LLM, and TTS using LiveKit/OpenAI  
+- **📝 STT Transcription**: Real-time speech-to-text publishing for conversation logging
 - **😊 Emotion Processing**: Emotion-aware responses with animated expressions
 - **☕ Coffee Functions**: Menu, recommendations, and ordering guidance with tool tracking
 - **🖥️ Console Mode**: Full interactive controls (Ctrl+B, Q) in terminal
@@ -135,6 +137,7 @@ coffee_voice_agent/
 │  Voice Agent    │◄────────────────►│  ROS2 Bridge    │◄────────────►│ Coffee Buddy │
 │  (Console Mode) │  AGENT_STATUS    │  (Bridge Node)  │ AgentStatus │   System     │
 │  Interactive    │  TOOL_EVENT      │  Integration    │ ToolEvent   │              │
+│                 │  USER_SPEECH     │                 │ UserSpeech  │              │
 └─────────────────┘   Port 8080      └─────────────────┘             └──────────────┘
 ```
 
@@ -143,12 +146,14 @@ coffee_voice_agent/
 #### **🔄 WebSocket Events (Voice Agent → Bridge)**
 - **`AGENT_STATUS`**: Comprehensive status updates (behavioral mode, speech status, emotion, text, etc.)
 - **`TOOL_EVENT`**: Function tool execution tracking (started, completed, failed)
+- **`USER_SPEECH`**: Real-time STT transcription events (user speech text)
 - **`STARTUP`**: Agent initialization and version info
 - **`ACKNOWLEDGMENT`**: Command confirmations
 
 #### **📡 ROS2 Messages (Bridge → Robot System)**
 - **`AgentStatus`**: Single unified message containing all robot coordination context
 - **`ToolEvent`**: Discrete tool call events for UI feedback and analytics
+- **`UserSpeech`**: Real-time user speech transcriptions for conversation logging
 
 ### **TTS and Audio Processing Flow**
 
@@ -270,6 +275,85 @@ async for text_chunk in text:
 - **Low Latency**: Real-time processing for responsive conversations
 - **Unified Events**: Single AgentStatus message provides complete context
 
+### **STT and Speech Recognition Flow**
+
+Understanding how speech-to-text processing and user speech capture works:
+
+#### **🔄 STT Processing Pipeline**
+
+**User Speech Processing:**
+```
+User Speaks → VAD Detection → STT Processing → Text Available → Event Publishing
+     ↓              ↓            ↓             ↓              ↓
+ audio_input   voice_activity  whisper_stt   final_text   USER_SPEECH
+```
+
+#### **📍 STT Processing Components**
+
+**1. STT Configuration - `agents/coffee_barista_agent.py` (Lines 192-203)**
+```python
+self.session = AgentSession(
+    stt=openai.STT(model="whisper-1"),  # OpenAI Whisper STT
+    vad=silero.VAD.load(),              # Voice Activity Detection
+    # ... other components
+)
+```
+
+**2. STT Event Capture - `state/state_manager.py` (Lines 209-236)**
+- **Event**: `conversation_item_added` with `role == "user"`
+- **Function**: Captures final STT transcription text
+- **Processing**: 
+  - Extracts `event.item.text_content` (final STT result)
+  - Logs user speech for debugging
+  - Sends `USER_SPEECH` WebSocket event for ROS2 publishing
+  - Processes goodbye detection logic
+
+**3. User Speech Events - `state/state_manager.py` (Lines 625-635)**
+- **Method**: `async def _send_user_speech_event(self, text: str)`
+- **Role**: Publish STT transcriptions via WebSocket
+- **Functions**:
+  - Sends user speech text with timestamp
+  - Follows established WebSocket event pattern
+  - Enables real-time conversation logging
+
+#### **🎵 STT Configuration and Processing**
+
+**STT Engine Configuration:**
+- **Model**: OpenAI Whisper ("whisper-1")
+- **VAD**: Silero Voice Activity Detection
+- **Processing**: Real-time speech recognition with final transcript events
+
+**Event Flow:**
+```python
+# 1. User speech detected by VAD
+@self.session.on("user_state_changed")
+def on_user_state_changed(event):
+    if event.new_state == "speaking":  # User starts speaking
+        # Voice activity detected
+    elif event.new_state == "listening":  # User stops speaking
+        # Processing STT transcription
+
+# 2. STT transcription completed
+@self.session.on("conversation_item_added") 
+def on_conversation_item_added(event):
+    if event.item.role == "user":
+        user_text = event.item.text_content or ""  # Final STT result
+        await self._send_user_speech_event(user_text)  # Publish to ROS2
+```
+
+#### **⚙️ STT Technical Details**
+
+**Processing Characteristics:**
+- **Real-time Transcription**: Continuous speech recognition during conversation
+- **Final Transcript Events**: Only complete, final transcriptions are published
+- **Low Latency**: Immediate publishing when STT completes
+- **Accurate Transcription**: Uses OpenAI Whisper for high-quality speech recognition
+
+**Integration Points:**
+- **Conversation Flow**: STT triggers conversation item processing
+- **ROS2 Publishing**: Real-time transcription available via `/voice_agent/user_speech`
+- **Analytics**: Complete conversation transcripts for logging and analysis
+
 ## Dependencies
 
 ### Environment Variables
@@ -365,6 +449,7 @@ ros2 launch coffee_voice_agent voice_agent_system.launch.py
 ### Publishers (Voice Agent → ROS2)
 - `/voice_agent/status` (`coffee_voice_agent_msgs/AgentStatus`) - **Unified agent status for robot coordination**
 - `/voice_agent/tool_events` (`coffee_voice_agent_msgs/ToolEvent`) - **Function tool call tracking**  
+- `/voice_agent/user_speech` (`std_msgs/String`) - **Real-time STT transcription events**
 - `/voice_agent/connected` (`std_msgs/Bool`) - Bridge connection status
 
 ### Subscribers (ROS2 → Voice Agent)
@@ -491,6 +576,16 @@ def tool_event_callback(msg):
     elif msg.status == "completed":
         hide_thinking_indicator()
         display_tool_result(msg.result)
+
+# Subscribe to user speech for real-time transcription
+def user_speech_callback(msg):
+    user_text = msg.data
+    # Update conversation transcript UI
+    update_conversation_log("User", user_text)
+    # Trigger listening pose when user speaks
+    show_user_speaking_feedback()
+    # Log conversation for analytics
+    log_conversation_item("user", user_text)
 ```
 
 ### Topic Monitoring
@@ -500,6 +595,9 @@ ros2 topic echo /voice_agent/status
 
 # Monitor tool events
 ros2 topic echo /voice_agent/tool_events
+
+# Monitor user speech transcriptions
+ros2 topic echo /voice_agent/user_speech
 
 # Monitor bridge connection
 ros2 topic echo /voice_agent/connected
@@ -667,6 +765,7 @@ ros2 launch coffee_voice_agent voice_agent_system.launch.py
 # Monitor unified messages
 ros2 topic echo /voice_agent/status
 ros2 topic echo /voice_agent/tool_events
+ros2 topic echo /voice_agent/user_speech
 ```
 
 #### **📚 Original Version**
@@ -701,3 +800,5 @@ ros2 launch coffee_voice_agent voice_agent_system.launch.py
 - [ ] Add behavior tree integration for complex interaction flows
 - [ ] Extend ToolEvent message for error reporting and debugging
 - [ ] Add conversation transcript reconstruction from AgentStatus history
+- [ ] Add STT confidence scores and partial transcription events
+- [ ] Add conversation analytics and speech pattern recognition
