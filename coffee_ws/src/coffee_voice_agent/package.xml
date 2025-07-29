@@ -10,8 +10,6 @@
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
-  <depend>coffee_machine_control_msgs</depend>
-  <depend>coffee_expressions_msgs</depend>
   <depend>coffee_voice_agent_msgs</depend>
 
   <test_depend>ament_copyright</test_depend>
