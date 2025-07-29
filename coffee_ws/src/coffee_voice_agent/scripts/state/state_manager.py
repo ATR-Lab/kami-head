@@ -228,6 +228,9 @@ class StateManager:
                             text_lower = user_text.lower()
                             logger.info(f"🔍 DEBUG: User said: '{user_text}'")
                             
+                            # Send user speech event
+                            await self._send_user_speech_event(user_text)
+                            
                             goodbye_words = ['goodbye', 'thanks', 'that\'s all', 'see you', 'bye']
                             
                             if any(word in text_lower for word in goodbye_words):
@@ -622,4 +625,15 @@ class StateManager:
             }
             await self.agent._send_websocket_event("TOOL_EVENT", tool_data)
         else:
-            logger.debug(f"Cannot send tool event - no agent WebSocket connection") 
+            logger.debug(f"Cannot send tool event - no agent WebSocket connection")
+
+    async def _send_user_speech_event(self, text: str):
+        """Send user speech event through agent's WebSocket connection"""
+        if self.agent and hasattr(self.agent, '_send_websocket_event'):
+            speech_data = {
+                "text": text,
+                "timestamp": datetime.now().isoformat()
+            }
+            await self.agent._send_websocket_event("USER_SPEECH", speech_data)
+        else:
+            logger.debug(f"Cannot send user speech event - no agent WebSocket connection") 

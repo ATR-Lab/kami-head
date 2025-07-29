@@ -70,6 +70,13 @@ class VoiceAgentBridge(Node):
             callback_group=self.callback_group
         )
         
+        self.user_speech_pub = self.create_publisher(
+            String,
+            'voice_agent/user_speech',
+            10,
+            callback_group=self.callback_group
+        )
+        
         self.connected_pub = self.create_publisher(
             Bool, 
             'voice_agent/connected', 
@@ -215,6 +222,18 @@ class VoiceAgentBridge(Node):
                     tool_msg.timestamp = self.get_clock().now().to_msg()
                     
                 self.tool_event_pub.publish(tool_msg)
+                
+            elif message_type == 'USER_SPEECH':
+                # Handle user speech transcription events
+                speech_data = data.get('data', {})
+                user_text = speech_data.get('text', '')
+                
+                self.get_logger().info(f"User Speech: '{user_text[:50]}{'...' if len(user_text) > 50 else ''}'")
+                
+                # Publish user speech to ROS2 topic
+                speech_msg = String()
+                speech_msg.data = user_text
+                self.user_speech_pub.publish(speech_msg)
                 
             elif message_type == 'ACKNOWLEDGMENT':
                 # Handle acknowledgment messages from voice agent
