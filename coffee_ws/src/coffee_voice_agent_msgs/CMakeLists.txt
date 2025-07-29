@@ -13,10 +13,6 @@ find_package(rosidl_default_generators REQUIRED)
 
 # Generate interfaces
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/TtsEvent.msg"
-  "msg/AgentState.msg" 
-  "msg/EmotionState.msg"
-  "msg/ConversationItem.msg"
   "msg/AgentStatus.msg"
   "msg/ToolEvent.msg"
   DEPENDENCIES builtin_interfaces std_msgs

@@ -21,7 +21,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from std_msgs.msg import String, Bool
 from geometry_msgs.msg import Twist
-from coffee_voice_agent_msgs.msg import AgentState, EmotionState, ConversationItem, AgentStatus, ToolEvent
+from coffee_voice_agent_msgs.msg import AgentStatus, ToolEvent
 
 try:
     import websockets
@@ -56,27 +56,6 @@ class VoiceAgentBridge(Node):
         self.callback_group = ReentrantCallbackGroup()
         
         # ROS2 Publishers (Voice Agent → ROS2)
-        self.state_pub = self.create_publisher(
-            AgentState, 
-            'voice_agent/state', 
-            10,
-            callback_group=self.callback_group
-        )
-        
-        self.conversation_pub = self.create_publisher(
-            ConversationItem, 
-            'voice_agent/conversation', 
-            10,
-            callback_group=self.callback_group
-        )
-        
-        self.emotion_pub = self.create_publisher(
-            EmotionState, 
-            'voice_agent/emotion', 
-            10,
-            callback_group=self.callback_group
-        )
-        
         self.agent_status_pub = self.create_publisher(
             AgentStatus,
             'voice_agent/status',
@@ -172,63 +151,7 @@ class VoiceAgentBridge(Node):
             data = json.loads(message)
             message_type = data.get('type', 'unknown')
             
-            if message_type == 'STATE_CHANGE':
-                # Publish agent state change
-                state_msg = AgentState()
-                state_msg.current_state = data.get('state', 'unknown')
-                state_msg.previous_state = data.get('previous_state', 'unknown')
-                # Parse timestamp if provided, otherwise use current time
-                timestamp_str = data.get('timestamp')
-                if timestamp_str:
-                    # Convert ISO timestamp to ROS Time if needed
-                    try:
-                        dt = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                        state_msg.timestamp.sec = int(dt.timestamp())
-                        state_msg.timestamp.nanosec = int((dt.timestamp() % 1) * 1e9)
-                    except:
-                        # Fallback to current time
-                        state_msg.timestamp = self.get_clock().now().to_msg()
-                else:
-                    state_msg.timestamp = self.get_clock().now().to_msg()
-                self.state_pub.publish(state_msg)
-                
-            elif message_type == 'CONVERSATION':
-                # Publish conversation transcript
-                conv_msg = ConversationItem()
-                conv_msg.role = data.get('role', 'unknown')
-                conv_msg.text = data.get('text', '')
-                # Parse timestamp if provided, otherwise use current time
-                timestamp_str = data.get('timestamp')
-                if timestamp_str:
-                    try:
-                        dt = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                        conv_msg.timestamp.sec = int(dt.timestamp())
-                        conv_msg.timestamp.nanosec = int((dt.timestamp() % 1) * 1e9)
-                    except:
-                        conv_msg.timestamp = self.get_clock().now().to_msg()
-                else:
-                    conv_msg.timestamp = self.get_clock().now().to_msg()
-                self.conversation_pub.publish(conv_msg)
-                
-            elif message_type == 'EMOTION':
-                # Publish emotion change
-                emotion_msg = EmotionState()
-                emotion_msg.emotion = data.get('emotion', 'unknown')
-                emotion_msg.previous_emotion = data.get('previous_emotion', 'unknown')
-                # Parse timestamp if provided, otherwise use current time
-                timestamp_str = data.get('timestamp')
-                if timestamp_str:
-                    try:
-                        dt = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                        emotion_msg.timestamp.sec = int(dt.timestamp())
-                        emotion_msg.timestamp.nanosec = int((dt.timestamp() % 1) * 1e9)
-                    except:
-                        emotion_msg.timestamp = self.get_clock().now().to_msg()
-                else:
-                    emotion_msg.timestamp = self.get_clock().now().to_msg()
-                self.emotion_pub.publish(emotion_msg)
-                
-            elif message_type == 'STATUS':
+            if message_type == 'STATUS':
                 # Handle status updates
                 self.get_logger().info(f"Voice agent status: {data.get('message', 'Unknown')}")
                 
