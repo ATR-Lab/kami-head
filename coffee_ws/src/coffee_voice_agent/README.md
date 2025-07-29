@@ -1,10 +1,10 @@
 # Coffee Voice Agent ROS2 Package
 
-A ROS2 package that integrates the LiveKit Coffee Barista Voice Agent with the Coffee Buddy robot system through a clean bridge architecture.
+A ROS2 package that integrates the LiveKit Coffee Barista Voice Agent with the Coffee Buddy robot system through a clean bridge architecture with unified messaging.
 
 ## Overview
 
-This package provides ROS2 integration for the Coffee Barista Voice Agent while preserving its interactive console mode functionality. The voice agent runs as a standalone application with full console controls, while a separate ROS2 bridge node provides system integration via WebSocket communication.
+This package provides ROS2 integration for the Coffee Barista Voice Agent while preserving its interactive console mode functionality. The voice agent runs as a standalone application with full console controls, while a separate ROS2 bridge node provides system integration via WebSocket communication using **unified status messages** for robot coordination.
 
 ## Implementation Versions
 
@@ -25,6 +25,17 @@ This package now includes **two implementations** of the voice agent:
 - **Status**: 📖 **Preserved for reference** - Fully functional but less maintainable
 
 **Both implementations provide identical functionality** - choose based on your preference for code organization.
+
+## Unified Messaging Architecture
+
+### **Key Design Principle: Single Source of Truth**
+
+The voice agent now uses a **unified messaging approach** that provides all robot coordination information through two primary message types:
+
+1. **`AgentStatus`** - Comprehensive agent state for robot coordination
+2. **`ToolEvent`** - Function tool call tracking for UI and analytics
+
+This replaces the previous fragmented approach of separate state, emotion, and TTS event messages, ensuring **atomic updates** and **consistent state** for the orchestrator.
 
 ## Refactoring Details
 
@@ -49,6 +60,7 @@ The refactored version was created through careful **file-based modular extracti
 - **📝 Maintainable**: Add features by editing specific files, not searching through monolith
 - **⚙️ Configuration Management**: Environment variables and settings centralized
 - **🛠️ Reusable Utilities**: Greeting selection, animation descriptions, announcement formatting
+- **📡 Unified Messaging**: Single `AgentStatus` message for robot coordination
 
 ### **What Was Preserved**
 
@@ -72,10 +84,11 @@ The refactored version was created through careful **file-based modular extracti
 - **🎙️ Wake Word Detection**: "Hey barista" activation with Porcupine
 - **🗣️ Voice Conversation**: STT, LLM, and TTS using LiveKit/OpenAI  
 - **😊 Emotion Processing**: Emotion-aware responses with animated expressions
-- **☕ Coffee Functions**: Menu, recommendations, and ordering guidance
+- **☕ Coffee Functions**: Menu, recommendations, and ordering guidance with tool tracking
 - **🖥️ Console Mode**: Full interactive controls (Ctrl+B, Q) in terminal
 - **🌐 ROS2 Bridge**: WebSocket-based integration with Coffee Buddy system
 - **📡 Virtual Requests**: External coffee requests via ROS2 topics
+- **🔧 Tool Events**: Real-time function tool call tracking for UI feedback
 
 ## Architecture
 
@@ -92,7 +105,7 @@ coffee_voice_agent/
 │   ├── agents/
 │   │   └── coffee_barista_agent.py   # 🏗️ CoffeeBaristaAgent with programmatic tools
 │   ├── tools/
-│   │   └── coffee_tools.py            # 🏗️ Function tool implementations
+│   │   └── coffee_tools.py            # 🏗️ Function tool implementations with event tracking
 │   ├── config/
 │   │   ├── settings.py                # 🏗️ Configuration and environment variables
 │   │   └── instructions.py            # 🏗️ LLM system instructions
@@ -101,7 +114,7 @@ coffee_voice_agent/
 │       ├── animation_data.py          # 🏗️ Eye animation descriptions
 │       └── announcement_data.py       # 🏗️ Order announcement templates
 ├── coffee_voice_agent/
-│   └── voice_agent_bridge.py          # ROS2 bridge node
+│   └── voice_agent_bridge.py          # ROS2 bridge node with unified messaging
 └── launch/
     ├── voice_agent_bridge.launch.py   # Bridge only
     └── voice_agent_system.launch.py   # Voice agent + bridge together
@@ -114,15 +127,28 @@ coffee_voice_agent/
 - **🛠️ Utilities**: Reusable components for greetings, animations, announcements
 - **🧪 Testable**: Each component can be tested independently
 - **📝 Maintainable**: Easy to add/remove features, clear responsibilities
+- **📡 Unified Messaging**: Single message for robot coordination, atomic updates
 
 ### Communication Flow
 ```
-┌─────────────────┐    WebSocket    ┌─────────────────┐    ROS2     ┌──────────────┐
-│  Voice Agent    │◄───────────────►│  ROS2 Bridge    │◄───────────►│ Coffee Buddy │
-│  (Console Mode) │    Port 8080    │  (Bridge Node)  │   Topics    │   System     │
-│  Interactive    │                 │  Integration    │             │              │
-└─────────────────┘                 └─────────────────┘             └──────────────┘
+┌─────────────────┐    WebSocket     ┌─────────────────┐    ROS2      ┌──────────────┐
+│  Voice Agent    │◄────────────────►│  ROS2 Bridge    │◄────────────►│ Coffee Buddy │
+│  (Console Mode) │  AGENT_STATUS    │  (Bridge Node)  │ AgentStatus │   System     │
+│  Interactive    │  TOOL_EVENT      │  Integration    │ ToolEvent   │              │
+└─────────────────┘   Port 8080      └─────────────────┘             └──────────────┘
 ```
+
+### **Unified Messaging Architecture**
+
+#### **🔄 WebSocket Events (Voice Agent → Bridge)**
+- **`AGENT_STATUS`**: Comprehensive status updates (behavioral mode, speech status, emotion, text, etc.)
+- **`TOOL_EVENT`**: Function tool execution tracking (started, completed, failed)
+- **`STARTUP`**: Agent initialization and version info
+- **`ACKNOWLEDGMENT`**: Command confirmations
+
+#### **📡 ROS2 Messages (Bridge → Robot System)**
+- **`AgentStatus`**: Single unified message containing all robot coordination context
+- **`ToolEvent`**: Discrete tool call events for UI feedback and analytics
 
 ### **TTS and Audio Processing Flow**
 
@@ -133,16 +159,20 @@ Understanding how text-to-speech and audio synthesis works in the refactored arc
 **Path 1: Normal Conversation (User-initiated)**
 ```
 User Speech → STT → LLM → CoffeeBaristaAgent.tts_node() → Emotion Processing → Audio Playback
+                                                          ↓
+                                                    Agent Status Events
 ```
 
 **Path 2: Manual Announcements (System-initiated)**
 ```
 Virtual Requests/Greetings → StateManager.say_with_emotion() → session.say() → CoffeeBaristaAgent.tts_node() → Audio Playback
+                                                                                                               ↓
+                                                                                                         Agent Status Events
 ```
 
 #### **📍 TTS Processing Components**
 
-**1. TTS Override - `agents/coffee_barista_agent.py` (Lines 79-159)**
+**1. TTS Override - `agents/coffee_barista_agent.py` (Lines 89-193)**
 - **Method**: `async def tts_node(self, text, model_settings=None)`
 - **Role**: **Central TTS bottleneck** - all speech goes through here
 - **Functions**:
@@ -151,9 +181,10 @@ Virtual Requests/Greetings → StateManager.say_with_emotion() → session.say()
   - Extracts emotions from first 50 characters of text stream
   - Updates agent's emotional state
   - Logs animated eye expressions
+  - Updates speech text tracking for status events
   - Passes clean text to LiveKit's default TTS
 
-**2. Manual TTS - `state/state_manager.py` (Lines 512-528)**
+**2. Manual TTS - `state/state_manager.py` (Lines 531-569)**
 - **Method**: `async def say_with_emotion(self, text: str, emotion: str = None)`
 - **Role**: Direct TTS for system announcements
 - **Functions**:
@@ -162,9 +193,25 @@ Virtual Requests/Greetings → StateManager.say_with_emotion() → session.say()
   - Still routes through `tts_node()` override for emotion processing
   - Bypasses LLM but preserves emotion handling
 
+**3. Agent Status Events - `state/state_manager.py` (Lines 577-607)**
+- **Method**: `async def _send_agent_status(...)`
+- **Role**: Unified status broadcasting
+- **Functions**:
+  - Sends comprehensive agent status via WebSocket
+  - Includes behavioral mode, speech status, emotion, text, conversation phase
+  - Triggered by state transitions and speech events
+
+**4. Tool Event Tracking - `tools/coffee_tools.py` (Lines 18-26, all tools)**
+- **Function**: `async def send_tool_event(...)`
+- **Role**: Track function tool execution
+- **Functions**:
+  - Send "started" events when tools begin execution
+  - Send "completed" events with results when tools finish
+  - Provide parameters and results for UI feedback
+
 #### **🎵 Audio Synthesis and Playback**
 
-**Final Audio Generation (Line 157 in `coffee_barista_agent.py`):**
+**Final Audio Generation (Line 190 in `coffee_barista_agent.py`):**
 ```python
 async for audio_frame in Agent.default.tts_node(self, processed_text, model_settings):
     yield audio_frame
@@ -193,6 +240,9 @@ async for text_chunk in text:
         
         # 4. Yield clean text for audio synthesis
         yield text_after_delimiter
+        
+        # 5. Update speech text tracking for status events
+        self.state_manager.current_speech_full_text += text_after_delimiter
 ```
 
 #### **⚙️ Technical Details**
@@ -212,11 +262,13 @@ async for text_chunk in text:
 - All TTS calls update `StateManager.current_emotion`
 - Emotion changes trigger eye animation logging
 - Session events coordinate conversation flow and TTS timing
+- Agent status events provide atomic state updates
 
 **Performance Characteristics:**
 - **Minimal Buffering**: Only first 50 characters checked for emotion
 - **Streaming**: Audio synthesis starts as soon as clean text is available
 - **Low Latency**: Real-time processing for responsive conversations
+- **Unified Events**: Single AgentStatus message provides complete context
 
 ## Dependencies
 
@@ -234,6 +286,7 @@ export WEBSOCKET_PORT="8080"                          # Optional WebSocket port
 - `rclpy`
 - `std_msgs` 
 - `geometry_msgs`
+- `coffee_voice_agent_msgs` (custom message package)
 - `websockets` (Python package)
 
 ### Python Dependencies (in setup.py)
@@ -249,6 +302,9 @@ export WEBSOCKET_PORT="8080"                          # Optional WebSocket port
 ### 1. Build the Package
 ```bash
 cd coffee_ws
+# Build messages first
+colcon build --packages-select coffee_voice_agent_msgs
+# Build voice agent package
 colcon build --packages-select coffee_voice_agent
 source install/setup.bash
 ```
@@ -307,14 +363,60 @@ ros2 launch coffee_voice_agent voice_agent_system.launch.py
 ## ROS2 Topics (Bridge Node)
 
 ### Publishers (Voice Agent → ROS2)
-- `/voice_agent/state` (String) - Agent state changes (JSON)
-- `/voice_agent/conversation` (String) - Conversation transcripts (JSON)
-- `/voice_agent/emotion` (String) - Emotion changes (JSON)
-- `/voice_agent/connected` (Bool) - Bridge connection status
+- `/voice_agent/status` (`coffee_voice_agent_msgs/AgentStatus`) - **Unified agent status for robot coordination**
+- `/voice_agent/tool_events` (`coffee_voice_agent_msgs/ToolEvent`) - **Function tool call tracking**  
+- `/voice_agent/connected` (`std_msgs/Bool`) - Bridge connection status
 
 ### Subscribers (ROS2 → Voice Agent)
-- `/voice_agent/virtual_requests` (String) - External coffee requests (JSON)
-- `/voice_agent/commands` (String) - Voice agent commands (JSON)
+- `/voice_agent/virtual_requests` (`std_msgs/String`) - External coffee requests (JSON)
+- `/voice_agent/commands` (`std_msgs/String`) - Voice agent commands (JSON)
+
+## Message Types
+
+### AgentStatus Message
+```
+# Behavioral mode: "dormant", "active", "connecting", "disconnecting"
+string behavioral_mode
+
+# Speech status: "idle", "speaking"  
+string speech_status
+
+# Current emotion: "friendly", "excited", "curious", "sleepy", etc.
+string emotion
+
+# Speech text (preview when speaking, full text when idle)
+string speech_text
+
+# Previous emotion for smooth transitions
+string previous_emotion
+
+# Conversation phase: "", "greeting", "discussion", "announcement", "goodbye"
+string conversation_phase
+
+# Last function tool used: "get_current_time", "get_coffee_menu", "", etc.
+string last_tool_used
+
+# Timestamp when the status was generated
+builtin_interfaces/Time timestamp
+```
+
+### ToolEvent Message
+```
+# Tool name: "get_current_time", "get_coffee_menu", etc.
+string tool_name
+
+# Input parameters (JSON string array)
+string[] parameters
+
+# Tool output/result text
+string result
+
+# Status: "started", "completed", "failed"
+string status
+
+# Timestamp when the tool event occurred
+builtin_interfaces/Time timestamp
+```
 
 ## Virtual Requests
 
@@ -348,30 +450,59 @@ ros2 topic pub /voice_agent/virtual_requests std_msgs/String '{
 
 **⚠️ Important:** The `content` field should avoid colons (`:`) as they interfere with the voice agent's `emotion:text` delimiter system. Order IDs are automatically formatted as `(Order ABC123)` instead of `(Order: ABC123)` to prevent parsing conflicts.
 
-## Monitoring
+## Robot Orchestration
 
-### Voice Agent Status
-```bash
-# Check if voice agent is running and WebSocket server is active
-curl -I http://localhost:8080
+### Agent Status Integration
+```python
+# Subscribe to unified agent status for comprehensive robot coordination
+def agent_status_callback(msg):
+    # Coordinate based on behavioral mode
+    if msg.behavioral_mode == "dormant":
+        enable_idle_mode()
+    elif msg.behavioral_mode == "active":
+        enable_conversation_mode()
+    
+    # Coordinate speech animations
+    if msg.speech_status == "speaking":
+        # Start speech animation with full context
+        trigger_speech_animation(
+            emotion=msg.emotion,
+            text_preview=msg.speech_text,
+            conversation_phase=msg.conversation_phase
+        )
+    elif msg.speech_status == "idle":
+        # Return to listening pose
+        return_to_neutral()
+    
+    # Handle conversation phases
+    if msg.conversation_phase == "greeting":
+        focus_on_user()
+    elif msg.conversation_phase == "announcement":
+        attention_getting_gesture()
+    
+    # Show last tool used context
+    if msg.last_tool_used:
+        update_context_display(msg.last_tool_used)
 
-# Monitor voice agent logs directly in console
-# (Console mode shows all logs in real-time)
+# Subscribe to tool events for UI feedback
+def tool_event_callback(msg):
+    if msg.status == "started":
+        show_thinking_indicator(msg.tool_name)
+    elif msg.status == "completed":
+        hide_thinking_indicator()
+        display_tool_result(msg.result)
 ```
 
-### ROS2 Bridge Status  
+### Topic Monitoring
 ```bash
-# Check bridge connection
+# Monitor unified agent status
+ros2 topic echo /voice_agent/status
+
+# Monitor tool events
+ros2 topic echo /voice_agent/tool_events
+
+# Monitor bridge connection
 ros2 topic echo /voice_agent/connected
-
-# Monitor state changes
-ros2 topic echo /voice_agent/state
-
-# Monitor conversations
-ros2 topic echo /voice_agent/conversation
-
-# Monitor emotions
-ros2 topic echo /voice_agent/emotion
 ```
 
 ## Configuration
@@ -402,8 +533,8 @@ The bash launcher automatically detects the execution environment:
 
 ### 1. Expression System
 ```bash
-# Bridge can forward emotion changes to expression system
-ros2 topic echo /voice_agent/emotion
+# Bridge provides unified status for expression coordination
+ros2 topic echo /voice_agent/status
 ```
 
 ### 2. Coffee Machine Integration  
@@ -452,6 +583,15 @@ IncludeLaunchDescription(
 curl -I http://localhost:8080
 ```
 
+### Message Issues
+```bash
+# Could not import rosidl_typesupport_c
+# Solution: Rebuild message package first
+colcon build --packages-select coffee_voice_agent_msgs
+colcon build --packages-select coffee_voice_agent
+source install/setup.bash
+```
+
 ### Message Format Issues
 ```bash
 # Voice agent only speaks partial announcements or order IDs
@@ -478,6 +618,7 @@ AttributeError: module 'em' has no attribute 'BUFFERED_OPT'
 - **📚 Original Voice Agent**: Monolithic implementation in `scripts/livekit_voice_agent.py`
 - **Bridge Node**: ROS2 integration in `coffee_voice_agent/`
 - **Launch Files**: System orchestration in `launch/`
+- **Custom Messages**: Unified messaging in `coffee_voice_agent_msgs/`
 
 ### Adding New Features
 
@@ -488,6 +629,7 @@ AttributeError: module 'em' has no attribute 'BUFFERED_OPT'
 4. **Utilities**: Add to appropriate `utils/*.py` file
 5. **Agent Behavior**: Modify `agents/coffee_barista_agent.py` for I/O changes
 6. **ROS2 Integration**: Modify `voice_agent_bridge.py`
+7. **Messages**: Add fields to `AgentStatus` or create new message types
 
 #### **📚 Original Version**
 1. **Voice functionality**: Modify `livekit_voice_agent.py` (search through 1109 lines)
@@ -500,6 +642,7 @@ AttributeError: module 'em' has no attribute 'BUFFERED_OPT'
 - **🔧 Clean Changes**: Modify specific files without side effects
 - **📝 Code Reviews**: Smaller, focused diffs instead of large file changes
 - **🏗️ Parallel Development**: Multiple developers can work on different components
+- **📡 Unified Architecture**: Single message type for robot coordination
 
 ### Testing Components
 
@@ -520,6 +663,10 @@ ros2 run coffee_voice_agent voice_agent_bridge
 
 # Test complete system
 ros2 launch coffee_voice_agent voice_agent_system.launch.py
+
+# Monitor unified messages
+ros2 topic echo /voice_agent/status
+ros2 topic echo /voice_agent/tool_events
 ```
 
 #### **📚 Original Version**
@@ -541,6 +688,9 @@ ros2 launch coffee_voice_agent voice_agent_system.launch.py
 - **Clean Architecture**: WebSocket bridge avoids threading conflicts
 - **Flexibility**: Can run components separately or together
 - **ROS2 Native**: Bridge follows ROS2 patterns and conventions
+- **Unified Messaging**: Single source of truth for robot coordination
+- **Atomic Updates**: Consistent state through comprehensive messages
+- **Tool Transparency**: Complete visibility into function tool execution
 
 ## Future Enhancements
 
@@ -549,3 +699,5 @@ ros2 launch coffee_voice_agent voice_agent_system.launch.py
 - [ ] Add diagnostics and health monitoring
 - [ ] Add audio stream bridging for ROS2 audio topics
 - [ ] Add behavior tree integration for complex interaction flows
+- [ ] Extend ToolEvent message for error reporting and debugging
+- [ ] Add conversation transcript reconstruction from AgentStatus history
