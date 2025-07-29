@@ -4,6 +4,49 @@ Analytics Widget - Performance and usage analytics
 
 Shows session statistics, performance metrics, usage trends,
 and system analytics for the voice agent system.
+
+ANALYTICS METHODOLOGY:
+======================
+
+This widget provides real-time analytics based on actual system data rather than simulated metrics.
+It consumes data from the ROS2 bridge which receives events from the voice agent system.
+
+SUCCESS RATE CALCULATION:
+------------------------
+The success rate is a weighted combination of two key effectiveness metrics:
+
+1. Tool Success Rate (40% weight):
+   - Measures the percentage of function tool calls that complete successfully
+   - Based on tool events with status "completed" vs "failed"
+   - Indicates how well the agent can execute requested actions
+
+2. Conversation Success Rate (60% weight):
+   - Measures the percentage of conversations that end naturally/successfully
+   - Natural endings: User says goodbye, task completion
+   - Failed endings: Timeouts, unexpected disconnects, very short interactions
+   - Indicates user satisfaction and conversation quality
+
+Combined Formula: (Tool Success × 0.4) + (Conversation Success × 0.6)
+
+FALLBACK BEHAVIOR:
+- If only one metric is available, uses that metric with appropriate labeling
+- If no effectiveness data available, falls back to connection status as basic health indicator
+- Labels indicate data source: "85% (tools)", "92% (conv)", "100% (conn)"
+
+DATA SOURCES:
+------------
+- agent_data: Connection status, emotion states, conversation counts
+- tool_data: Tool usage statistics, success/failure rates, response times  
+- conversation_data: Session timing, turn counts, conversation outcomes
+
+REAL-TIME UPDATES:
+-----------------
+- Message rate: Calculated from actual ROS message timestamps
+- Popular interactions: Ranked by actual tool usage counts
+- Emotion trends: Analyzed from real emotion transition events
+- System metrics: Derived from live system performance data
+
+This approach provides meaningful operational insights rather than placeholder metrics.
 """
 
 from datetime import datetime, timedelta
@@ -32,6 +75,10 @@ class AnalyticsWidget(QWidget):
         self.conversation_sessions = []              # For success rate calculation
         self.connection_events = []                  # For health metrics
         self.user_speech_events = []                 # For interaction tracking
+        
+        # Success rate tracking - measures actual system effectiveness
+        self.tool_success_events = []                # Tool completion/failure events
+        self.conversation_outcomes = []              # Natural vs timeout conversation endings
         
         # Session data - now calculated from real events
         self.session_data = {
@@ -328,7 +375,7 @@ class AnalyticsWidget(QWidget):
                 self.emotion_history = self.emotion_history[-100:]
     
     def _process_tool_data(self, tool_data):
-        """Process tool usage data"""
+        """Process tool usage data and track success/failure rates"""
         if 'most_used_tools' in tool_data:
             for tool_name, stats in tool_data['most_used_tools']:
                 self.tool_usage_counts[tool_name] = stats.get('total_calls', 0)
@@ -339,27 +386,72 @@ class AnalyticsWidget(QWidget):
                     # Keep only recent response times
                     if len(self.tool_response_times[tool_name]) > 20:
                         self.tool_response_times[tool_name] = self.tool_response_times[tool_name][-20:]
-    
+                
+                # Track tool success/failure events for success rate calculation
+                successful_calls = stats.get('successful_calls', 0)
+                failed_calls = stats.get('failed_calls', 0)
+                
+                if successful_calls > 0 or failed_calls > 0:
+                    self.tool_success_events.append({
+                        'timestamp': datetime.now(),
+                        'tool_name': tool_name,
+                        'successful': successful_calls,
+                        'failed': failed_calls,
+                        'success_rate': (successful_calls / (successful_calls + failed_calls)) * 100 if (successful_calls + failed_calls) > 0 else 0
+                    })
+                    
+                    # Keep only recent events for analysis
+                    if len(self.tool_success_events) > 100:
+                        self.tool_success_events = self.tool_success_events[-100:]
+
     def _process_conversation_data(self, conversation_data):
-        """Process conversation analytics data"""
+        """Process conversation analytics data and track conversation outcomes"""
         if conversation_data.get('conversation_active'):
             if not self.current_session_start:
                 self.current_session_start = datetime.now()
         else:
             if self.current_session_start:
-                # Session ended - record it
+                # Session ended - determine outcome type
                 duration = datetime.now() - self.current_session_start
-                self.conversation_sessions.append({
+                
+                # Analyze conversation outcome (this could be enhanced with more data from conversation_data)
+                # For now, we use heuristics based on duration and available data
+                outcome_type = 'completed'  # Default assumption
+                
+                # Check for timeout indicators
+                if conversation_data.get('timeout_reached', False):
+                    outcome_type = 'timeout'
+                elif conversation_data.get('user_disconnected', False):
+                    outcome_type = 'user_disconnect'
+                elif conversation_data.get('natural_ending', False):
+                    outcome_type = 'natural'
+                elif duration.total_seconds() < 30:  # Very short conversations might be failures
+                    outcome_type = 'failed'
+                
+                session_record = {
                     'start': self.current_session_start,
                     'duration': duration,
-                    'completed': True  # Assume completed for now
+                    'outcome': outcome_type,
+                    'turn_count': conversation_data.get('turn_count', 0),
+                    'successful': outcome_type in ['completed', 'natural']
+                }
+                
+                self.conversation_sessions.append(session_record)
+                self.conversation_outcomes.append({
+                    'timestamp': datetime.now(),
+                    'outcome': outcome_type,
+                    'duration': duration,
+                    'successful': outcome_type in ['completed', 'natural']
                 })
+                
                 self.current_session_start = None
                 
-                # Keep only recent sessions
+                # Keep only recent sessions and outcomes
                 if len(self.conversation_sessions) > 50:
                     self.conversation_sessions = self.conversation_sessions[-50:]
-    
+                if len(self.conversation_outcomes) > 100:
+                    self.conversation_outcomes = self.conversation_outcomes[-100:]
+
     def _calculate_session_metrics(self):
         """Calculate and update session performance metrics"""
         # Conversations today
@@ -374,15 +466,82 @@ class AnalyticsWidget(QWidget):
         else:
             self.avg_duration_label.setText("--")
         
-        # Success rate (based on connection status)
-        if self.connection_events:
-            connected_time = sum(1 for event in self.connection_events if event['connected'])
-            total_events = len(self.connection_events)
-            success_rate = (connected_time / total_events) * 100 if total_events > 0 else 0
-        else:
-            success_rate = 100.0 if self.current_connection_status else 0.0
+        # Success rate - now based on actual system effectiveness
+        self._calculate_success_rate()
+
+    def _calculate_success_rate(self):
+        """
+        Calculate comprehensive success rate based on tool effectiveness and conversation outcomes.
         
-        self.success_rate_label.setText(f"{success_rate:.0f}%")
+        Success Rate Methodology:
+        - Tool Success Rate (40% weight): Percentage of tool calls that complete successfully
+        - Conversation Success Rate (60% weight): Percentage of conversations that end naturally/successfully
+        
+        This provides a meaningful measure of system effectiveness rather than just connectivity.
+        
+        Success Criteria:
+        - Tool Success: Tool calls with status "completed" vs "failed"
+        - Conversation Success: Natural endings, user satisfaction vs timeouts, disconnects
+        
+        Fallback: If insufficient data, shows connection status as basic health indicator.
+        """
+        
+        tool_success_rate = None
+        conversation_success_rate = None
+        
+        # Calculate tool success rate
+        if self.tool_success_events:
+            recent_tool_events = [event for event in self.tool_success_events 
+                                if (datetime.now() - event['timestamp']).total_seconds() < 3600]  # Last hour
+            
+            if recent_tool_events:
+                total_successful = sum(event['successful'] for event in recent_tool_events)
+                total_failed = sum(event['failed'] for event in recent_tool_events)
+                total_calls = total_successful + total_failed
+                
+                if total_calls > 0:
+                    tool_success_rate = (total_successful / total_calls) * 100
+        
+        # Calculate conversation success rate
+        if self.conversation_outcomes:
+            recent_outcomes = [outcome for outcome in self.conversation_outcomes 
+                             if (datetime.now() - outcome['timestamp']).total_seconds() < 3600]  # Last hour
+            
+            if recent_outcomes:
+                successful_conversations = sum(1 for outcome in recent_outcomes if outcome['successful'])
+                total_conversations = len(recent_outcomes)
+                
+                if total_conversations > 0:
+                    conversation_success_rate = (successful_conversations / total_conversations) * 100
+        
+        # Combine success rates with weighting
+        if tool_success_rate is not None and conversation_success_rate is not None:
+            # Both metrics available - use weighted combination
+            success_rate = (tool_success_rate * 0.4) + (conversation_success_rate * 0.6)
+            self.success_rate_label.setText(f"{success_rate:.0f}%")
+            
+        elif tool_success_rate is not None:
+            # Only tool data available
+            success_rate = tool_success_rate
+            self.success_rate_label.setText(f"{success_rate:.0f}% (tools)")
+            
+        elif conversation_success_rate is not None:
+            # Only conversation data available
+            success_rate = conversation_success_rate
+            self.success_rate_label.setText(f"{success_rate:.0f}% (conv)")
+            
+        else:
+            # Fallback to connection status when no meaningful data available
+            if self.connection_events:
+                connected_time = sum(1 for event in self.connection_events if event['connected'])
+                total_events = len(self.connection_events)
+                success_rate = (connected_time / total_events) * 100 if total_events > 0 else 0
+                self.success_rate_label.setText(f"{success_rate:.0f}% (conn)")
+            else:
+                success_rate = 100.0 if self.current_connection_status else 0.0
+                self.success_rate_label.setText(f"{success_rate:.0f}% (conn)")
+        
+        # Update progress bar and color coding
         self.success_progress.setValue(int(success_rate))
         
         # Color code success rate
@@ -395,6 +554,67 @@ class AnalyticsWidget(QWidget):
         
         self.success_rate_label.setStyleSheet(f"color: {color};")
         self.success_progress.setStyleSheet(f"QProgressBar::chunk {{ background-color: {color}; }}")
+
+    def get_success_rate_debug_info(self):
+        """
+        Get detailed information about success rate calculation for debugging/logging.
+        
+        Returns:
+            dict: Debug information including component metrics and data sources
+        """
+        debug_info = {
+            'tool_events_count': len(self.tool_success_events),
+            'conversation_outcomes_count': len(self.conversation_outcomes),
+            'connection_events_count': len(self.connection_events),
+            'tool_success_rate': None,
+            'conversation_success_rate': None,
+            'combined_success_rate': None,
+            'data_source': 'none'
+        }
+        
+        # Calculate tool success rate for debug
+        if self.tool_success_events:
+            recent_tool_events = [event for event in self.tool_success_events 
+                                if (datetime.now() - event['timestamp']).total_seconds() < 3600]
+            
+            if recent_tool_events:
+                total_successful = sum(event['successful'] for event in recent_tool_events)
+                total_failed = sum(event['failed'] for event in recent_tool_events)
+                total_calls = total_successful + total_failed
+                
+                if total_calls > 0:
+                    debug_info['tool_success_rate'] = (total_successful / total_calls) * 100
+                    debug_info['tool_successful_calls'] = total_successful
+                    debug_info['tool_failed_calls'] = total_failed
+        
+        # Calculate conversation success rate for debug
+        if self.conversation_outcomes:
+            recent_outcomes = [outcome for outcome in self.conversation_outcomes 
+                             if (datetime.now() - outcome['timestamp']).total_seconds() < 3600]
+            
+            if recent_outcomes:
+                successful_conversations = sum(1 for outcome in recent_outcomes if outcome['successful'])
+                total_conversations = len(recent_outcomes)
+                
+                if total_conversations > 0:
+                    debug_info['conversation_success_rate'] = (successful_conversations / total_conversations) * 100
+                    debug_info['successful_conversations'] = successful_conversations
+                    debug_info['total_conversations'] = total_conversations
+        
+        # Determine final calculation
+        if debug_info['tool_success_rate'] is not None and debug_info['conversation_success_rate'] is not None:
+            debug_info['combined_success_rate'] = (debug_info['tool_success_rate'] * 0.4) + (debug_info['conversation_success_rate'] * 0.6)
+            debug_info['data_source'] = 'combined'
+        elif debug_info['tool_success_rate'] is not None:
+            debug_info['combined_success_rate'] = debug_info['tool_success_rate']
+            debug_info['data_source'] = 'tools_only'
+        elif debug_info['conversation_success_rate'] is not None:
+            debug_info['combined_success_rate'] = debug_info['conversation_success_rate']
+            debug_info['data_source'] = 'conversations_only'
+        else:
+            debug_info['data_source'] = 'connection_fallback'
+            
+        return debug_info
     
     def _calculate_popular_interactions(self):
         """Calculate and update popular interactions"""
