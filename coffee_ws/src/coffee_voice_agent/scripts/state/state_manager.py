@@ -574,20 +574,6 @@ class StateManager:
         
         return get_random_greeting()
 
-    async def _send_tts_event(self, event: str, text: str, emotion: str, source: str):
-        """Send TTS event through agent's WebSocket connection"""
-        if self.agent and hasattr(self.agent, '_send_websocket_event'):
-            event_data = {
-                "event": event,
-                "text": text[:100] + "..." if len(text) > 100 else text,  # Truncate long text
-                "emotion": emotion,
-                "source": source,
-                "timestamp": datetime.now().isoformat()
-            }
-            await self.agent._send_websocket_event("TTS_EVENT", event_data)
-        else:
-            logger.debug(f"Cannot send TTS {event} event - no agent WebSocket connection")
-
     async def _send_agent_status(self, behavioral_mode: str, speech_status: str, conversation_phase: str = ""):
         """Send unified agent status through agent's WebSocket connection"""
         if self.agent and hasattr(self.agent, '_send_websocket_event'):

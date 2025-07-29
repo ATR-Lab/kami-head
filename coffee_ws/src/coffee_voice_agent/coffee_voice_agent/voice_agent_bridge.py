@@ -21,7 +21,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from std_msgs.msg import String, Bool
 from geometry_msgs.msg import Twist
-from coffee_voice_agent_msgs.msg import TtsEvent, AgentState, EmotionState, ConversationItem, AgentStatus, ToolEvent
+from coffee_voice_agent_msgs.msg import AgentState, EmotionState, ConversationItem, AgentStatus, ToolEvent
 
 try:
     import websockets
@@ -73,13 +73,6 @@ class VoiceAgentBridge(Node):
         self.emotion_pub = self.create_publisher(
             EmotionState, 
             'voice_agent/emotion', 
-            10,
-            callback_group=self.callback_group
-        )
-        
-        self.tts_events_pub = self.create_publisher(
-            TtsEvent,
-            'voice_agent/tts_events',
             10,
             callback_group=self.callback_group
         )
@@ -242,36 +235,6 @@ class VoiceAgentBridge(Node):
             elif message_type == 'STARTUP':
                 # Handle startup/ready events from voice agent
                 self.get_logger().info(f"Voice agent startup: {data.get('message', 'Ready')} (version: {data.get('version', 'unknown')})")
-                
-            elif message_type == 'TTS_EVENT':
-                # Handle TTS started/finished events - parse nested data structure
-                event_data = data.get('data', {})
-                event = event_data.get('event', 'unknown')
-                emotion = event_data.get('emotion', 'unknown')
-                source = event_data.get('source', 'unknown')
-                text = event_data.get('text', '')
-                text_preview = text[:50] + "..." if len(text) > 50 else text
-                
-                self.get_logger().info(f"TTS {event}: emotion={emotion}, source={source}, text='{text_preview}'")
-                
-                # Publish TTS event to ROS2 topic
-                tts_msg = TtsEvent()
-                tts_msg.event = event
-                tts_msg.emotion = emotion
-                tts_msg.text = text_preview  # Use truncated text for efficiency
-                tts_msg.source = source
-                # Parse timestamp if provided, otherwise use current time
-                timestamp_str = event_data.get('timestamp')
-                if timestamp_str:
-                    try:
-                        dt = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                        tts_msg.timestamp.sec = int(dt.timestamp())
-                        tts_msg.timestamp.nanosec = int((dt.timestamp() % 1) * 1e9)
-                    except:
-                        tts_msg.timestamp = self.get_clock().now().to_msg()
-                else:
-                    tts_msg.timestamp = self.get_clock().now().to_msg()
-                self.tts_events_pub.publish(tts_msg)
                 
             elif message_type == 'AGENT_STATUS':
                 # Handle unified agent status events
