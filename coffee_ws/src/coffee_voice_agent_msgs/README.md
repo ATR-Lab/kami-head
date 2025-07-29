@@ -4,7 +4,7 @@ This package contains ROS2 message definitions for the Coffee Robot's voice agen
 
 ## Architecture
 
-The voice agent publishes state information through these message types, which are consumed by an orchestrator node that synthesizes this information with other sensor inputs (face tracking, hardware status) to coordinate robot expressions and movements.
+The voice agent publishes unified state information through these message types, which are consumed by an orchestrator node that synthesizes this information with other sensor inputs (face tracking, hardware status) to coordinate robot expressions and movements.
 
 ```
 Voice Agent → Voice Agent Bridge → ROS2 Topics → Orchestrator → Hardware Controllers
@@ -12,139 +12,119 @@ Voice Agent → Voice Agent Bridge → ROS2 Topics → Orchestrator → Hardware
 
 ## Message Types
 
-### TtsEvent.msg
+### AgentStatus.msg
 
-Published when the voice agent starts or stops speaking. Critical for synchronizing robot animations with speech.
-
-```
-# Event type: "started" or "finished"  
-string event
-
-# Current emotion being expressed
-string emotion
-
-# Preview of the text being spoken (truncated for large text)
-string text
-
-# Source of the TTS: "manual", "llm", "announcement", etc.
-string source
-
-# Timestamp when the event occurred
-builtin_interfaces/Time timestamp
-```
-
-**Topic**: `voice_agent/tts_events`
-
-**Usage Example**:
-```python
-# When agent starts speaking with excitement
-{
-  "event": "started",
-  "emotion": "excited", 
-  "text": "Hello! How can I help you today?",
-  "source": "manual",
-  "timestamp": "..."
-}
-
-# When agent finishes speaking
-{
-  "event": "finished",
-  "emotion": "excited",
-  "text": "Hello! How can I help you today?", 
-  "source": "manual",
-  "timestamp": "..."
-}
-```
-
-### AgentState.msg
-
-Published when the voice agent changes conversation states. Useful for high-level behavioral coordination.
+**Primary message** containing unified voice agent status. This single message provides all the context needed for robot coordination in one atomic update.
 
 ```
-# Current state: "dormant", "connecting", "active", "speaking", "disconnecting"
-string current_state
+# Behavioral mode: "dormant", "active", "connecting", "disconnecting"
+string behavioral_mode
 
-# Previous state for transition tracking
-string previous_state
+# Speech status: "idle", "speaking"  
+string speech_status
 
-# Timestamp when the state change occurred
-builtin_interfaces/Time timestamp
-```
-
-**Topic**: `voice_agent/state`
-
-**State Transitions**:
-- `dormant` → `connecting` (wake word detected)
-- `connecting` → `active` (session established)
-- `active` → `speaking` (agent is talking)
-- `speaking` → `active` (agent finished talking)
-- `active` → `disconnecting` (conversation ending)
-- `disconnecting` → `dormant` (back to wake word detection)
-
-### EmotionState.msg
-
-Published when the voice agent's emotional expression changes. Used by orchestrator to coordinate eye expressions and ear movements.
-
-```
 # Current emotion: "friendly", "excited", "curious", "sleepy", etc.
 string emotion
 
-# Previous emotion for smooth transition tracking  
+# Speech text (preview when speaking, full text when idle)
+string speech_text
+
+# Previous emotion for smooth transitions
 string previous_emotion
 
-# Timestamp when the emotion change occurred
+# Conversation phase: "", "greeting", "discussion", "announcement", "goodbye"
+string conversation_phase
+
+# Last function tool used: "get_current_time", "get_coffee_menu", "", etc.
+string last_tool_used
+
+# Timestamp when the status was generated
 builtin_interfaces/Time timestamp
 ```
 
-**Topic**: `voice_agent/emotion`
+**Topic**: `voice_agent/status`
+
+**Behavioral Modes**:
+- `dormant` - Wake word detection only, minimal activity
+- `connecting` - Establishing LiveKit session
+- `active` - Interactive conversation mode  
+- `disconnecting` - Ending conversation, returning to dormant
+
+**Speech Status**:
+- `idle` - Not currently speaking
+- `speaking` - Agent is actively speaking (TTS playback)
+
+**Conversation Phases**:
+- `""` - Default/unspecified
+- `greeting` - Initial conversation start
+- `discussion` - Active back-and-forth conversation
+- `announcement` - Virtual request announcements
+- `goodbye` - Conversation ending
 
 **Supported Emotions**:
 - `friendly` - Default warm expression
-- `excited` - High energy, enthusiastic
+- `excited` - High energy, enthusiastic  
 - `curious` - Inquisitive, attentive
 - `sleepy` - Low energy, tired
 - `waiting` - Patient, expectant
 - `excuse` - Apologetic, polite interruption
 
-### ConversationItem.msg
+### ToolEvent.msg
 
-Published for each turn in the conversation transcript. Provides context for engagement-based animations.
+Published when the voice agent calls function tools (e.g., getting time, menu info). Useful for UI feedback and analytics.
 
 ```
-# Speaker role: "user" or "assistant"
-string role
+# Tool name: "get_current_time", "get_coffee_menu", etc.
+string tool_name
 
-# The spoken/generated text content
-string text
+# Input parameters (JSON string array)
+string[] parameters
 
-# Timestamp when this conversation item was added
+# Tool output/result text
+string result
+
+# Status: "started", "completed", "failed"
+string status
+
+# Timestamp when the tool event occurred
 builtin_interfaces/Time timestamp
 ```
 
-**Topic**: `voice_agent/conversation`
+**Topic**: `voice_agent/tool_events`
 
 ## Integration Examples
 
 ### Orchestrator Usage
 
 ```python
-# Subscribe to TTS events for animation coordination
-def tts_event_callback(msg):
-    if msg.event == "started":
-        # Coordinate: ears perk up, eyes show emotion, head oriented to user
-        trigger_speech_animation(msg.emotion)
-    elif msg.event == "finished": 
-        # Return to neutral state, allow head movement
-        return_to_neutral()
-
-# Subscribe to state changes for behavioral modes
-def state_change_callback(msg):
-    if msg.current_state == "dormant":
-        # Enable idle animations, wake word detection ready
+# Subscribe to unified agent status for comprehensive coordination
+def agent_status_callback(msg):
+    # Coordinate based on behavioral mode
+    if msg.behavioral_mode == "dormant":
         enable_idle_mode()
-    elif msg.current_state == "active":
-        # Focus on user, ready for interaction
+    elif msg.behavioral_mode == "active":
         enable_conversation_mode()
+    
+    # Coordinate speech animations
+    if msg.speech_status == "speaking":
+        # Start speech animation with emotion context
+        trigger_speech_animation(msg.emotion, msg.speech_text)
+    elif msg.speech_status == "idle":
+        # Return to listening pose
+        return_to_neutral()
+    
+    # Handle conversation phases
+    if msg.conversation_phase == "greeting":
+        focus_on_user()
+    elif msg.conversation_phase == "announcement":
+        attention_getting_gesture()
+
+# Subscribe to tool events for UI feedback
+def tool_event_callback(msg):
+    if msg.status == "started":
+        show_thinking_indicator(msg.tool_name)
+    elif msg.status == "completed":
+        hide_thinking_indicator()
 ```
 
 ### Message Dependencies
@@ -179,23 +159,22 @@ find_package(coffee_voice_agent_msgs REQUIRED)
 
 3. Import in Python:
 ```python
-from coffee_voice_agent_msgs.msg import TtsEvent, AgentState, EmotionState, ConversationItem
+from coffee_voice_agent_msgs.msg import AgentStatus, ToolEvent
 ```
 
 ## Topics Published by Voice Agent Bridge
 
 | Topic | Message Type | Description |
 |-------|-------------|-------------|
-| `voice_agent/tts_events` | `TtsEvent` | Speech start/stop with emotion |
-| `voice_agent/state` | `AgentState` | Conversation state changes |
-| `voice_agent/emotion` | `EmotionState` | Emotional expression changes |
-| `voice_agent/conversation` | `ConversationItem` | Conversation transcript |
+| `voice_agent/status` | `AgentStatus` | Unified agent status for robot coordination |
+| `voice_agent/tool_events` | `ToolEvent` | Function tool call tracking |
 | `voice_agent/connected` | `std_msgs/Bool` | WebSocket connection status |
 
 ## Design Principles
 
+- **Unified Messaging**: Single `AgentStatus` message provides atomic, consistent state
 - **Separation of Concerns**: Voice agent publishes state only; orchestrator makes hardware decisions
 - **Type Safety**: Structured messages prevent JSON parsing errors
 - **Timestamps**: All events include timing for coordination
 - **Transition Context**: Previous states/emotions enable smooth animations
-- **Rich Context**: Emotion + text content enables intelligent coordination decisions
+- **Rich Context**: Comprehensive status enables intelligent coordination decisions
