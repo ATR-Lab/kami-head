@@ -55,6 +55,9 @@ class StateManager:
         self.recent_greetings = []  # Track recent greetings to avoid repetition
         self.interaction_count = 0  # Track number of interactions for familiarity
         
+        # Goodbye coordination flag
+        self.goodbye_pending = False  # Flag to coordinate goodbye handling between user and assistant handlers
+        
         # Phase 4: Mutual exclusion for virtual request processing
         self.virtual_request_processing_lock = asyncio.Lock()
         # Removed batching complexity - no longer needed
@@ -101,6 +104,8 @@ class StateManager:
                 self.user_response_timer = None
             # Reset conversation ending flag
             self.ending_conversation = False
+            # Reset goodbye coordination flag
+            self.goodbye_pending = False
         
 
     async def _enter_new_state(self):
@@ -235,23 +240,29 @@ class StateManager:
                             
                             if any(word in text_lower for word in goodbye_words):
                                 logger.info("🔍 DEBUG: User indicated conversation ending - goodbye detected!")
-                                # Set ending flag to prevent timer conflicts
-                                self.ending_conversation = True
-                                
-                                # Let agent say goodbye before ending conversation
-                                goodbye_response = "friendly:Thanks for chatting! Say 'hey barista' if you need me again."
-                                emotion, text = self.process_emotional_response(goodbye_response)
-                                await self.say_with_emotion(text, emotion)
-                                
-                                # Wait for goodbye to finish, then end conversation
-                                await asyncio.sleep(3)  # Give time for TTS to complete
-                                await self.end_conversation()
+                                # Set pending flag to coordinate with LLM response
+                                self.goodbye_pending = True
+                                logger.info("🔍 DEBUG: Set goodbye_pending = True, letting LLM respond naturally")
                             else:
                                 logger.info(f"🔍 DEBUG: No goodbye detected in: '{user_text}'")
                         
                         # Handle agent messages for timer management
                         elif event.item.role == "assistant":
                             logger.info("🔍 DEBUG: Agent message added to conversation")
+                            
+                            # Check if this is a response to a user goodbye
+                            if self.goodbye_pending:
+                                logger.info("🔍 DEBUG: LLM responded to user goodbye - ending conversation")
+                                self.goodbye_pending = False
+                                self.ending_conversation = True
+                                
+                                # End conversation after a brief delay to let LLM response complete
+                                async def delayed_end_conversation():
+                                    await asyncio.sleep(2)  # Brief delay for response completion
+                                    await self.end_conversation()
+                                
+                                asyncio.create_task(delayed_end_conversation())
+                                return  # Skip normal timer logic since we're ending
                             
                             # Only start new timer if we're not ending the conversation
                             if not self.ending_conversation:
