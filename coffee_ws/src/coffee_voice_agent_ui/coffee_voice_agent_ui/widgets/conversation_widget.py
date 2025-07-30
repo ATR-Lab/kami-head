@@ -26,11 +26,16 @@ class ConversationWidget(QWidget):
         super().__init__()
         self.setMinimumSize(500, 500)
         
+        # Configuration parameters (will be updated by monitor)
+        self.user_response_timeout = 15.0  # Default fallback value
+        self.max_conversation_time = 180.0  # Default fallback value
+        self.config_source = "fallback"  # Track configuration source
+        self.config_timestamp = None  # Track when config was last updated
+        
         # Conversation tracking
         self.conversation_items = deque(maxlen=100)  # Keep last 100 conversation items
         self.current_phase = "idle"
         self.conversation_start_time = None
-        self.user_response_timeout = 15  # seconds
         self.last_agent_message_time = None
         
         # Metrics tracking
@@ -90,7 +95,35 @@ class ConversationWidget(QWidget):
         
         layout.addLayout(status_layout)
         
-        # Timeout progress bar
+        # Max conversation timeout progress
+        self.max_timeout_frame = QFrame()
+        max_timeout_layout = QVBoxLayout()
+        self.max_timeout_frame.setLayout(max_timeout_layout)
+        
+        max_timeout_label_layout = QHBoxLayout()
+        max_timeout_label_layout.addWidget(QLabel("⏰ Conversation Time:"))
+        self.max_timeout_label = QLabel("--")
+        max_timeout_label_layout.addWidget(self.max_timeout_label)
+        max_timeout_label_layout.addStretch()
+        max_timeout_layout.addLayout(max_timeout_label_layout)
+        
+        self.max_timeout_progress = QProgressBar()
+        self.max_timeout_progress.setMaximum(100)
+        self.max_timeout_progress.setVisible(False)
+        max_timeout_layout.addWidget(self.max_timeout_progress)
+        
+        layout.addWidget(self.max_timeout_frame)
+        
+        # Configuration status display
+        config_status_layout = QHBoxLayout()
+        config_status_layout.addWidget(QLabel("Config:"))
+        self.config_status_label = QLabel("Fallback timeouts")
+        self.config_status_label.setStyleSheet("color: #ffc107; font-size: 10px;")  # Yellow for fallback
+        config_status_layout.addWidget(self.config_status_label)
+        config_status_layout.addStretch()
+        layout.addLayout(config_status_layout)
+
+        # Timeout progress bar (user response)
         self.timeout_frame = QFrame()
         timeout_layout = QVBoxLayout()
         self.timeout_frame.setLayout(timeout_layout)
@@ -130,6 +163,39 @@ class ConversationWidget(QWidget):
         metrics_layout.addWidget(clear_btn)
         
         layout.addLayout(metrics_layout)
+    
+    def update_configuration(self, config_data, source="agent"):
+        """
+        Update widget configuration from monitor
+        
+        Args:
+            config_data: Dictionary containing configuration values
+            source: Source of configuration ("agent", "fallback", "parameter_override")
+        """
+        # Update timeout values
+        if 'user_response_timeout' in config_data:
+            self.user_response_timeout = float(config_data['user_response_timeout'])
+            
+        if 'max_conversation_time' in config_data:
+            self.max_conversation_time = float(config_data['max_conversation_time'])
+        
+        # Update configuration tracking
+        self.config_source = source
+        self.config_timestamp = datetime.now()
+        
+        # Update configuration status display
+        if source == "agent":
+            status_text = f"Agent ({self.user_response_timeout:.0f}s, {self.max_conversation_time/60:.0f}m)"
+            self.config_status_label.setText(status_text)
+            self.config_status_label.setStyleSheet("color: #28a745; font-size: 10px;")  # Green for agent
+        elif source == "parameter_override":
+            status_text = f"Override ({self.user_response_timeout:.0f}s, {self.max_conversation_time/60:.0f}m)"
+            self.config_status_label.setText(status_text)
+            self.config_status_label.setStyleSheet("color: #007bff; font-size: 10px;")  # Blue for override
+        else:
+            status_text = f"Fallback ({self.user_response_timeout:.0f}s, {self.max_conversation_time/60:.0f}m)"
+            self.config_status_label.setText(status_text)
+            self.config_status_label.setStyleSheet("color: #ffc107; font-size: 10px;")  # Yellow for fallback
     
     def update_agent_state(self, status: AgentStatus):
         """Update conversation state from agent status"""
@@ -254,6 +320,41 @@ class ConversationWidget(QWidget):
         else:
             self.timeout_progress.setVisible(False)
             self.timeout_label.setText("--")
+        
+        # Update max conversation timeout progress
+        if self.conversation_start_time:
+            conversation_elapsed = (datetime.now() - self.conversation_start_time).total_seconds()
+            conversation_remaining = max(0, self.max_conversation_time - conversation_elapsed)
+            
+            if conversation_elapsed > 0:
+                conversation_progress = int((conversation_elapsed / self.max_conversation_time) * 100)
+                self.max_timeout_progress.setValue(min(conversation_progress, 100))
+                self.max_timeout_progress.setVisible(True)
+                
+                # Format time display
+                elapsed_minutes = int(conversation_elapsed // 60)
+                elapsed_seconds = int(conversation_elapsed % 60)
+                total_minutes = int(self.max_conversation_time // 60)
+                
+                if conversation_remaining > 0:
+                    remaining_minutes = int(conversation_remaining // 60)
+                    remaining_seconds = int(conversation_remaining % 60)
+                    self.max_timeout_label.setText(f"{elapsed_minutes}:{elapsed_seconds:02d} / {total_minutes}:00 ({remaining_minutes}:{remaining_seconds:02d} left)")
+                else:
+                    self.max_timeout_label.setText(f"{elapsed_minutes}:{elapsed_seconds:02d} / {total_minutes}:00 (Limit reached)")
+                
+                # Color coding with warnings
+                if conversation_progress < 75:  # Green: 0-75% (0-2:15 for 3min limit)
+                    self.max_timeout_progress.setStyleSheet("QProgressBar::chunk { background-color: #28a745; }")
+                elif conversation_progress < 90:  # Yellow: 75-90% (2:15-2:42 for 3min limit)
+                    self.max_timeout_progress.setStyleSheet("QProgressBar::chunk { background-color: #ffc107; }")
+                else:  # Red: 90-100% (2:42-3:00 for 3min limit)
+                    self.max_timeout_progress.setStyleSheet("QProgressBar::chunk { background-color: #dc3545; }")
+            else:
+                self.max_timeout_progress.setVisible(False)
+        else:
+            self.max_timeout_progress.setVisible(False)
+            self.max_timeout_label.setText("--")
     
     def _update_response_metrics(self):
         """Update response time metrics"""
@@ -270,6 +371,25 @@ class ConversationWidget(QWidget):
     
     def get_analytics_data(self):
         """Get conversation analytics data"""
+        # Calculate timeout status if conversation is active
+        approaching_user_timeout = False
+        approaching_max_timeout = False
+        max_timeout_reached = False
+        
+        if self.conversation_start_time:
+            conversation_elapsed = (datetime.now() - self.conversation_start_time).total_seconds()
+            
+            # Check if approaching max conversation timeout
+            max_progress = (conversation_elapsed / self.max_conversation_time) * 100
+            approaching_max_timeout = max_progress >= 75  # Warning at 75%
+            max_timeout_reached = conversation_elapsed >= self.max_conversation_time
+            
+            # Check if approaching user response timeout
+            if self.last_agent_message_time:
+                user_elapsed = (datetime.now() - self.last_agent_message_time).total_seconds()
+                user_progress = (user_elapsed / self.user_response_timeout) * 100
+                approaching_user_timeout = user_progress >= 75
+        
         return {
             'conversation_active': self.conversation_start_time is not None,
             'current_phase': self.current_phase,
@@ -282,5 +402,13 @@ class ConversationWidget(QWidget):
                 sum(self.response_times) / len(self.response_times)
                 if self.response_times else 0
             ),
-            'total_messages': len(self.conversation_items)
+            'total_messages': len(self.conversation_items),
+            # Timeout analytics data
+            'user_response_timeout': self.user_response_timeout,
+            'max_conversation_time': self.max_conversation_time,
+            'approaching_user_timeout': approaching_user_timeout,
+            'approaching_max_timeout': approaching_max_timeout,
+            'max_timeout_reached': max_timeout_reached,
+            'config_source': self.config_source,
+            'config_timestamp': self.config_timestamp
         } 

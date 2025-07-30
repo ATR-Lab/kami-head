@@ -414,13 +414,17 @@ class AnalyticsWidget(QWidget):
                 # Session ended - determine outcome type
                 duration = datetime.now() - self.current_session_start
                 
-                # Analyze conversation outcome (this could be enhanced with more data from conversation_data)
-                # For now, we use heuristics based on duration and available data
+                # Analyze conversation outcome using enhanced timeout information
                 outcome_type = 'completed'  # Default assumption
+                timeout_category = 'none'   # Track which timeout caused ending
                 
-                # Check for timeout indicators
-                if conversation_data.get('timeout_reached', False):
-                    outcome_type = 'timeout'
+                # Check for timeout indicators from conversation widget
+                if conversation_data.get('max_timeout_reached', False):
+                    outcome_type = 'max_timeout'
+                    timeout_category = 'max_conversation'
+                elif conversation_data.get('timeout_reached', False):
+                    outcome_type = 'user_timeout'
+                    timeout_category = 'user_response'
                 elif conversation_data.get('user_disconnected', False):
                     outcome_type = 'user_disconnect'
                 elif conversation_data.get('natural_ending', False):
@@ -428,20 +432,32 @@ class AnalyticsWidget(QWidget):
                 elif duration.total_seconds() < 30:  # Very short conversations might be failures
                     outcome_type = 'failed'
                 
+                # Check warning states for analytics
+                approaching_max_timeout = conversation_data.get('approaching_max_timeout', False)
+                approaching_user_timeout = conversation_data.get('approaching_user_timeout', False)
+                
                 session_record = {
                     'start': self.current_session_start,
                     'duration': duration,
                     'outcome': outcome_type,
+                    'timeout_category': timeout_category,
                     'turn_count': conversation_data.get('turn_count', 0),
-                    'successful': outcome_type in ['completed', 'natural']
+                    'successful': outcome_type in ['completed', 'natural'],
+                    'user_response_timeout': conversation_data.get('user_response_timeout', 15.0),
+                    'max_conversation_time': conversation_data.get('max_conversation_time', 180.0),
+                    'config_source': conversation_data.get('config_source', 'unknown'),
+                    'approaching_max_timeout': approaching_max_timeout,
+                    'approaching_user_timeout': approaching_user_timeout
                 }
                 
                 self.conversation_sessions.append(session_record)
                 self.conversation_outcomes.append({
                     'timestamp': datetime.now(),
                     'outcome': outcome_type,
+                    'timeout_category': timeout_category,
                     'duration': duration,
-                    'successful': outcome_type in ['completed', 'natural']
+                    'successful': outcome_type in ['completed', 'natural'],
+                    'config_source': conversation_data.get('config_source', 'unknown')
                 })
                 
                 self.current_session_start = None
@@ -671,6 +687,38 @@ class AnalyticsWidget(QWidget):
         else:
             self.peak_happiness_label.setText("Peak happiness: --")
             self.most_curious_label.setText("Most curious: --")
+        
+        # Add timeout analytics to emotion trends section
+        self._update_timeout_analytics()
+    
+    def _update_timeout_analytics(self):
+        """Update timeout analytics in the existing emotion trend labels"""
+        # Calculate timeout statistics from recent outcomes
+        recent_outcomes = [outcome for outcome in self.conversation_outcomes 
+                          if (datetime.now() - outcome['timestamp']).total_seconds() < 3600]
+        
+        if recent_outcomes:
+            # Count different timeout types
+            max_timeout_count = sum(1 for o in recent_outcomes if o.get('timeout_category') == 'max_conversation')
+            user_timeout_count = sum(1 for o in recent_outcomes if o.get('timeout_category') == 'user_response')
+            natural_count = sum(1 for o in recent_outcomes if o.get('outcome') == 'natural')
+            total_conversations = len(recent_outcomes)
+            
+            # Update peak happiness label with timeout completion info
+            if total_conversations > 0:
+                natural_percentage = (natural_count / total_conversations) * 100
+                self.peak_happiness_label.setText(f"Natural endings: {natural_count}/{total_conversations} ({natural_percentage:.0f}%)")
+            else:
+                self.peak_happiness_label.setText("Natural endings: --")
+            
+            # Update curious label with timeout breakdown
+            if max_timeout_count > 0 or user_timeout_count > 0:
+                self.most_curious_label.setText(f"Timeouts: {max_timeout_count} max, {user_timeout_count} user")
+            else:
+                self.most_curious_label.setText("Timeouts: None recently")
+        else:
+            self.peak_happiness_label.setText("Natural endings: --")
+            self.most_curious_label.setText("Timeouts: --")
     
     def _calculate_system_metrics(self):
         """Calculate and update system metrics from real data"""

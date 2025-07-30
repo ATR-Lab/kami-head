@@ -18,6 +18,7 @@ import signal
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.parameter import Parameter
 import threading
 from datetime import datetime
 
@@ -231,6 +232,14 @@ class VoiceAgentMonitorApp(QMainWindow):
         self.ros_executor.add_node(self.ros_node)
         self.ros_thread = threading.Thread(target=self.ros_executor.spin, daemon=True)
         self.ros_thread.start()
+        
+        # Query and distribute initial configuration (with delay for bridge startup)
+        QTimer.singleShot(2000, self._query_and_distribute_config)  # Wait 2 seconds for bridge to initialize
+        
+        # Set up periodic config refresh in case bridge connects later
+        self.config_refresh_timer = QTimer()
+        self.config_refresh_timer.timeout.connect(self._retry_config_if_fallback)
+        self.config_refresh_timer.start(10000)  # Check every 10 seconds
     
     def _setup_timers(self):
         """Set up update timers for the UI"""
@@ -243,6 +252,87 @@ class VoiceAgentMonitorApp(QMainWindow):
         self.analytics_timer = QTimer()
         self.analytics_timer.timeout.connect(self._update_analytics)
         self.analytics_timer.start(1000)  # 1 FPS for analytics
+    
+    def _query_and_distribute_config(self):
+        """Query configuration parameters from bridge and distribute to widgets"""
+        try:
+            # Query parameters from the voice agent bridge
+            config_data = {}
+            config_source = "fallback"
+            
+            # Try to get parameters from bridge using parameter client
+            try:
+                from rclpy.parameter_client import AsyncParameterClient
+                
+                # Create parameter client to query bridge node
+                param_client = AsyncParameterClient(self.ros_node, 'voice_agent_bridge')
+                
+                # Wait for bridge node to be available (timeout after 5 seconds)
+                if param_client.wait_for_services(timeout_sec=5.0):
+                    # Query timeout parameters from bridge
+                    parameter_names = ['user_response_timeout', 'max_conversation_time', 'config_received']
+                    
+                    # Use async parameter client - get future and wait for result
+                    future = param_client.get_parameters(parameter_names)
+                    
+                    # Spin until the future is complete (with timeout)
+                    import time
+                    start_time = time.time()
+                    timeout = 5.0
+                    
+                    while not future.done() and (time.time() - start_time) < timeout:
+                        rclpy.spin_once(self.ros_node, timeout_sec=0.1)
+                    
+                    if future.done():
+                        parameters = future.result().values
+                        
+                        config_data = {
+                            'user_response_timeout': parameters[0].double_value if parameters[0].type == 3 else 15.0,  # PARAMETER_DOUBLE = 3
+                            'max_conversation_time': parameters[1].double_value if parameters[1].type == 3 else 180.0
+                        }
+                        
+                        # Check if we got real configuration from agent using config_received flag
+                        config_received = parameters[2].bool_value if parameters[2].type == 1 else False  # PARAMETER_BOOL = 1
+                        if config_received:
+                            config_source = "agent"  # Bridge has received agent configuration
+                        else:
+                            config_source = "fallback"  # Bridge still using defaults
+                        
+                        self.ros_node.get_logger().info(f"Retrieved configuration from bridge: {config_data} (source: {config_source})")
+                    else:
+                        raise Exception("Parameter query timed out")
+                else:
+                    raise Exception("Bridge node not available")
+                
+            except Exception as e:
+                # Parameters not available, use fallback values
+                self.ros_node.get_logger().warn(f"Could not query bridge parameters: {e}, using fallback configuration")
+                config_data = {
+                    'user_response_timeout': 15.0,
+                    'max_conversation_time': 180.0
+                }
+                config_source = "fallback"
+            
+            # Distribute configuration to widgets
+            if hasattr(self, 'conversation_widget'):
+                self.conversation_widget.update_configuration(config_data, config_source)
+                self.ros_node.get_logger().info("Updated conversation widget configuration")
+            
+            # Add configuration info to analytics data
+            self.last_config_update = {
+                'config_data': config_data,
+                'config_source': config_source,
+                'timestamp': datetime.now()
+            }
+            
+        except Exception as e:
+            self.ros_node.get_logger().error(f"Error in configuration query and distribution: {e}")
+    
+    def _retry_config_if_fallback(self):
+        """Retry configuration query if still using fallback values"""
+        if (hasattr(self, 'last_config_update') and 
+            self.last_config_update.get('config_source') == 'fallback'):
+            self._query_and_distribute_config()
     
     @pyqtSlot(AgentStatus)
     def _update_agent_status(self, status):
@@ -312,6 +402,8 @@ class VoiceAgentMonitorApp(QMainWindow):
             self.update_timer.stop()
         if hasattr(self, 'analytics_timer'):
             self.analytics_timer.stop()
+        if hasattr(self, 'config_refresh_timer'):
+            self.config_refresh_timer.stop()
         
         # Clean up ROS
         if hasattr(self, 'ros_executor'):
