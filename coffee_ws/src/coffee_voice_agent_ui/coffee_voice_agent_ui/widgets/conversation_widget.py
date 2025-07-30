@@ -42,6 +42,7 @@ class ConversationWidget(QWidget):
         self.turn_count = 0
         self.response_times = deque(maxlen=20)  # Last 20 response times
         self.auto_scroll = True
+        self.last_agent_message_index = None  # Track last agent message for updates
         
         self._setup_ui()
         
@@ -207,9 +208,13 @@ class ConversationWidget(QWidget):
         self.current_phase = new_phase
         self.phase_label.setText(f"Phase: {new_phase}")
         
-        # Handle agent speech
+        # Handle agent speech - both starting and completion
         if status.speech_status == "speaking" and status.speech_text:
+            # Agent started speaking - add new message with preview text
             self._add_agent_message(status.speech_text, status.emotion)
+        elif status.speech_status == "idle" and status.speech_text and self.last_agent_message_index is not None:
+            # Agent finished speaking - update last message with full text
+            self._update_last_agent_message(status.speech_text)
     
     def add_user_speech(self, speech_text: str):
         """Add user speech to conversation"""
@@ -240,9 +245,52 @@ class ConversationWidget(QWidget):
         self._add_conversation_item("🤖 AGENT", f"{emotion_prefix}{text}", "#28a745")
         self.last_agent_message_time = datetime.now()
         
+        # Track this as the last agent message for potential updates
+        self.last_agent_message_index = len(self.conversation_items) - 1
+        
         # Start timeout tracking
         self.timeout_progress.setVisible(True)
         self.timeout_progress.setValue(0)
+    
+    def _update_last_agent_message(self, full_text: str):
+        """Update the last agent message with the full text"""
+        if self.last_agent_message_index is not None and self.last_agent_message_index < len(self.conversation_items):
+            # Get the last agent message item
+            timestamp, role, old_text, color = self.conversation_items[self.last_agent_message_index]
+            
+            # Extract emotion prefix from old text if present
+            emotion_prefix = ""
+            if old_text.startswith("[") and "]" in old_text:
+                end_bracket = old_text.find("]")
+                emotion_prefix = old_text[:end_bracket + 2]  # Include space after ]
+            
+            # Create updated text with same emotion prefix
+            updated_text = f"{emotion_prefix}{full_text}"
+            
+            # Update the item in the deque
+            self.conversation_items[self.last_agent_message_index] = (timestamp, role, updated_text, color)
+            
+            # Rebuild entire conversation display to show update
+            self._refresh_conversation_display()
+    
+    def _refresh_conversation_display(self):
+        """Refresh the entire conversation display to show updates"""
+        # Clear current display
+        self.conversation_text.clear()
+        
+        # Re-add all conversation items
+        for timestamp, role, text, color in self.conversation_items:
+            time_str = timestamp.strftime("%H:%M:%S")
+            formatted_text = f"<span style='color: {color}; font-weight: bold;'>[{time_str}] {role}:</span> {text}<br>"
+            
+            cursor = self.conversation_text.textCursor()
+            cursor.movePosition(QTextCursor.End)
+            cursor.insertHtml(formatted_text)
+        
+        # Auto-scroll if enabled
+        if self.auto_scroll:
+            scrollbar = self.conversation_text.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
     
     def _add_conversation_item(self, role: str, text: str, color: str):
         """Add an item to the conversation display"""
@@ -281,6 +329,7 @@ class ConversationWidget(QWidget):
         self.turn_count = 0
         self.turns_label.setText("Turns: 0")
         self.response_times.clear()
+        self.last_agent_message_index = None  # Reset agent message tracking
         self._update_response_metrics()
     
     def _update_dynamic_elements(self):
