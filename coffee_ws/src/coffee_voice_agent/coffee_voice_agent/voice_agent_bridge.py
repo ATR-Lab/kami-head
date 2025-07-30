@@ -54,6 +54,9 @@ class VoiceAgentBridge(Node):
         self.declare_parameter('agent_version', 'unknown')
         self.declare_parameter('config_timestamp', '')
         
+        # Configuration state tracking (exposed as ROS parameter for monitor)
+        self.declare_parameter('config_received', False)
+        
         self.host = self.get_parameter('voice_agent_host').value
         self.port = self.get_parameter('voice_agent_port').value
         self.reconnect_interval = self.get_parameter('reconnect_interval').value
@@ -466,6 +469,13 @@ class VoiceAgentBridge(Node):
                 f"emotions={len(config_data.get('valid_emotions', []))}, "
                 f"version={config_data.get('agent_version', 'N/A')}"
             )
+            
+            # Mark configuration as received from agent
+            self.get_logger().info("🔧 DEBUG: Setting config_received=True")
+            self.set_parameters([
+                Parameter('config_received', Parameter.Type.BOOL, True)
+            ])
+            self.get_logger().info("🔧 DEBUG: config_received parameter updated successfully")
             
         except Exception as e:
             self.get_logger().error(f"🔧 DEBUG: Exception in _update_configuration_parameters: {e}")
