@@ -164,13 +164,13 @@ class ConversationWidget(QWidget):
         
         layout.addLayout(metrics_layout)
     
-    def update_configuration(self, config_data, source="agent"):
+    def update_configuration(self, config_data, source="disconnected"):
         """
         Update widget configuration from monitor
         
         Args:
             config_data: Dictionary containing configuration values
-            source: Source of configuration ("agent", "fallback", "parameter_override")
+            source: Connection status ("connected", "disconnected")
         """
         # Update timeout values
         if 'user_response_timeout' in config_data:
@@ -183,19 +183,15 @@ class ConversationWidget(QWidget):
         self.config_source = source
         self.config_timestamp = datetime.now()
         
-        # Update configuration status display
-        if source == "agent":
-            status_text = f"Agent ({self.user_response_timeout:.0f}s, {self.max_conversation_time/60:.0f}m)"
+        # Update configuration status display based on connection
+        if source == "connected":
+            status_text = f"Bridge Connected ({self.user_response_timeout:.0f}s, {self.max_conversation_time/60:.0f}m)"
             self.config_status_label.setText(status_text)
-            self.config_status_label.setStyleSheet("color: #28a745; font-size: 10px;")  # Green for agent
-        elif source == "parameter_override":
-            status_text = f"Override ({self.user_response_timeout:.0f}s, {self.max_conversation_time/60:.0f}m)"
-            self.config_status_label.setText(status_text)
-            self.config_status_label.setStyleSheet("color: #007bff; font-size: 10px;")  # Blue for override
+            self.config_status_label.setStyleSheet("color: #28a745; font-size: 10px;")  # Green for connected
         else:
-            status_text = f"Fallback ({self.user_response_timeout:.0f}s, {self.max_conversation_time/60:.0f}m)"
+            status_text = f"Bridge Disconnected ({self.user_response_timeout:.0f}s, {self.max_conversation_time/60:.0f}m)"
             self.config_status_label.setText(status_text)
-            self.config_status_label.setStyleSheet("color: #ffc107; font-size: 10px;")  # Yellow for fallback
+            self.config_status_label.setStyleSheet("color: #dc3545; font-size: 10px;")  # Red for disconnected
     
     def update_agent_state(self, status: AgentStatus):
         """Update conversation state from agent status"""
