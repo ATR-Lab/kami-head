@@ -636,4 +636,39 @@ class StateManager:
             }
             await self.agent._send_websocket_event("USER_SPEECH", speech_data)
         else:
-            logger.debug(f"Cannot send user speech event - no agent WebSocket connection") 
+            logger.debug(f"Cannot send user speech event - no agent WebSocket connection")
+
+    def get_configuration_dict(self):
+        """
+        Get all configuration values for sharing with bridge and UI components.
+        
+        This method provides a single source of truth for configuration that can be
+        sent via WebSocket to the bridge and propagated to UI components as ROS2 parameters.
+        
+        Returns:
+            dict: Complete configuration including timeouts, emotions, and WebSocket settings
+        """
+        logger.info("🔧 DEBUG: get_configuration_dict() called")
+        
+        from config.settings import WEBSOCKET_HOST, WEBSOCKET_PORT
+        
+        config = {
+            # Core timing configuration
+            "user_response_timeout": USER_RESPONSE_TIMEOUT,
+            "final_timeout": FINAL_TIMEOUT,
+            "max_conversation_time": MAX_CONVERSATION_TIME,
+            
+            # Emotion configuration
+            "valid_emotions": list(VALID_EMOTIONS),
+            
+            # WebSocket configuration (for bridge connectivity info)
+            "websocket_host": WEBSOCKET_HOST,
+            "websocket_port": WEBSOCKET_PORT,
+            
+            # Version and metadata
+            "agent_version": "refactored",
+            "config_timestamp": datetime.now().isoformat()
+        }
+        
+        logger.info(f"🔧 DEBUG: Generated config dict: {config}")
+        return config 

@@ -19,6 +19,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.parameter import Parameter
 from std_msgs.msg import String, Bool
 from geometry_msgs.msg import Twist
 from coffee_voice_agent_msgs.msg import AgentStatus, ToolEvent
@@ -42,9 +43,24 @@ class VoiceAgentBridge(Node):
         self.declare_parameter('voice_agent_port', 8080)
         self.declare_parameter('reconnect_interval', 5.0)
         
+        # Agent configuration parameters (will be updated when agent connects)
+        # These provide defaults until agent shares its actual configuration
+        self.declare_parameter('user_response_timeout', 15.0)
+        self.declare_parameter('final_timeout', 10.0) 
+        self.declare_parameter('max_conversation_time', 180.0)
+        self.declare_parameter('valid_emotions', ['friendly', 'helpful', 'curious'])
+        self.declare_parameter('websocket_host', 'localhost')
+        self.declare_parameter('websocket_port', 8080)
+        self.declare_parameter('agent_version', 'unknown')
+        self.declare_parameter('config_timestamp', '')
+        
         self.host = self.get_parameter('voice_agent_host').value
         self.port = self.get_parameter('voice_agent_port').value
         self.reconnect_interval = self.get_parameter('reconnect_interval').value
+        
+        # Configuration state tracking
+        self.config_received = False
+        self.current_config = {}
         
         # WebSocket connection
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
@@ -164,7 +180,25 @@ class VoiceAgentBridge(Node):
                 
             elif message_type == 'STARTUP':
                 # Handle startup/ready events from voice agent
-                self.get_logger().info(f"Voice agent startup: {data.get('message', 'Ready')} (version: {data.get('version', 'unknown')})")
+                self.get_logger().info("🔧 DEBUG: Received STARTUP message")
+                self.get_logger().info(f"🔧 DEBUG: Full STARTUP data: {data}")
+                
+                # Extract the actual event data from the nested message structure
+                event_data = data.get('data', {})
+                self.get_logger().info(f"🔧 DEBUG: Extracted event_data: {event_data}")
+                
+                self.get_logger().info(f"Voice agent startup: {event_data.get('message', 'Ready')} (version: {event_data.get('version', 'unknown')})")
+                
+                # Process configuration if provided
+                config_data = event_data.get('config', {})
+                self.get_logger().info(f"🔧 DEBUG: Config data in STARTUP: {config_data}")
+                
+                if config_data:
+                    self.get_logger().info("🔧 DEBUG: Configuration data found, updating parameters...")
+                    await self._update_configuration_parameters(config_data)
+                else:
+                    self.get_logger().warn("No configuration data received in STARTUP message")
+                    self.get_logger().info("🔧 DEBUG: Available keys in event_data: " + str(list(event_data.keys())))
                 
             elif message_type == 'AGENT_STATUS':
                 # Handle unified agent status events
@@ -326,6 +360,117 @@ class VoiceAgentBridge(Node):
                 self.get_logger().error(f"Error sending to voice agent: {e}")
         else:
             self.get_logger().warn("Cannot send to voice agent - not connected")
+    
+    async def _update_configuration_parameters(self, config_data: dict):
+        """
+        Update ROS2 parameters with configuration received from voice agent.
+        
+        This method is called when the agent sends its configuration via STARTUP or
+        CONFIG_UPDATE messages. It updates the bridge's parameters so UI components
+        can query them for consistent behavior.
+        
+        Args:
+            config_data: Configuration dictionary from voice agent
+        """
+        self.get_logger().info("🔧 DEBUG: _update_configuration_parameters called")
+        self.get_logger().info(f"🔧 DEBUG: Received config_data: {config_data}")
+        
+        try:
+            # Store current config for tracking
+            self.current_config = config_data.copy()
+            self.config_received = True
+            
+            self.get_logger().info("🔧 DEBUG: Starting parameter updates...")
+            
+            # Update timing parameters
+            if 'user_response_timeout' in config_data:
+                timeout_value = float(config_data['user_response_timeout'])
+                self.get_logger().info(f"🔧 DEBUG: Updating user_response_timeout to: {timeout_value}")
+                self.set_parameters([
+                    Parameter('user_response_timeout', 
+                                            Parameter.Type.DOUBLE, 
+                                            timeout_value)
+                ])
+                
+            if 'final_timeout' in config_data:
+                final_timeout_value = float(config_data['final_timeout'])
+                self.get_logger().info(f"🔧 DEBUG: Updating final_timeout to: {final_timeout_value}")
+                self.set_parameters([
+                    Parameter('final_timeout',
+                                            Parameter.Type.DOUBLE, 
+                                            final_timeout_value)
+                ])
+                
+            if 'max_conversation_time' in config_data:
+                max_time_value = float(config_data['max_conversation_time'])
+                self.get_logger().info(f"🔧 DEBUG: Updating max_conversation_time to: {max_time_value}")
+                self.set_parameters([
+                    Parameter('max_conversation_time',
+                                            Parameter.Type.DOUBLE,
+                                            max_time_value)
+                ])
+                
+            # Update emotion configuration
+            if 'valid_emotions' in config_data:
+                emotions = config_data['valid_emotions']
+                self.get_logger().info(f"🔧 DEBUG: Updating valid_emotions to: {emotions}")
+                if isinstance(emotions, (list, set)):
+                    self.set_parameters([
+                        Parameter('valid_emotions',
+                                                Parameter.Type.STRING_ARRAY,
+                                                list(emotions))
+                    ])
+            
+            # Update WebSocket configuration
+            if 'websocket_host' in config_data:
+                host_value = str(config_data['websocket_host'])
+                self.get_logger().info(f"🔧 DEBUG: Updating websocket_host to: {host_value}")
+                self.set_parameters([
+                    Parameter('websocket_host',
+                                            Parameter.Type.STRING,
+                                            host_value)
+                ])
+                
+            if 'websocket_port' in config_data:
+                port_value = int(config_data['websocket_port'])
+                self.get_logger().info(f"🔧 DEBUG: Updating websocket_port to: {port_value}")
+                self.set_parameters([
+                    Parameter('websocket_port',
+                                            Parameter.Type.INTEGER,
+                                            port_value)
+                ])
+            
+            # Update metadata
+            if 'agent_version' in config_data:
+                version_value = str(config_data['agent_version'])
+                self.get_logger().info(f"🔧 DEBUG: Updating agent_version to: {version_value}")
+                self.set_parameters([
+                    Parameter('agent_version',
+                                            Parameter.Type.STRING,
+                                            version_value)
+                ])
+                
+            if 'config_timestamp' in config_data:
+                timestamp_value = str(config_data['config_timestamp'])
+                self.get_logger().info(f"🔧 DEBUG: Updating config_timestamp to: {timestamp_value}")
+                self.set_parameters([
+                    Parameter('config_timestamp',
+                                            Parameter.Type.STRING,
+                                            timestamp_value)
+                ])
+            
+            self.get_logger().info("🔧 DEBUG: All parameter updates completed successfully")
+            self.get_logger().info(
+                f"Updated configuration parameters: "
+                f"timeout={config_data.get('user_response_timeout', 'N/A')}s, "
+                f"emotions={len(config_data.get('valid_emotions', []))}, "
+                f"version={config_data.get('agent_version', 'N/A')}"
+            )
+            
+        except Exception as e:
+            self.get_logger().error(f"🔧 DEBUG: Exception in _update_configuration_parameters: {e}")
+            self.get_logger().error(f"Error updating configuration parameters: {e}")
+            self.config_received = False
     
     def publish_connection_status(self):
         """Publish connection status periodically"""

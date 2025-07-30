@@ -369,12 +369,24 @@ class CoffeeBaristaAgent(Agent):
         self.connected_clients.add(websocket)
         
         # Send startup event to test bidirectional communication
+        logger.info("🔧 DEBUG: Creating STARTUP event with configuration...")
+        
+        # Get configuration from state manager
+        config_data = self.state_manager.get_configuration_dict()
+        logger.info(f"🔧 DEBUG: Config data from state manager: {config_data}")
+        
         startup_event = {
             "timestamp": datetime.now().isoformat(),
             "message": "Voice agent ready for events",
-            "version": "refactored"
+            "version": "refactored",
+            # Include complete configuration for bridge parameter propagation
+            "config": config_data
         }
+        
+        logger.info(f"🔧 DEBUG: Final STARTUP event: {startup_event}")
+        logger.info("🔧 DEBUG: Sending STARTUP event to WebSocket...")
         await self._send_websocket_event("STARTUP", startup_event)
+        logger.info("🔧 DEBUG: STARTUP event sent successfully")
         
         try:
             async for message in websocket:
