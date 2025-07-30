@@ -73,16 +73,10 @@ class VoiceAgentMonitorNode(Node):
             10
         )
         
-        # Publishers for sending commands
+        # Publisher for sending virtual requests
         self.virtual_request_pub = self.create_publisher(
             String,
             'voice_agent/virtual_requests',
-            10
-        )
-        
-        self.command_pub = self.create_publisher(
-            String, 
-            'voice_agent/commands',
             10
         )
         
@@ -179,7 +173,6 @@ class VoiceAgentMonitor(Plugin):
         
         # Connect control widget signals to publishers
         self.controls_widget.virtual_request_signal.connect(self._send_virtual_request)
-        self.controls_widget.command_signal.connect(self._send_command)
         
         # Start ROS spinning in separate thread
         self.ros_executor = MultiThreadedExecutor()
@@ -319,14 +312,6 @@ class VoiceAgentMonitor(Plugin):
             msg = String()
             msg.data = request_json
             self.ros_node.virtual_request_pub.publish(msg)
-    
-    @pyqtSlot(str)
-    def _send_command(self, command_json):
-        """Send command through ROS2"""
-        if self.ros_node:
-            msg = String()
-            msg.data = command_json
-            self.ros_node.command_pub.publish(msg)
     
     def _periodic_update(self):
         """Periodic UI updates for real-time elements"""

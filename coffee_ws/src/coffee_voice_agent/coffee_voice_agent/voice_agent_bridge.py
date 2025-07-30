@@ -112,14 +112,6 @@ class VoiceAgentBridge(Node):
             callback_group=self.callback_group
         )
         
-        self.command_sub = self.create_subscription(
-            String,
-            'voice_agent/commands',
-            self.handle_command,
-            10,
-            callback_group=self.callback_group
-        )
-        
         # Start WebSocket connection in separate thread
         self.websocket_thread = threading.Thread(target=self._run_websocket_client, daemon=True)
         self.websocket_thread.start()
@@ -322,36 +314,6 @@ class VoiceAgentBridge(Node):
             self.get_logger().error(f"Invalid JSON in virtual request: {e}")
         except Exception as e:
             self.get_logger().error(f"Error handling virtual request: {e}")
-    
-    def handle_command(self, msg: String):
-        """Handle command from ROS2 and forward to voice agent"""
-        try:
-            # Parse the command
-            command_data = json.loads(msg.data)
-            
-            # Format for voice agent
-            command = {
-                'type': 'COMMAND',
-                'action': command_data.get('action'),
-                'parameters': command_data.get('parameters', {}),
-                'timestamp': command_data.get('timestamp')
-            }
-            
-            # Send to voice agent
-            if self.websocket_loop and not self.websocket_loop.is_closed():
-                asyncio.run_coroutine_threadsafe(
-                    self._send_to_voice_agent(command),
-                    self.websocket_loop
-                )
-            else:
-                self.get_logger().warn("Cannot send command - WebSocket event loop not available")
-            
-            self.get_logger().info(f"Forwarded command: {command_data.get('action')}")
-            
-        except json.JSONDecodeError as e:
-            self.get_logger().error(f"Invalid JSON in command: {e}")
-        except Exception as e:
-            self.get_logger().error(f"Error handling command: {e}")
     
     async def _send_to_voice_agent(self, data: dict):
         """Send data to voice agent via WebSocket"""
