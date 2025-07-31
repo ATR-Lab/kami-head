@@ -65,7 +65,7 @@ class AnalyticsWidget(QWidget):
     
     def __init__(self):
         super().__init__()
-        self.setFixedSize(350, 500)
+        self.setFixedSize(400, 550)
         
         # Real data tracking structures
         self.message_timestamps = deque(maxlen=100)  # For rate calculation

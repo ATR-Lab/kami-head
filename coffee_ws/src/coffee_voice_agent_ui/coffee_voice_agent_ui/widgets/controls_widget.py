@@ -25,7 +25,7 @@ class ControlsWidget(QWidget):
     
     def __init__(self):
         super().__init__()
-        self.setFixedSize(350, 200)
+        self.setFixedSize(400, 200)
         
         self._setup_ui()
     
