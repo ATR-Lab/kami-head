@@ -63,6 +63,7 @@ class StateManager:
         self.five_minute_warning_sent = False
         self.six_minute_warning_sent = False
         self.seven_minute_warning_sent = False
+        self.extension_expired_pending = False
         
         # Phase 4: Mutual exclusion for virtual request processing
         self.virtual_request_processing_lock = asyncio.Lock()
@@ -123,6 +124,7 @@ class StateManager:
             self.five_minute_warning_sent = False
             self.six_minute_warning_sent = False
             self.seven_minute_warning_sent = False
+            self.extension_expired_pending = False
             
             # Start max conversation timer (absolute limit)
             self.conversation_timer = asyncio.create_task(self._max_conversation_timeout())
@@ -155,6 +157,52 @@ class StateManager:
                 await self.end_conversation()
         except asyncio.CancelledError:
             pass
+
+    async def extend_conversation(self, additional_minutes: int, reason: str):
+        """Extend conversation by additional minutes, cancelling and restarting the timeout timer"""
+        if self.current_state != AgentState.ACTIVE:
+            logger.warning(f"Cannot extend conversation - not in active state (current: {self.current_state})")
+            return
+            
+        logger.info(f"Extending conversation by {additional_minutes} minutes: {reason}")
+        
+        # Cancel existing conversation timer
+        if self.conversation_timer:
+            self.conversation_timer.cancel()
+            self.conversation_timer = None
+            
+        # Calculate new timeout duration (additional time from now)
+        new_timeout_seconds = additional_minutes * 60
+        
+        # Start new conversation timer with extended duration
+        async def extended_timeout():
+            try:
+                await asyncio.sleep(new_timeout_seconds)
+                if self.session and self.current_state == AgentState.ACTIVE:
+                    logger.info(f"Extended conversation time reached - flagging for admin message injection")
+                    
+                    # Set flag for admin message injection on next user turn
+                    self.extension_expired_pending = True
+                    
+                    # Fallback timer - if user doesn't speak within 30 seconds, end with hardcoded message
+                    await asyncio.sleep(30)
+                    if self.session and self.current_state == AgentState.ACTIVE and self.extension_expired_pending:
+                        logger.info("Extension expired and no user response - ending with fallback message")
+                        
+                        # Set ending flag to prevent timer conflicts
+                        self.ending_conversation = True
+                        
+                        # Fallback ending message
+                        timeout_response = "friendly:I've really enjoyed our extended conversation! To help other visitors, I'll need to wrap up here. Say 'hey barista' if you need me again."
+                        emotion, text = self.process_emotional_response(timeout_response)
+                        await self.say_with_emotion(text, emotion)
+                        
+                        await asyncio.sleep(2)
+                        await self.end_conversation()
+            except asyncio.CancelledError:
+                pass
+                
+        self.conversation_timer = asyncio.create_task(extended_timeout())
 
     async def _wait_for_user_response(self):
         """Wait for user response after agent speaks"""

@@ -237,6 +237,15 @@ class CoffeeBaristaAgent(Agent):
                 content="ADMIN: You've been chatting for 7 minutes - time limit reached. Call the manage_conversation_time tool with action='end' to wrap up gracefully, unless there are special circumstances."
             )
             self.state_manager.seven_minute_warning_sent = True
+            
+        # Extension expired - needs immediate ending
+        if self.state_manager.extension_expired_pending:
+            logger.info("Injecting extension expired admin message via callback")
+            turn_ctx.add_message(
+                role="system",
+                content="ADMIN: Your granted extension time has expired. You must end the conversation gracefully now to help other visitors."
+            )
+            self.state_manager.extension_expired_pending = False
 
     async def start_wake_word_detection(self, room):
         """Start wake word detection in a separate thread"""

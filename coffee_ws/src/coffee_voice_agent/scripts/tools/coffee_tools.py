@@ -154,8 +154,14 @@ async def manage_conversation_time_impl(
         result = f"Conversation ending initiated: {reason}"
         
     elif action == "extend":
-        logger.info(f"Conversation extended by {extension_minutes} minutes: {reason}")
-        result = f"Conversation extended by {extension_minutes} minutes: {reason}"
+        # Actually extend the conversation by calling state manager
+        if _agent_instance and hasattr(_agent_instance, 'state_manager') and extension_minutes > 0:
+            await _agent_instance.state_manager.extend_conversation(extension_minutes, reason)
+            logger.info(f"Conversation extended by {extension_minutes} minutes: {reason}")
+            result = f"Conversation extended by {extension_minutes} minutes: {reason}"
+        else:
+            logger.warning(f"Cannot extend conversation - no agent instance or invalid extension minutes: {extension_minutes}")
+            result = f"Extension failed: {reason}"
         
     elif action == "warn":
         logger.info(f"Conversation warning acknowledged: {reason}")
