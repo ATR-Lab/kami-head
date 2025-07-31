@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
 """
-Controls Widget - Virtual request testing interface
+Virtual Request Widget - Virtual request testing interface
 
 Provides manual controls for sending virtual coffee requests
 for testing and debugging agent functionality.
 """
 
 import json
-from datetime import datetime
 
 from python_qt_binding.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
-    QPushButton, QLineEdit, QComboBox, QTextEdit, QGroupBox
+    QPushButton, QLineEdit, QComboBox
 )
 from python_qt_binding.QtCore import Qt, pyqtSignal
 from python_qt_binding.QtGui import QFont
 
 
-class ControlsWidget(QWidget):
+class VirtualRequestWidget(QWidget):
     """Widget for virtual request testing functionality"""
     
     # Signal for sending virtual requests to ROS
@@ -30,7 +29,7 @@ class ControlsWidget(QWidget):
         self._setup_ui()
     
     def _setup_ui(self):
-        """Set up the controls UI"""
+        """Set up the virtual request UI"""
         layout = QVBoxLayout()
         self.setLayout(layout)
         

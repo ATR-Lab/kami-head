@@ -40,7 +40,7 @@ from .widgets.emotion_display_widget import EmotionDisplayWidget
 from .widgets.conversation_widget import ConversationWidget
 from .widgets.tool_monitor_widget import ToolMonitorWidget
 from .widgets.analytics_widget import AnalyticsWidget
-from .widgets.controls_widget import ControlsWidget
+from .widgets.virtual_request_widget import VirtualRequestWidget
 
 
 class ROSBridge(QObject):
@@ -184,7 +184,7 @@ class VoiceAgentMonitorApp(QMainWindow):
         self.conversation_widget = ConversationWidget()
         self.tool_monitor_widget = ToolMonitorWidget()
         self.analytics_widget = AnalyticsWidget()
-        self.controls_widget = ControlsWidget()
+        self.virtual_request_widget = VirtualRequestWidget()
         
         # Arrange widgets in dashboard layout
         # Row 0: Agent Status | Conversation Flow | Analytics
@@ -195,7 +195,7 @@ class VoiceAgentMonitorApp(QMainWindow):
         # Row 1: Emotion Display | Tool Monitor | Controls
         main_layout.addWidget(self.emotion_widget, 1, 0)
         main_layout.addWidget(self.tool_monitor_widget, 1, 1)
-        main_layout.addWidget(self.controls_widget, 1, 2)
+        main_layout.addWidget(self.virtual_request_widget, 1, 2)
         
         # Set column stretch to make conversation widget wider
         main_layout.setColumnStretch(0, 1)  # Status/Emotion column
@@ -227,8 +227,8 @@ class VoiceAgentMonitorApp(QMainWindow):
         self.ros_bridge.user_speech_received.connect(self._update_user_speech)
         self.ros_bridge.connection_status_received.connect(self._update_connection_status)
         
-        # Connect control widget signals to publishers
-        self.controls_widget.virtual_request_signal.connect(self._send_virtual_request)
+        # Connect virtual request widget signals to publishers
+        self.virtual_request_widget.virtual_request_signal.connect(self._send_virtual_request)
         
         # Start ROS spinning in separate thread
         self.ros_executor = MultiThreadedExecutor()
