@@ -23,7 +23,8 @@ from config.settings import WEBSOCKET_HOST, WEBSOCKET_PORT, VALID_EMOTIONS
 from state.state_manager import StateManager, AgentState
 from tools.coffee_tools import (
     get_current_time_impl, get_current_date_impl, get_coffee_menu_impl,
-    get_ordering_instructions_impl, recommend_drink_impl, set_agent_instance
+    get_ordering_instructions_impl, recommend_drink_impl, set_agent_instance,
+    manage_conversation_time_impl, check_user_status_impl
 )
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,16 @@ class CoffeeBaristaAgent(Agent):
                     recommend_drink_impl,
                     name="recommend_drink",
                     description="Recommend a drink based on user preference."
+                ),
+                function_tool(
+                    manage_conversation_time_impl,
+                    name="manage_conversation_time",
+                    description="Intelligent conversation time management. Use this when you receive admin messages about time limits or need to make decisions about continuing or ending the conversation."
+                ),
+                function_tool(
+                    check_user_status_impl,
+                    name="check_user_status",
+                    description="Check if a user has special status (VIP, staff, important guest) based on what they tell you about themselves."
                 ),
             ]
         )
@@ -191,6 +202,41 @@ class CoffeeBaristaAgent(Agent):
             yield audio_frame
         
         logger.info("🔍 DEBUG: tts_node processing complete")
+
+    async def on_user_turn_completed(self, turn_ctx, new_message):
+        """Handle user turn completion - inject admin messages for time management"""
+        if not self.state_manager.conversation_start_time:
+            return
+            
+        import time
+        elapsed = time.time() - self.state_manager.conversation_start_time
+        
+        # 5 minute warning
+        if elapsed > 300 and not self.state_manager.five_minute_warning_sent:
+            logger.info("Injecting 5-minute conversation warning via callback")
+            turn_ctx.add_message(
+                role="system",
+                content="ADMIN: You've been chatting for 5 minutes. The user seems engaged. Consider mentioning you have time for 1-2 more questions, but be natural about it based on the conversation flow."
+            )
+            self.state_manager.five_minute_warning_sent = True
+            
+        # 6 minute warning  
+        elif elapsed > 360 and not self.state_manager.six_minute_warning_sent:
+            logger.info("Injecting 6-minute conversation warning via callback")
+            turn_ctx.add_message(
+                role="system", 
+                content="ADMIN: You've been chatting for 6 minutes. Suggest wrapping up soon to help other visitors, but use your judgment. Call the manage_conversation_time tool to make a decision."
+            )
+            self.state_manager.six_minute_warning_sent = True
+            
+        # 7 minute limit
+        elif elapsed > 420 and not self.state_manager.seven_minute_warning_sent:
+            logger.info("Injecting 7-minute conversation limit via callback")
+            turn_ctx.add_message(
+                role="system",
+                content="ADMIN: You've been chatting for 7 minutes - time limit reached. Call the manage_conversation_time tool with action='end' to wrap up gracefully, unless there are special circumstances."
+            )
+            self.state_manager.seven_minute_warning_sent = True
 
     async def start_wake_word_detection(self, room):
         """Start wake word detection in a separate thread"""

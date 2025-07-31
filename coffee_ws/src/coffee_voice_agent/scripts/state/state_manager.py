@@ -16,7 +16,7 @@ from livekit.plugins import openai, silero
 
 from config.settings import (
     USER_RESPONSE_TIMEOUT, FINAL_TIMEOUT, MAX_CONVERSATION_TIME,
-    VALID_EMOTIONS
+    CONVERSATION_WARNING_TIME, FINAL_WARNING_TIME, VALID_EMOTIONS
 )
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,12 @@ class StateManager:
         
         # Goodbye coordination flag
         self.goodbye_pending = False  # Flag to coordinate goodbye handling between user and assistant handlers
+        
+        # Conversation timing tracking for admin message injection
+        self.conversation_start_time = None
+        self.five_minute_warning_sent = False
+        self.six_minute_warning_sent = False
+        self.seven_minute_warning_sent = False
         
         # Phase 4: Mutual exclusion for virtual request processing
         self.virtual_request_processing_lock = asyncio.Lock()
@@ -111,26 +117,37 @@ class StateManager:
     async def _enter_new_state(self):
         """Initialize new state"""
         if self.current_state == AgentState.ACTIVE:
+            # Start conversation timing tracking
+            import time
+            self.conversation_start_time = time.time()
+            self.five_minute_warning_sent = False
+            self.six_minute_warning_sent = False
+            self.seven_minute_warning_sent = False
+            
             # Start max conversation timer (absolute limit)
             self.conversation_timer = asyncio.create_task(self._max_conversation_timeout())
         elif self.current_state == AgentState.DORMANT:
+            # Reset conversation timing
+            self.conversation_start_time = None
+            
             # Resume wake word detection when returning to dormant
             if self.agent:
                 self.agent.wake_word_paused = False
                 logger.info("Resumed wake word detection")
 
     async def _max_conversation_timeout(self):
-        """Handle maximum conversation time limit"""
+        """Handle absolute maximum conversation time limit (fallback)"""
         try:
-            await asyncio.sleep(MAX_CONVERSATION_TIME)  # 5 minute absolute limit
+            # Wait for absolute maximum time (7 minutes)
+            await asyncio.sleep(MAX_CONVERSATION_TIME)
             if self.session and self.current_state == AgentState.ACTIVE:
-                logger.info("Maximum conversation time reached - ending session")
+                logger.info("Absolute maximum conversation time reached - ending conversation")
                 
                 # Set ending flag to prevent timer conflicts
                 self.ending_conversation = True
                 
-                # Timeout message with sleepy emotion using delimiter format
-                timeout_response = "sleepy:We've been chatting for a while! I'm getting a bit sleepy. Thanks for the conversation. Say 'hey barista' if you need me again."
+                # Fallback timeout message if callback system didn't handle it
+                timeout_response = "friendly:I've really enjoyed our conversation! To help other visitors, I'll need to wrap up here. Say 'hey barista' if you need me again."
                 emotion, text = self.process_emotional_response(timeout_response)
                 await self.say_with_emotion(text, emotion)
                 

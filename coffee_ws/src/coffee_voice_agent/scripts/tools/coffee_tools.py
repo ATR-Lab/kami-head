@@ -120,4 +120,93 @@ async def recommend_drink_impl(context: RunContext, preference: str = "energizin
     logger.info(f"Drink recommendation for '{preference}': {base_recommendation}")
     
     await send_tool_event("recommend_drink", "completed", [preference], full_recommendation)
-    return full_recommendation 
+    return full_recommendation
+
+
+async def manage_conversation_time_impl(
+    context: RunContext,
+    action: str,
+    reason: str,
+    user_importance: str = "normal",
+    extension_minutes: int = 0
+) -> str:
+    """
+    Intelligent conversation time management based on context.
+    
+    Args:
+        action: What to do - "continue", "warn", "extend", "end"
+        reason: LLM's reasoning for the decision
+        user_importance: Assessment of user importance/engagement - "vip", "engaged", "normal"
+        extension_minutes: How much to extend if action is 'extend'
+    """
+    await send_tool_event("manage_conversation_time", "started", [action, reason, user_importance])
+    
+    logger.info(f"LLM conversation decision: {action} - {reason} (user_importance: {user_importance})")
+    
+    result = ""
+    
+    if action == "end":
+        # Signal the state manager to end conversation gracefully
+        if _agent_instance and hasattr(_agent_instance, 'state_manager'):
+            _agent_instance.state_manager.ending_conversation = True
+            # Schedule conversation end after a brief delay
+            asyncio.create_task(_delayed_conversation_end())
+        result = f"Conversation ending initiated: {reason}"
+        
+    elif action == "extend":
+        logger.info(f"Conversation extended by {extension_minutes} minutes: {reason}")
+        result = f"Conversation extended by {extension_minutes} minutes: {reason}"
+        
+    elif action == "warn":
+        logger.info(f"Conversation warning acknowledged: {reason}")
+        result = f"Time warning acknowledged: {reason}"
+        
+    elif action == "continue":
+        logger.info(f"Conversation continues normally: {reason}")
+        result = f"Conversation continues: {reason}"
+        
+    else:
+        result = f"Unknown action '{action}': {reason}"
+        logger.warning(result)
+    
+    await send_tool_event("manage_conversation_time", "completed", [action, reason, user_importance], result)
+    return result
+
+
+async def check_user_status_impl(
+    context: RunContext,
+    user_identifier: str = ""
+) -> str:
+    """
+    Check if user has special status (VIP, staff, important guest).
+    
+    Args:
+        user_identifier: Any identifier mentioned by the user (name, title, etc.)
+    """
+    await send_tool_event("check_user_status", "started", [user_identifier])
+    
+    # VIP keywords to check for
+    vip_keywords = [
+        "alice", "bob", "sui foundation", "event organizer", "staff", "organizer",
+        "speaker", "sponsor", "mysten labs", "team", "developer", "builder"
+    ]
+    
+    user_lower = user_identifier.lower()
+    is_vip = any(keyword in user_lower for keyword in vip_keywords)
+    
+    if is_vip:
+        result = f"VIP user detected: {user_identifier}. Recommended extension: 3 minutes. Enhanced service advised."
+        logger.info(f"VIP user identified: {user_identifier}")
+    else:
+        result = f"Standard user: {user_identifier}. Normal time limits apply."
+        logger.info(f"Standard user: {user_identifier}")
+    
+    await send_tool_event("check_user_status", "completed", [user_identifier], result)
+    return result
+
+
+async def _delayed_conversation_end():
+    """Helper function to end conversation after a brief delay"""
+    await asyncio.sleep(2)  # Allow current response to complete
+    if _agent_instance and hasattr(_agent_instance, 'state_manager'):
+        await _agent_instance.state_manager.end_conversation() 
