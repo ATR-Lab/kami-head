@@ -32,7 +32,7 @@ from python_qt_binding.QtGui import QIcon
 
 # ROS2 Messages
 from std_msgs.msg import String, Bool
-from coffee_voice_agent_msgs.msg import AgentStatus, ToolEvent
+from coffee_voice_agent_msgs.msg import AgentStatus, ToolEvent, VipDetection, ExtensionEvent
 
 # Import custom widgets directly
 from .widgets.agent_status_widget import AgentStatusWidget
@@ -41,6 +41,7 @@ from .widgets.conversation_widget import ConversationWidget
 from .widgets.tool_monitor_widget import ToolMonitorWidget
 from .widgets.analytics_widget import AnalyticsWidget
 from .widgets.virtual_request_widget import VirtualRequestWidget
+from .widgets.admin_override_widget import AdminOverrideWidget
 
 
 class ROSBridge(QObject):
@@ -51,6 +52,8 @@ class ROSBridge(QObject):
     tool_event_received = pyqtSignal(ToolEvent) 
     user_speech_received = pyqtSignal(str)
     connection_status_received = pyqtSignal(bool)
+    vip_detection_received = pyqtSignal(VipDetection)
+    extension_event_received = pyqtSignal(ExtensionEvent)
     
     def __init__(self):
         super().__init__()
@@ -70,6 +73,14 @@ class ROSBridge(QObject):
     def emit_connection_status(self, connected):
         """Emit connection status signal"""
         self.connection_status_received.emit(connected)
+    
+    def emit_vip_detection(self, detection):
+        """Emit VIP detection signal"""
+        self.vip_detection_received.emit(detection)
+    
+    def emit_extension_event(self, event):
+        """Emit extension event signal"""
+        self.extension_event_received.emit(event)
 
 
 class VoiceAgentMonitorNode(Node):
@@ -110,6 +121,20 @@ class VoiceAgentMonitorNode(Node):
             10
         )
         
+        self.vip_detection_sub = self.create_subscription(
+            VipDetection,
+            'voice_agent/vip_detections',
+            self.vip_detection_callback,
+            10
+        )
+        
+        self.extension_event_sub = self.create_subscription(
+            ExtensionEvent,
+            'voice_agent/extension_events',
+            self.extension_event_callback,
+            10
+        )
+        
         # Publisher for sending virtual requests
         self.virtual_request_pub = self.create_publisher(
             String,
@@ -134,6 +159,14 @@ class VoiceAgentMonitorNode(Node):
     def connection_callback(self, msg):
         """Handle connection status messages"""
         self.ros_bridge.emit_connection_status(msg.data)
+    
+    def vip_detection_callback(self, msg):
+        """Handle VipDetection messages"""
+        self.ros_bridge.emit_vip_detection(msg)
+    
+    def extension_event_callback(self, msg):
+        """Handle ExtensionEvent messages"""
+        self.ros_bridge.emit_extension_event(msg)
 
 
 class VoiceAgentMonitorApp(QMainWindow):
@@ -185,20 +218,30 @@ class VoiceAgentMonitorApp(QMainWindow):
         self.tool_monitor_widget = ToolMonitorWidget()
         self.analytics_widget = AnalyticsWidget()
         self.virtual_request_widget = VirtualRequestWidget()
+        self.admin_override_widget = AdminOverrideWidget()
         
-        # Arrange widgets in dashboard layout
-        # Row 0: Agent Status | Conversation Flow | Analytics
-        main_layout.addWidget(self.agent_status_widget, 0, 0)
+        # Create left column container with vertical layout
+        left_column_widget = QWidget()
+        left_column_layout = QVBoxLayout()
+        left_column_widget.setLayout(left_column_layout)
+        
+        # Add widgets to left column container
+        left_column_layout.addWidget(self.agent_status_widget)
+        left_column_layout.addWidget(self.emotion_widget)
+        left_column_layout.addWidget(self.admin_override_widget)
+        
+        # Arrange widgets in dashboard layout (back to 2-row layout)
+        # Row 0: Left Column Container (spans 2 rows) | Conversation Flow | Analytics
+        main_layout.addWidget(left_column_widget, 0, 0, 2, 1)  # span 2 rows, 1 column
         main_layout.addWidget(self.conversation_widget, 0, 1)
         main_layout.addWidget(self.analytics_widget, 0, 2)
         
-        # Row 1: Emotion Display | Tool Monitor | Controls
-        main_layout.addWidget(self.emotion_widget, 1, 0)
+        # Row 1: (Left Column continues) | Tool Monitor | Virtual Requests
         main_layout.addWidget(self.tool_monitor_widget, 1, 1)
         main_layout.addWidget(self.virtual_request_widget, 1, 2)
         
         # Set column stretch to make conversation widget wider
-        main_layout.setColumnStretch(0, 1)  # Status/Emotion column
+        main_layout.setColumnStretch(0, 1)  # Left column container
         main_layout.setColumnStretch(1, 2)  # Conversation/Tools column (wider)
         main_layout.setColumnStretch(2, 1)  # Analytics/Controls column
         
@@ -226,6 +269,8 @@ class VoiceAgentMonitorApp(QMainWindow):
         self.ros_bridge.tool_event_received.connect(self._update_tool_event)
         self.ros_bridge.user_speech_received.connect(self._update_user_speech)
         self.ros_bridge.connection_status_received.connect(self._update_connection_status)
+        self.ros_bridge.vip_detection_received.connect(self._update_vip_detection)
+        self.ros_bridge.extension_event_received.connect(self._update_extension_event)
         
         # Connect virtual request widget signals to publishers
         self.virtual_request_widget.virtual_request_signal.connect(self._send_virtual_request)
@@ -265,6 +310,10 @@ class VoiceAgentMonitorApp(QMainWindow):
         self.agent_status_widget.update_status(status)
         self.emotion_widget.update_emotion(status.emotion, status.previous_emotion)
         self.conversation_widget.update_agent_state(status)
+        
+        # Reset admin override widget when conversation ends
+        if status.behavioral_mode == "dormant":
+            self.admin_override_widget.reset_vip_status()
     
     @pyqtSlot(ToolEvent)
     def _update_tool_event(self, event):
@@ -287,6 +336,26 @@ class VoiceAgentMonitorApp(QMainWindow):
             config_data = self.last_config_update['config_data']
             source = "connected" if connected else "disconnected"
             self.conversation_widget.update_configuration(config_data, source)
+    
+    @pyqtSlot(VipDetection)
+    def _update_vip_detection(self, detection):
+        """Update UI with new VIP detection"""
+        self.admin_override_widget.update_vip_detection(
+            detection.user_identifier,
+            list(detection.matched_keywords),
+            detection.importance_level,
+            detection.recommended_extension_minutes
+        )
+    
+    @pyqtSlot(ExtensionEvent)
+    def _update_extension_event(self, event):
+        """Update UI with new extension event"""
+        self.admin_override_widget.update_extension_event(
+            event.action,
+            event.extension_minutes,
+            event.reason,
+            event.granted_by
+        )
     
     @pyqtSlot(str)
     def _send_virtual_request(self, request_json):

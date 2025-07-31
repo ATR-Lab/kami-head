@@ -22,7 +22,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.parameter import Parameter
 from std_msgs.msg import String, Bool
 from geometry_msgs.msg import Twist
-from coffee_voice_agent_msgs.msg import AgentStatus, ToolEvent
+from coffee_voice_agent_msgs.msg import AgentStatus, ToolEvent, VipDetection, ExtensionEvent
 
 try:
     import websockets
@@ -99,6 +99,20 @@ class VoiceAgentBridge(Node):
         self.connected_pub = self.create_publisher(
             Bool, 
             'voice_agent/connected', 
+            10,
+            callback_group=self.callback_group
+        )
+        
+        self.vip_detection_pub = self.create_publisher(
+            VipDetection,
+            'voice_agent/vip_detections',
+            10,
+            callback_group=self.callback_group
+        )
+        
+        self.extension_event_pub = self.create_publisher(
+            ExtensionEvent,
+            'voice_agent/extension_events',
             10,
             callback_group=self.callback_group
         )
@@ -263,6 +277,60 @@ class VoiceAgentBridge(Node):
                 speech_msg = String()
                 speech_msg.data = user_text
                 self.user_speech_pub.publish(speech_msg)
+                
+            elif message_type == 'VIP_DETECTED':
+                # Handle VIP user detection events
+                vip_data = data.get('data', {})
+                
+                self.get_logger().info(f"VIP Detection: {vip_data.get('user_identifier', 'unknown')} - {vip_data.get('importance_level', 'unknown')}")
+                
+                # Publish VIP detection to ROS2 topic
+                vip_msg = VipDetection()
+                vip_msg.user_identifier = vip_data.get('user_identifier', '')
+                vip_msg.matched_keywords = vip_data.get('matched_keywords', [])
+                vip_msg.importance_level = vip_data.get('importance_level', 'normal')
+                vip_msg.recommended_extension_minutes = vip_data.get('recommended_extension_minutes', 0)
+                
+                # Parse timestamp if provided, otherwise use current time
+                timestamp_str = vip_data.get('timestamp')
+                if timestamp_str:
+                    try:
+                        dt = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        vip_msg.timestamp.sec = int(dt.timestamp())
+                        vip_msg.timestamp.nanosec = int((dt.timestamp() % 1) * 1e9)
+                    except:
+                        vip_msg.timestamp = self.get_clock().now().to_msg()
+                else:
+                    vip_msg.timestamp = self.get_clock().now().to_msg()
+                    
+                self.vip_detection_pub.publish(vip_msg)
+                
+            elif message_type == 'EXTENSION_GRANTED':
+                # Handle conversation extension events
+                extension_data = data.get('data', {})
+                
+                self.get_logger().info(f"Extension Event: {extension_data.get('action', 'unknown')} - {extension_data.get('extension_minutes', 0)} minutes")
+                
+                # Publish extension event to ROS2 topic
+                extension_msg = ExtensionEvent()
+                extension_msg.action = extension_data.get('action', 'unknown')
+                extension_msg.extension_minutes = extension_data.get('extension_minutes', 0)
+                extension_msg.reason = extension_data.get('reason', '')
+                extension_msg.granted_by = extension_data.get('granted_by', 'unknown')
+                
+                # Parse timestamp if provided, otherwise use current time
+                timestamp_str = extension_data.get('timestamp')
+                if timestamp_str:
+                    try:
+                        dt = datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        extension_msg.timestamp.sec = int(dt.timestamp())
+                        extension_msg.timestamp.nanosec = int((dt.timestamp() % 1) * 1e9)
+                    except:
+                        extension_msg.timestamp = self.get_clock().now().to_msg()
+                else:
+                    extension_msg.timestamp = self.get_clock().now().to_msg()
+                    
+                self.extension_event_pub.publish(extension_msg)
                 
             elif message_type == 'ACKNOWLEDGMENT':
                 # Handle acknowledgment messages from voice agent

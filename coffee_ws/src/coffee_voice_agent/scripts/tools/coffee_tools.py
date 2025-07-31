@@ -157,6 +157,17 @@ async def manage_conversation_time_impl(
         # Actually extend the conversation by calling state manager
         if _agent_instance and hasattr(_agent_instance, 'state_manager') and extension_minutes > 0:
             await _agent_instance.state_manager.extend_conversation(extension_minutes, reason)
+            
+            # Send extension granted event via WebSocket
+            if hasattr(_agent_instance, '_send_websocket_event'):
+                await _agent_instance._send_websocket_event("EXTENSION_GRANTED", {
+                    "action": "granted",
+                    "extension_minutes": extension_minutes,
+                    "reason": reason,
+                    "granted_by": "tool",
+                    "timestamp": datetime.now().isoformat()
+                })
+            
             logger.info(f"Conversation extended by {extension_minutes} minutes: {reason}")
             result = f"Conversation extended by {extension_minutes} minutes: {reason}"
         else:
@@ -201,6 +212,17 @@ async def check_user_status_impl(
     is_vip = any(keyword in user_lower for keyword in vip_keywords)
     
     if is_vip:
+        # Send VIP detection event via WebSocket
+        if _agent_instance and hasattr(_agent_instance, '_send_websocket_event'):
+            matched_keywords = [keyword for keyword in vip_keywords if keyword in user_lower]
+            await _agent_instance._send_websocket_event("VIP_DETECTED", {
+                "user_identifier": user_identifier,
+                "matched_keywords": matched_keywords,
+                "importance_level": "vip",
+                "recommended_extension_minutes": 3,
+                "timestamp": datetime.now().isoformat()
+            })
+        
         result = f"VIP user detected: {user_identifier}. Recommended extension: 3 minutes. Enhanced service advised."
         logger.info(f"VIP user identified: {user_identifier}")
     else:

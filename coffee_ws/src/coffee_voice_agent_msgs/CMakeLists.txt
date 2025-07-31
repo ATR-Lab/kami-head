@@ -16,6 +16,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AgentStatus.msg"
   "msg/ToolEvent.msg"
   "msg/ConfigurationUpdate.msg"
+  "msg/VipDetection.msg"
+  "msg/ExtensionEvent.msg"
   DEPENDENCIES builtin_interfaces std_msgs
 )
 
