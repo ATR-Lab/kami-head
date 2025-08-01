@@ -57,6 +57,7 @@ class StateManager:
         
         # Goodbye coordination flag
         self.goodbye_pending = False  # Flag to coordinate goodbye handling between user and assistant handlers
+        self.end_after_current_speech = False  # Flag to end conversation when agent stops speaking
         
         # Conversation timing tracking for admin message injection
         self.conversation_start_time = None
@@ -133,6 +134,7 @@ class StateManager:
             # Reset conversation timing and VIP status
             self.conversation_start_time = None
             self.is_vip_session = False
+            self.end_after_current_speech = False
             
             # Resume wake word detection when returning to dormant
             if self.agent:
@@ -345,12 +347,16 @@ class StateManager:
                                 self.goodbye_pending = False
                                 self.ending_conversation = True
                                 
-                                # End conversation after a brief delay to let LLM response complete
-                                async def delayed_end_conversation():
-                                    await asyncio.sleep(2)  # Brief delay for response completion
-                                    await self.end_conversation()
+                                # Set flag to end conversation when TTS completes
+                                self.end_after_current_speech = True
+                                return  # Skip normal timer logic since we're ending
+                            
+                            # Check if this is a system-initiated ending
+                            if self.ending_conversation:
+                                logger.info("🔍 DEBUG: System-initiated ending - will end after TTS completes")
                                 
-                                asyncio.create_task(delayed_end_conversation())
+                                # Set flag to end conversation when TTS completes
+                                self.end_after_current_speech = True
                                 return  # Skip normal timer logic since we're ending
                             
                             # Only start new timer if we're not ending the conversation
@@ -404,6 +410,12 @@ class StateManager:
                         elif event.old_state == "speaking" and event.new_state != "speaking":
                             logger.info("🔍 DEBUG: Agent stopped speaking - sending agent status")
                             await self._send_agent_status(current_behavioral_mode, "idle")
+                            
+                            # Check if we should end conversation after TTS completion
+                            if self.end_after_current_speech:
+                                logger.info("🔍 DEBUG: TTS completed - ending conversation as requested")
+                                self.end_after_current_speech = False
+                                asyncio.create_task(self.end_conversation())
                     except Exception as e:
                         logger.error(f"Error handling agent state change status events: {e}")
                 

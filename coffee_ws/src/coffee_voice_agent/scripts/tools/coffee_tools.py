@@ -149,8 +149,6 @@ async def manage_conversation_time_impl(
         # Signal the state manager to end conversation gracefully
         if _agent_instance and hasattr(_agent_instance, 'state_manager'):
             _agent_instance.state_manager.ending_conversation = True
-            # Schedule conversation end after a brief delay
-            asyncio.create_task(_delayed_conversation_end())
         result = f"Conversation ending initiated: {reason}"
         
     elif action == "extend":
@@ -246,11 +244,4 @@ async def check_user_status_impl(
         logger.info(f"Standard user: {user_identifier}")
     
     await send_tool_event("check_user_status", "completed", [user_identifier], result)
-    return result
-
-
-async def _delayed_conversation_end():
-    """Helper function to end conversation after a brief delay"""
-    await asyncio.sleep(2)  # Allow current response to complete
-    if _agent_instance and hasattr(_agent_instance, 'state_manager'):
-        await _agent_instance.state_manager.end_conversation() 
+    return result 
