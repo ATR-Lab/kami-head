@@ -15,6 +15,7 @@ The Coffee Voice Agent UI is a standalone ROS2 application that provides compreh
 - **💬 Live Conversation Flow**: Real-time transcript with user speech and agent responses
 - **🔧 Tool Activity Monitor**: Function tool execution tracking with performance metrics
 - **📊 Analytics Dashboard**: Usage statistics, performance trends, and system health
+- **👑 Admin Override Monitor**: VIP user detection, conversation extensions, and session management
 - **⚙️ Manual Controls**: Testing interface for virtual requests and debug commands
 
 ## 📋 Prerequisites
@@ -103,12 +104,14 @@ Voice Agent ←→ Voice Agent Bridge ←→ ROS2 Topics ←→ Monitor UI
 
 ```
 VoiceAgentMonitorApp (QMainWindow)
-├── Agent Status Widget (connection, state, metrics)
-├── Emotion Display Widget (current emotion, transitions, timeline)
+├── Left Column Container (vertical layout)
+│   ├── Agent Status Widget (connection, state, metrics)
+│   ├── Emotion Display Widget (current emotion, transitions, timeline)
+│   └── Admin Override Widget (VIP detection, extensions, history)
 ├── Conversation Widget (live transcript, timeouts, turn tracking)
 ├── Tool Monitor Widget (function tool usage, performance)
 ├── Analytics Widget (usage trends, performance metrics)
-└── Controls Widget (manual testing, debug commands)
+└── Virtual Request Widget (manual testing, virtual coffee requests)
 ```
 
 ### ROS2 Integration
@@ -117,11 +120,12 @@ The monitor subscribes to these topics:
 - `voice_agent/status` (AgentStatus) - Unified agent state information
 - `voice_agent/tool_events` (ToolEvent) - Function tool execution events
 - `voice_agent/user_speech` (String) - User speech transcriptions
+- `voice_agent/vip_detections` (VipDetection) - VIP user detection events
+- `voice_agent/extension_events` (ExtensionEvent) - Conversation extension events
 - `voice_agent/connected` (Bool) - Connection status updates
 
 The monitor publishes to these topics:
 - `voice_agent/virtual_requests` (String) - Test virtual coffee requests
-- `voice_agent/commands` (String) - Debug and control commands
 
 ## 📊 Dashboard Layout
 
@@ -132,10 +136,15 @@ The monitor publishes to these topics:
 │ • Connection    │ • Live Chat     │ • Usage Stats   │
 │ • Session Info  │ • Timeouts      │ • Trends        │
 ├─────────────────┼─────────────────┼─────────────────┤
-│ 🎭 Emotion      │ 🔧 Tool Monitor │ ⚙️ Controls     │
-│   Center        │ • Active Tools  │ • Virtual Reqs  │
-│ • Current       │ • Recent Calls  │ • Commands      │
+│ 🎭 Emotion      │ 🔧 Tool Monitor │ ☕ Virtual      │
+│   Center        │ • Active Tools  │   Requests      │
+│ • Current       │ • Recent Calls  │ • Test Orders   │
 │ • Transitions   │ • Statistics    │ • Debug Tools   │
+├─────────────────┼─────────────────┼─────────────────┤
+│ 👑 Admin        │                 │                 │
+│   Override      │                 │                 │
+│ • VIP Status    │                 │                 │
+│ • Extensions    │                 │                 │
 └─────────────────┴─────────────────┴─────────────────┘
 ```
 
@@ -171,11 +180,81 @@ The monitor publishes to these topics:
 - **Emotion trends**: Emotional state patterns over time
 - **System metrics**: Message rates, connection health, queue status
 
-### Controls Panel
-- **Quick actions**: End conversation, reset state, pause wake word
-- **Virtual request testing**: Simulate coffee orders with different priorities
-- **Command interface**: Send debug commands with parameters
-- **Debug tools**: Connection testing, log export, tool triggers
+### Admin Override Panel
+- **VIP status display**: Real-time VIP user detection with status indicators
+- **Extension monitoring**: Active conversation extensions with progress bars
+- **VIP history table**: Recent VIP detections with timestamps and actions
+- **Session management**: Visual feedback for unlimited VIP sessions vs timed regular sessions
+- **Extension tracking**: Shows who granted extensions (auto_vip_detection, tool, manual)
+
+### Virtual Request Panel
+- **Test virtual requests**: Simulate coffee orders with different priorities
+- **Request type selection**: NEW_COFFEE_REQUEST, ORDER_READY, ORDER_UPDATE, etc.
+- **Priority control**: Normal, urgent priority testing
+- **Tool testing**: Trigger function tools for development and debugging
+
+## 👑 VIP Session Monitoring
+
+The UI provides comprehensive monitoring of VIP user detection and session management:
+
+### **🔍 VIP Detection Display**
+
+The Admin Override widget shows real-time VIP detection status:
+
+```
+⚙️ ADMIN OVERRIDE
+┌─────────────────────────────────┐
+│ STATUS                          │
+│ VIP User: ✅ Sui Foundation     │
+│ Extension: [██████████] Active   │
+│                                 │
+│ VIP HISTORY                     │
+│ Time    User           Action   │
+│ 20:38   Sui Foundation VIP      │
+│ 20:38   System        Extension │
+└─────────────────────────────────┘
+```
+
+### **📊 Session Management Indicators**
+
+- **VIP Status Light**: Green when VIP user is detected
+- **Extension Progress**: Visual progress bar for active extensions  
+- **Session Type Display**: "Unlimited" for VIP sessions, timer for regular users
+- **History Table**: Chronological log of VIP detections and extension events
+
+### **🎯 Real-Time Updates**
+
+The UI automatically updates when:
+- VIP users are detected (via `/voice_agent/vip_detections` topic)
+- Conversation extensions are granted (via `/voice_agent/extension_events` topic)
+- Sessions transition between regular and VIP modes
+- Extension timers expire or are renewed
+
+### **🔄 Message Integration**
+
+**VipDetection Message Processing:**
+```python
+# Displays matched keywords, importance level, and recommendations
+user_identifier: "Sui Foundation"
+matched_keywords: ["sui foundation"]  
+importance_level: "vip"
+recommended_extension_minutes: 0  # 0 = unlimited
+```
+
+**ExtensionEvent Message Processing:**
+```python
+# Shows extension status and progress
+action: "vip_session"           # or "granted", "expired"
+extension_minutes: 0            # 0 = unlimited
+granted_by: "auto_vip_detection" # or "tool", "manual"
+```
+
+### **⚙️ UI Layout Integration**
+
+The Admin Override widget is positioned in the left column for easy monitoring:
+- **Compact Design**: Fixed 400x300 size to fit alongside other status widgets
+- **Always Visible**: Positioned in main dashboard for constant visibility
+- **Status Reset**: Automatically clears when conversations end
 
 ## 📁 Launch Files
 
@@ -230,7 +309,13 @@ ros2 run coffee_voice_agent_ui voice_agent_monitor
 - Verify topic publications: `ros2 topic list | grep voice_agent`
 - Check topic data: `ros2 topic echo voice_agent/status`
 
-**4. UI Won't Start**
+**4. Admin Override Widget Shows No VIP Data**
+- Verify VIP detection topics are active: `ros2 topic list | grep vip`
+- Check VIP detection messages: `ros2 topic echo voice_agent/vip_detections`
+- Check extension events: `ros2 topic echo voice_agent/extension_events`
+- Ensure voice agent is running with VIP detection enabled
+
+**5. UI Won't Start**
 ```bash
 # Check PyQt installation
 python3 -c "from python_qt_binding.QtWidgets import QApplication; print('PyQt OK')"
