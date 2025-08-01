@@ -212,6 +212,13 @@ async def check_user_status_impl(
     is_vip = any(keyword in user_lower for keyword in vip_keywords)
     
     if is_vip:
+        # Set VIP session status - removes hard timeout, only inactivity timeout applies
+        if _agent_instance and hasattr(_agent_instance, 'state_manager'):
+            await _agent_instance.state_manager.set_vip_session(
+                f"VIP user detected: {user_identifier}"
+            )
+            logger.info(f"Set VIP session for user: {user_identifier}")
+        
         # Send VIP detection event via WebSocket
         if _agent_instance and hasattr(_agent_instance, '_send_websocket_event'):
             matched_keywords = [keyword for keyword in vip_keywords if keyword in user_lower]
@@ -219,11 +226,20 @@ async def check_user_status_impl(
                 "user_identifier": user_identifier,
                 "matched_keywords": matched_keywords,
                 "importance_level": "vip",
-                "recommended_extension_minutes": 3,
+                "recommended_extension_minutes": 0,  # No hard timeout for VIP
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            # Send VIP session granted event
+            await _agent_instance._send_websocket_event("EXTENSION_GRANTED", {
+                "action": "vip_session",
+                "extension_minutes": 0,  # Unlimited until inactivity
+                "reason": f"VIP user detected: {user_identifier}",
+                "granted_by": "auto_vip_detection",
                 "timestamp": datetime.now().isoformat()
             })
         
-        result = f"VIP user detected: {user_identifier}. Recommended extension: 3 minutes. Enhanced service advised."
+        result = f"VIP user detected: {user_identifier}. Hard timeout removed - conversation will continue until you become inactive. You can now provide unlimited personalized VIP service."
         logger.info(f"VIP user identified: {user_identifier}")
     else:
         result = f"Standard user: {user_identifier}. Normal time limits apply."

@@ -64,6 +64,7 @@ class StateManager:
         self.six_minute_warning_sent = False
         self.seven_minute_warning_sent = False
         self.extension_expired_pending = False
+        self.is_vip_session = False
         
         # Phase 4: Mutual exclusion for virtual request processing
         self.virtual_request_processing_lock = asyncio.Lock()
@@ -129,8 +130,9 @@ class StateManager:
             # Start max conversation timer (absolute limit)
             self.conversation_timer = asyncio.create_task(self._max_conversation_timeout())
         elif self.current_state == AgentState.DORMANT:
-            # Reset conversation timing
+            # Reset conversation timing and VIP status
             self.conversation_start_time = None
+            self.is_vip_session = False
             
             # Resume wake word detection when returning to dormant
             if self.agent:
@@ -138,11 +140,11 @@ class StateManager:
                 logger.info("Resumed wake word detection")
 
     async def _max_conversation_timeout(self):
-        """Handle absolute maximum conversation time limit (fallback)"""
+        """Handle absolute maximum conversation time limit (fallback) - only for non-VIP sessions"""
         try:
             # Wait for absolute maximum time (7 minutes)
             await asyncio.sleep(MAX_CONVERSATION_TIME)
-            if self.session and self.current_state == AgentState.ACTIVE:
+            if self.session and self.current_state == AgentState.ACTIVE and not self.is_vip_session:
                 logger.info("Absolute maximum conversation time reached - ending conversation")
                 
                 # Set ending flag to prevent timer conflicts
@@ -170,6 +172,15 @@ class StateManager:
         if self.conversation_timer:
             self.conversation_timer.cancel()
             self.conversation_timer = None
+            
+        # Reset conversation timing to start fresh from extension point
+        import time
+        self.conversation_start_time = time.time()
+        self.five_minute_warning_sent = False
+        self.six_minute_warning_sent = False
+        self.seven_minute_warning_sent = False
+        self.extension_expired_pending = False
+        logger.info("Reset conversation timing and warning flags due to extension")
             
         # Calculate new timeout duration (additional time from now)
         new_timeout_seconds = additional_minutes * 60
@@ -203,6 +214,19 @@ class StateManager:
                 pass
                 
         self.conversation_timer = asyncio.create_task(extended_timeout())
+
+    async def set_vip_session(self, reason: str):
+        """Set VIP session status and remove hard timeout - only inactivity timeout applies"""
+        logger.info(f"Setting VIP session status: {reason}")
+        
+        # Mark as VIP session
+        self.is_vip_session = True
+        
+        # Cancel existing hard timeout permanently for VIP users
+        if self.conversation_timer:
+            self.conversation_timer.cancel()
+            self.conversation_timer = None
+            logger.info("Cancelled hard timeout for VIP session - only inactivity timeout applies")
 
     async def _wait_for_user_response(self):
         """Wait for user response after agent speaks"""

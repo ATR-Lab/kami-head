@@ -208,8 +208,28 @@ class CoffeeBaristaAgent(Agent):
         if not self.state_manager.conversation_start_time:
             return
             
+        # Skip timing-based admin messages for VIP sessions
+        if self.state_manager.is_vip_session:
+            return
+            
         import time
         elapsed = time.time() - self.state_manager.conversation_start_time
+        
+        # Check if user mentioned identity/affiliation for smart admin messages
+        user_message = ""
+        if new_message and hasattr(new_message, 'content'):
+            if isinstance(new_message.content, str):
+                user_message = new_message.content
+            elif isinstance(new_message.content, list):
+                # Handle case where content is a list - join all text content
+                user_message = " ".join(str(item) for item in new_message.content)
+        
+        identity_keywords = [
+            "foundation", "team", "staff", "organizer", "speaker", "sponsor",
+            "developer", "builder", "employee", "contractor", "member", "labs",
+            "official", "executive", "ceo", "cto", "founder", "board"
+        ]
+        has_identity_claim = any(keyword in user_message.lower() for keyword in identity_keywords)
         
         # 5 minute warning
         if elapsed > 300 and not self.state_manager.five_minute_warning_sent:
@@ -223,19 +243,31 @@ class CoffeeBaristaAgent(Agent):
         # 6 minute warning  
         elif elapsed > 360 and not self.state_manager.six_minute_warning_sent:
             logger.info("Injecting 6-minute conversation warning via callback")
-            turn_ctx.add_message(
-                role="system", 
-                content="ADMIN: You've been chatting for 6 minutes. Suggest wrapping up soon to help other visitors, but use your judgment. Call the manage_conversation_time tool to make a decision."
-            )
+            if has_identity_claim:
+                turn_ctx.add_message(
+                    role="system", 
+                    content="ADMIN: User mentioned their identity/affiliation. Call check_user_status FIRST to verify their status, then manage_conversation_time if needed."
+                )
+            else:
+                turn_ctx.add_message(
+                    role="system", 
+                    content="ADMIN: You've been chatting for 6 minutes. You MUST call the manage_conversation_time tool now to either extend the conversation or end it gracefully. Do not just acknowledge - take action."
+                )
             self.state_manager.six_minute_warning_sent = True
             
         # 7 minute limit
-        elif elapsed > 420 and not self.state_manager.seven_minute_warning_sent:
+        elif elapsed > 410 and not self.state_manager.seven_minute_warning_sent:
             logger.info("Injecting 7-minute conversation limit via callback")
-            turn_ctx.add_message(
-                role="system",
-                content="ADMIN: You've been chatting for 7 minutes - time limit reached. Call the manage_conversation_time tool with action='end' to wrap up gracefully, unless there are special circumstances."
-            )
+            if has_identity_claim:
+                turn_ctx.add_message(
+                    role="system",
+                    content="ADMIN: User mentioned their identity. Call check_user_status to verify status first, but time is running out - prioritize checking their credentials."
+                )
+            else:
+                turn_ctx.add_message(
+                    role="system",
+                    content="ADMIN: You've been chatting for nearly 7 minutes - time limit approaching. You MUST call the manage_conversation_time tool with action='end' immediately to wrap up gracefully."
+                )
             self.state_manager.seven_minute_warning_sent = True
             
         # Extension expired - needs immediate ending
