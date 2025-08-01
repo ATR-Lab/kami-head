@@ -91,6 +91,10 @@ The refactored version was created through careful **file-based modular extracti
 - **🌐 ROS2 Bridge**: WebSocket-based integration with Coffee Buddy system
 - **📡 Virtual Requests**: External coffee requests via ROS2 topics
 - **🔧 Tool Events**: Real-time function tool call tracking for UI feedback
+- **👑 VIP Session Management**: Automatic VIP user detection with unlimited conversation time
+- **🎯 Smart Conversation Timing**: Event-driven ending system with proper TTS completion
+- **🧠 Context-Aware Admin Messages**: Identity-aware conversation guidance
+- **⚙️ Admin Override UI**: Real-time VIP detection and extension monitoring
 
 ## Architecture
 
@@ -147,6 +151,8 @@ coffee_voice_agent/
 - **`AGENT_STATUS`**: Comprehensive status updates (behavioral mode, speech status, emotion, text, etc.)
 - **`TOOL_EVENT`**: Function tool execution tracking (started, completed, failed)
 - **`USER_SPEECH`**: Real-time STT transcription events (user speech text)
+- **`VIP_DETECTED`**: VIP user identification with matched keywords and importance level
+- **`EXTENSION_GRANTED`**: Conversation extension events (VIP sessions, manual extensions)
 - **`STARTUP`**: Agent initialization and version info
 - **`ACKNOWLEDGMENT`**: Command confirmations
 
@@ -274,6 +280,157 @@ async for text_chunk in text:
 - **Streaming**: Audio synthesis starts as soon as clean text is available
 - **Low Latency**: Real-time processing for responsive conversations
 - **Unified Events**: Single AgentStatus message provides complete context
+
+## VIP Session Management & Smart Timing
+
+### **👑 VIP User Detection System**
+
+The voice agent includes intelligent VIP user detection that automatically provides enhanced service for important users:
+
+#### **🔍 VIP Detection Keywords**
+```python
+vip_keywords = [
+    "alice", "bob", "sui foundation", "event organizer", "staff", "organizer",
+    "speaker", "sponsor", "mysten labs", "team", "developer", "builder"
+]
+```
+
+#### **🎯 VIP Session Flow**
+```
+User: "I'm from Sui Foundation"
+    ↓
+check_user_status tool called
+    ↓
+VIP detected → set_vip_session()
+    ↓
+Hard timeout cancelled (7-minute limit removed)
+    ↓
+Only inactivity timeout applies (15 seconds of silence)
+    ↓
+Unlimited conversation time while user is engaged
+```
+
+### **⏰ Event-Driven Conversation Ending**
+
+The system uses **event-driven TTS completion detection** instead of magic number delays:
+
+#### **🚫 Old Approach (Magic Numbers)**
+```python
+# Problematic: Guessing TTS completion time
+await asyncio.sleep(2)  # ❌ Magic number
+await self.end_conversation()
+```
+
+#### **✅ New Approach (Event-Driven)**
+```python
+# Proper: Wait for actual TTS completion
+self.end_after_current_speech = True  # Set flag
+
+# In agent_state_changed handler:
+if event.old_state == "speaking" and event.new_state != "speaking":
+    if self.end_after_current_speech:
+        # TTS actually completed
+        await self.end_conversation()
+```
+
+### **🧠 Smart Admin Message System**
+
+Context-aware admin messages guide the LLM to make better tool choices:
+
+#### **🔄 Identity Detection Logic**
+```python
+# Check user message for identity claims
+identity_keywords = [
+    "foundation", "team", "staff", "organizer", "speaker", "sponsor",
+    "developer", "builder", "employee", "contractor", "member", "labs"
+]
+
+if user_mentions_identity:
+    admin_message = "ADMIN: User mentioned their identity. Call check_user_status FIRST to verify their status, then manage_conversation_time if needed."
+else:
+    admin_message = "ADMIN: You MUST call the manage_conversation_time tool now to either extend or end gracefully."
+```
+
+#### **⚙️ VIP vs Regular User Flows**
+
+**Regular User Timeline:**
+- 5 minutes: Gentle time awareness message
+- 6 minutes: Admin message to call time management tool
+- 7 minutes: Hard timeout with conversation ending
+
+**VIP User Timeline:**
+- VIP detected: Hard timeout cancelled permanently
+- Admin messages disabled for VIP sessions
+- Only 15-second inactivity timeout applies
+- Unlimited conversation duration while engaged
+
+### **📡 Enhanced WebSocket Events**
+
+New WebSocket events support VIP detection and session management:
+
+#### **🔄 VIP Detection Event**
+```json
+{
+  "type": "VIP_DETECTED",
+  "data": {
+    "user_identifier": "Sui Foundation",
+    "matched_keywords": ["sui foundation"],
+    "importance_level": "vip",
+    "recommended_extension_minutes": 0,
+    "timestamp": "2025-07-31T20:38:48.000Z"
+  }
+}
+```
+
+#### **🔄 Extension Granted Event**
+```json
+{
+  "type": "EXTENSION_GRANTED", 
+  "data": {
+    "action": "vip_session",
+    "extension_minutes": 0,
+    "reason": "VIP user detected: Sui Foundation",
+    "granted_by": "auto_vip_detection",
+    "timestamp": "2025-07-31T20:38:48.100Z"
+  }
+}
+```
+
+### **⚙️ Admin Override UI Widget**
+
+The UI includes a new `AdminOverrideWidget` that displays:
+
+- **VIP Status**: Real-time VIP user detection
+- **Extension Status**: Active conversation extensions with progress
+- **VIP History**: Recent VIP detections and actions
+- **Visual Indicators**: Extension progress bars and status updates
+
+**UI Layout Integration:**
+```
+Left Column:
+├── Agent Status Widget
+├── Emotion Display Widget  
+└── Admin Override Widget (new)
+```
+
+### **🎯 Technical Benefits**
+
+1. **Eliminates Magic Numbers**: No more hardcoded delays for TTS completion
+2. **Proper VIP Treatment**: Unlimited time for important users
+3. **Race Condition Free**: Event-driven coordination prevents timing conflicts
+4. **Context-Aware Guidance**: Smart admin messages improve LLM tool selection
+5. **Real-Time Monitoring**: UI shows VIP detection and extension status
+6. **Natural Conversation Flow**: Conversations end gracefully after speech completes
+
+### **🔧 Architecture Improvements**
+
+The improvements maintain clean separation of concerns:
+
+- **VIP Detection**: Handled by `check_user_status` tool
+- **Session Management**: Managed by `StateManager.set_vip_session()`
+- **Event Coordination**: Uses existing `agent_state_changed` events
+- **UI Integration**: New WebSocket events feed Admin Override widget
+- **Timing Logic**: Single flag-based system replaces multiple timers
 
 ### **STT and Speech Recognition Flow**
 
@@ -450,6 +607,8 @@ ros2 launch coffee_voice_agent voice_agent_system.launch.py
 - `/voice_agent/status` (`coffee_voice_agent_msgs/AgentStatus`) - **Unified agent status for robot coordination**
 - `/voice_agent/tool_events` (`coffee_voice_agent_msgs/ToolEvent`) - **Function tool call tracking**  
 - `/voice_agent/user_speech` (`std_msgs/String`) - **Real-time STT transcription events**
+- `/voice_agent/vip_detections` (`coffee_voice_agent_msgs/VipDetection`) - **VIP user detection events**
+- `/voice_agent/extension_events` (`coffee_voice_agent_msgs/ExtensionEvent`) - **Conversation extension events**
 - `/voice_agent/connected` (`std_msgs/Bool`) - Bridge connection status
 
 ### Subscribers (ROS2 → Voice Agent)
@@ -500,6 +659,42 @@ string result
 string status
 
 # Timestamp when the tool event occurred
+builtin_interfaces/Time timestamp
+```
+
+### VipDetection Message
+```
+# User identifier mentioned by the user
+string user_identifier
+
+# Keywords that matched for VIP detection
+string[] matched_keywords
+
+# Importance level: "vip", "high", "normal"
+string importance_level
+
+# Recommended extension minutes (0 for unlimited VIP sessions)
+int32 recommended_extension_minutes
+
+# Timestamp when VIP was detected
+builtin_interfaces/Time timestamp
+```
+
+### ExtensionEvent Message
+```
+# Action type: "vip_session", "granted", "expired", "updated"
+string action
+
+# Extension duration in minutes (0 for unlimited)
+int32 extension_minutes
+
+# Reason for the extension
+string reason
+
+# Who granted the extension: "auto_vip_detection", "tool", "manual"
+string granted_by
+
+# Timestamp when extension was granted/updated
 builtin_interfaces/Time timestamp
 ```
 
@@ -598,6 +793,12 @@ ros2 topic echo /voice_agent/tool_events
 
 # Monitor user speech transcriptions
 ros2 topic echo /voice_agent/user_speech
+
+# Monitor VIP detection events
+ros2 topic echo /voice_agent/vip_detections
+
+# Monitor conversation extension events
+ros2 topic echo /voice_agent/extension_events
 
 # Monitor bridge connection
 ros2 topic echo /voice_agent/connected
