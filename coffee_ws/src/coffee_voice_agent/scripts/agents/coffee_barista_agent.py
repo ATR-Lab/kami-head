@@ -285,23 +285,61 @@ class CoffeeBaristaAgent(Agent):
             logger.info("No Porcupine access key found, skipping wake word detection")
             return
             
+        logger.info("🎤 Starting wake word detection initialization...")
+        logger.info(f"🔑 Porcupine access key: {'***' + self.porcupine_access_key[-4:] if len(self.porcupine_access_key) > 4 else 'SHORT_KEY'}")
+            
         try:
+            # Check available audio devices first
+            logger.info("🎤 Checking available audio devices...")
+            try:
+                available_devices = PvRecorder.get_available_devices()
+                logger.info(f"🎤 Available audio devices: {available_devices}")
+                if not available_devices:
+                    logger.warning("⚠️ No audio devices found!")
+            except Exception as device_error:
+                logger.error(f"❌ Failed to get audio devices: {device_error}")
+            
             # Initialize Porcupine with "hey barista" wake word
-            self.porcupine = pvporcupine.create(
-                access_key=self.porcupine_access_key,
-                keywords=["hey barista"]
-            )
+            logger.info("🎤 Initializing Porcupine wake word engine...")
+            try:
+                # Try with a built-in wake word first for testing
+                # Available built-in keywords: ["alexa", "americano", "blueberry", "bumblebee", 
+                # "computer", "grapefruit", "grasshopper", "hey google", "hey siri", "jarvis", 
+                # "ok google", "picovoice", "porcupine", "terminator"]
+                self.porcupine = pvporcupine.create(
+                    access_key=self.porcupine_access_key,
+                    keywords=["hey barista"]  # Using built-in wake word for testing
+                )
+                logger.info("✅ Porcupine initialized successfully")
+                logger.info(f"🎤 Frame length: {self.porcupine.frame_length}")
+                logger.info(f"🎤 Sample rate: {self.porcupine.sample_rate}")
+            except Exception as porcupine_error:
+                logger.error(f"❌ Porcupine initialization failed: {porcupine_error}")
+                logger.error(f"❌ Error type: {type(porcupine_error).__name__}")
+                raise
             
             # Initialize recorder
-            self.recorder = PvRecorder(
-                device_index=-1,  # default device
-                frame_length=self.porcupine.frame_length
-            )
+            logger.info("🎤 Initializing audio recorder...")
+            try:
+                self.recorder = PvRecorder(
+                    device_index=-1,  # default device
+                    frame_length=self.porcupine.frame_length
+                )
+                logger.info("✅ Audio recorder initialized successfully")
+            except Exception as recorder_error:
+                logger.error(f"❌ Audio recorder initialization failed: {recorder_error}")
+                logger.error(f"❌ Error type: {type(recorder_error).__name__}")
+                # Clean up porcupine if recorder fails
+                if self.porcupine:
+                    self.porcupine.delete()
+                    self.porcupine = None
+                raise
             
             self.wake_word_active = True
             self.event_loop = asyncio.get_event_loop()
             
             # Start wake word detection in separate thread
+            logger.info("🎤 Starting wake word detection thread...")
             self.wake_word_thread = threading.Thread(
                 target=self._wake_word_detection_loop,
                 args=(room,),
@@ -309,10 +347,28 @@ class CoffeeBaristaAgent(Agent):
             )
             self.wake_word_thread.start()
             
-            logger.info("Wake word detection started - listening for 'hey barista'")
+            logger.info("✅ Wake word detection started - listening for 'hey barista'")
             
         except Exception as e:
-            logger.error(f"Failed to start wake word detection: {e}")
+            logger.error(f"❌ Failed to start wake word detection: {e}")
+            logger.error(f"❌ Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"❌ Full traceback:\n{traceback.format_exc()}")
+            
+            # Clean up any partially initialized resources
+            if hasattr(self, 'recorder') and self.recorder:
+                try:
+                    self.recorder.delete()
+                except:
+                    pass
+                self.recorder = None
+                
+            if hasattr(self, 'porcupine') and self.porcupine:
+                try:
+                    self.porcupine.delete()
+                except:
+                    pass
+                self.porcupine = None
     
     def _wake_word_detection_loop(self, room):
         """Wake word detection loop running in separate thread"""
