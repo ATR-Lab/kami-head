@@ -5,11 +5,11 @@ import math
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, 
+from python_qt_binding.QtWidgets import (QApplication, QMainWindow, QWidget, 
                             QVBoxLayout, QHBoxLayout, QLabel,
                             QPushButton, QCheckBox)
-from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QBrush
-from PyQt5.QtCore import Qt, QPoint, QRect, QTimer
+from python_qt_binding.QtGui import QPainter, QColor, QPen, QFont, QBrush
+from python_qt_binding.QtCore import Qt, QPoint, QRect, QTimer
 
 # Import Dynamixel SDK interfaces
 from dynamixel_sdk_custom_interfaces.msg import SetPosition

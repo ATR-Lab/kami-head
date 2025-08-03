@@ -13,6 +13,7 @@
   <depend>std_msgs</depend>
   <depend>dynamixel_sdk</depend>
   <depend>dynamixel_sdk_custom_interfaces</depend>
+  <depend>python_qt_binding</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
