@@ -21,8 +21,8 @@ This functionality is split into two packages following ROS2 best practices:
 
 - ROS2 (Jazzy or compatible)
 - Python 3
-- PyQt5
-- Dynamixel SDK
+- python_qt_binding (included with ROS2)
+- Dynamixel SDK (workspace package)
 - XM540-W270 Dynamixel servo motors
 
 ## Installation
@@ -35,22 +35,19 @@ This functionality is split into two packages following ROS2 best practices:
    # coffee_head_motion_recorder_msgs/
    ```
 
-2. Install dependencies:
-
-   ```bash
-   sudo apt-get install python3-pyqt5
-   pip3 install dynamixel-sdk
-   ```
-
-3. Build the packages (interface package first):
+2. Build the packages (dependencies first):
 
    ```bash
    cd /path/to/your/workspace
+   # Build Dynamixel SDK packages
+   colcon build --packages-select dynamixel_sdk dynamixel_sdk_custom_interfaces
+   # Build motion recorder interface package
    colcon build --packages-select coffee_head_motion_recorder_msgs
+   # Build main motion recorder package
    colcon build --packages-select coffee_head_motion_recorder
    ```
 
-4. Source the workspace:
+3. Source the workspace:
 
    ```bash
    source /path/to/your/workspace/install/setup.bash
