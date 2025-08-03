@@ -22,15 +22,15 @@ from std_srvs.srv import Trigger, SetBool
 # Import custom service types
 from coffee_head_motion_recorder_msgs.srv import SaveMotion, LoadMotion, ListMotions
 
-from PyQt5.QtWidgets import (
+from python_qt_binding.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QFileDialog, QListWidget,
     QGroupBox, QProgressBar, QSplitter, QTabWidget, QMessageBox,
     QCheckBox, QSlider, QComboBox, QGraphicsView, QGraphicsScene,
     QGraphicsItem, QGraphicsRectItem, QGraphicsLineItem
 )
-from PyQt5.QtGui import QColor, QPen, QBrush, QPainter, QFont
-from PyQt5.QtCore import Qt, QTimer, QSize, QRectF, QPointF
+from python_qt_binding.QtGui import QColor, QPen, QBrush, QPainter, QFont
+from python_qt_binding.QtCore import Qt, QTimer, QSize, QRectF, QPointF
 
 class MotionRecorderUI(QMainWindow):
     """Qt-based user interface for the motion recorder"""

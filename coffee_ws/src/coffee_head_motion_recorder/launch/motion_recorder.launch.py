@@ -50,7 +50,7 @@ def generate_launch_description():
     
     # Configure nodes
     recorder_node = Node(
-        package='motion_recorder',
+        package='coffee_head_motion_recorder',
         executable='recorder_node',
         name='motion_recorder',
         output='screen',
@@ -64,7 +64,7 @@ def generate_launch_description():
     )
     
     ui_node = Node(
-        package='motion_recorder',
+        package='coffee_head_motion_recorder',
         executable='recorder_ui',
         name='motion_recorder_ui',
         output='screen',

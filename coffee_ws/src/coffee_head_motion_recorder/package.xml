@@ -11,7 +11,7 @@
   <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>std_srvs</depend>
-  <depend>python3-pyqt5</depend>
+  <depend>python_qt_binding</depend>
   <depend>dynamixel_sdk</depend>
   <depend>coffee_head_motion_recorder_msgs</depend>
 
