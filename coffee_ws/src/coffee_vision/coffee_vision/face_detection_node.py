@@ -15,9 +15,9 @@ from sensor_msgs.msg import Image
 from geometry_msgs.msg import Vector3
 from cv_bridge import CvBridge
 
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QGridLayout, QHBoxLayout
-from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtCore import QTimer, Qt, QSize
+from python_qt_binding.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QGridLayout, QHBoxLayout
+from python_qt_binding.QtGui import QPixmap, QImage
+from python_qt_binding.QtCore import QTimer, Qt, QSize
 
 # Import face recognition core class
 from .recognition_memory import RecogniserBN
