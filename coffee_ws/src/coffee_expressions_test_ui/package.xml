@@ -9,7 +9,7 @@
 
   <depend>rclpy</depend>
   <depend>coffee_expressions_msgs</depend>
-  <depend>python3-pyqt5</depend>
+  <depend>python_qt_binding</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
