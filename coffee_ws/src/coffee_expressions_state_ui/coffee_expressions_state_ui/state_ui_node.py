@@ -3,9 +3,9 @@
 import sys
 import rclpy
 from rclpy.node import Node
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+from python_qt_binding.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QHBoxLayout, QLabel, QPushButton, QGroupBox)
-from PyQt5.QtCore import Qt, QTimer
+from python_qt_binding.QtCore import Qt, QTimer
 from std_msgs.msg import String
 from geometry_msgs.msg import Point
 from coffee_expressions_msgs.msg import AffectiveState

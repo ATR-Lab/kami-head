@@ -11,13 +11,12 @@
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>coffee_expressions_msgs</depend>
+  <depend>python_qt_binding</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>
-
-  <exec_depend>python3-qt5</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>
