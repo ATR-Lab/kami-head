@@ -39,12 +39,10 @@ mosestokenizer==1.0.0
 regex==2024.11.6
 
 # UI and visualization 
-PyQt5==5.15.11
 pygame==2.6.1
 pyqtgraph==0.13.7
 
-# Computer vision (for ROS2 vision packages)
-opencv-python==4.10.0.84
+# Computer vision - using system python3-opencv (declared in ROS package dependencies)
 
 # Utility libraries
 tqdm==4.67.1
