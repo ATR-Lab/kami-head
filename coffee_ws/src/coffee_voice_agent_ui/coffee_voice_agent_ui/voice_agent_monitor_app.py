@@ -13,7 +13,16 @@ Or in launch files:
     Node(package='coffee_voice_agent_ui', executable='voice_agent_monitor')
 """
 
+# CRITICAL: Set Qt environment variables IMMEDIATELY, before any other imports
+import os
 import sys
+
+# Early Qt environment setup for macOS - MUST be before any Qt imports
+if sys.platform == "darwin":
+    # Core macOS Qt setup
+    os.environ['QT_QPA_PLATFORM'] = 'cocoa'
+    os.environ['QT_MAC_WANTS_LAYER'] = '1'
+
 import signal
 import rclpy
 from rclpy.node import Node
@@ -21,10 +30,6 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.parameter import Parameter
 import threading
 from datetime import datetime
-
-# Set Qt attributes BEFORE importing Qt modules
-import os
-os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
 
 from python_qt_binding.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QGridLayout
 from python_qt_binding.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QObject
@@ -414,9 +419,20 @@ def signal_handler(signum, frame):
 def main(args=None):
     """Main entry point for standalone voice agent monitor application"""
     
+    # macOS-specific Qt stability setting
+    if sys.platform == "darwin":
+        # Disable X11/GL integration to prevent conflicts
+        os.environ['QT_XCB_GL_INTEGRATION'] = 'none'
+    
     # Set Qt attributes BEFORE creating QApplication
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    # Add compatibility attributes for macOS
+    if sys.platform == "darwin":
+        QApplication.setAttribute(Qt.AA_DontUseNativeMenuBar, True)
+        QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
+        # Force software rendering BEFORE QApplication creation
+        QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True)
     
     # Set up signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
@@ -430,6 +446,7 @@ def main(args=None):
     app.setApplicationName("Coffee Voice Agent Monitor")
     app.setApplicationDisplayName("Coffee Voice Agent Monitor")
     
+
     # Create main window
     main_window = None
     
