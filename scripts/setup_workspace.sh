@@ -30,6 +30,18 @@
 #   - Ubuntu/Debian: Native ROS2 installation with apt + venv
 #   - macOS: RoboStack with mamba/conda environment
 #
+# MACOS-SPECIFIC HANDLING:
+#   This script includes special handling for common macOS development environment
+#   conflicts, particularly the Homebrew/conda library conflict that affects git
+#   operations within conda environments.
+#
+#   Git Package Conflict Resolution:
+#   - Problem: Homebrew's git + conda's libiconv = symbol conflicts
+#   - Solution: Pre-download git-based packages using system libraries, 
+#             then install from local copies within conda environment
+#   - Packages affected: Any using git+https:// URLs in requirements.txt
+#   - Fallback: If conflicts persist, install git via conda
+#
 # REQUIREMENTS:
 #   Ubuntu: sudo privileges, apt package manager
 #   macOS: miniforge/mamba installed (script will guide if missing)
@@ -114,6 +126,11 @@ NOTES:
     - If already in a mamba environment, the script will handle switching automatically
     - RoboStack channels are configured automatically for the selected ROS2 distribution
     - For humble: ./scripts/setup_workspace.sh --ros-distro humble
+
+MACOS-SPECIFIC NOTES:
+    - The script handles Homebrew/conda git conflicts automatically
+    - Git-based packages (git+https://) are pre-downloaded to avoid library conflicts
+    - If git issues persist, try: mamba install git -c conda-forge
 
 For more information, see: https://github.com/your-repo/coffee-buddy
 EOF
@@ -290,6 +307,97 @@ setup_ubuntu() {
     log_success "ROS2 packages built successfully"
 }
 
+# Helper function: Handle git-based packages for macOS (Homebrew/conda conflict workaround)
+handle_git_packages_macos() {
+    log_info "Checking for git-based packages that need special handling..."
+    
+    # Create temporary directory for git package downloads
+    local temp_dir=$(mktemp -d)
+    local git_packages_found=false
+    
+    # Extract git-based packages from requirements.txt
+    while IFS= read -r package || [[ -n "$package" ]]; do
+        # Skip empty lines and comments
+        [[ -z "$package" || "$package" =~ ^#.*$ ]] && continue
+        
+        # Check if this is a git-based package
+        if [[ "$package" =~ ^git\+ ]]; then
+            git_packages_found=true
+            log_info "Found git-based package: $package"
+            
+            # Extract the git URL and package name
+            local git_url=$(echo "$package" | sed 's/^git+//')
+            local package_name=$(basename "$git_url" .git)
+            
+            log_info "Pre-downloading $package_name to avoid Homebrew/conda git conflicts..."
+            
+            # Download using system git (outside conda environment library conflicts)
+            # We temporarily unset library search paths to use system libraries
+            local orig_dyld_library_path="$DYLD_LIBRARY_PATH"
+            unset DYLD_LIBRARY_PATH
+            
+            if git clone "$git_url" "$temp_dir/$package_name"; then
+                log_success "Successfully downloaded $package_name"
+                
+                # Install from local directory using pip
+                export DYLD_LIBRARY_PATH="$orig_dyld_library_path"
+                log_info "Installing $package_name from local copy..."
+                pip install "$temp_dir/$package_name"
+                log_success "Installed $package_name"
+            else
+                # Restore library path and report error
+                export DYLD_LIBRARY_PATH="$orig_dyld_library_path"
+                log_error "Failed to download $package_name"
+                log_error "You may need to install git in conda environment:"
+                log_error "  mamba install git -c conda-forge"
+                
+                # Clean up and exit
+                rm -rf "$temp_dir"
+                return 1
+            fi
+            
+            # Restore library path
+            export DYLD_LIBRARY_PATH="$orig_dyld_library_path"
+        fi
+    done < "$REQUIREMENTS_FILE"
+    
+    # Clean up temporary directory
+    rm -rf "$temp_dir"
+    
+    if [[ "$git_packages_found" == true ]]; then
+        log_success "All git-based packages installed successfully"
+    else
+        log_info "No git-based packages found in requirements.txt"
+    fi
+}
+
+# Helper function: Install regular (non-git) packages for macOS
+install_regular_packages_macos() {
+    log_info "Installing regular packages via conda-forge and pip..."
+    
+    # Process non-git packages from requirements.txt
+    while IFS= read -r package || [[ -n "$package" ]]; do
+        # Skip empty lines and comments
+        [[ -z "$package" || "$package" =~ ^#.*$ ]] && continue
+        
+        # Skip git-based packages (already handled)
+        if [[ "$package" =~ ^git\+ ]]; then
+            continue
+        fi
+        
+        package_name=$(echo "$package" | cut -d'=' -f1 | cut -d'>' -f1 | cut -d'<' -f1)
+        
+        # Try conda-forge first
+        if mamba install -c conda-forge "$package_name" -y 2>/dev/null; then
+            log_info "Installed $package_name via conda"
+        else
+            # Fallback to pip
+            log_info "Installing $package_name via pip..."
+            pip install "$package"
+        fi
+    done < "$REQUIREMENTS_FILE"
+}
+
 # macOS setup function  
 setup_macos() {
     log_info "Setting up macOS environment with RoboStack..."
@@ -347,22 +455,12 @@ setup_macos() {
     # Step 4: Install additional Python packages
     log_info "[4/5] Installing additional Python packages..."
     if [ -f "$REQUIREMENTS_FILE" ]; then
-        # Try to install via conda first, fallback to pip
-        while IFS= read -r package || [[ -n "$package" ]]; do
-            # Skip empty lines and comments
-            [[ -z "$package" || "$package" =~ ^#.*$ ]] && continue
-            
-            package_name=$(echo "$package" | cut -d'=' -f1 | cut -d'>' -f1 | cut -d'<' -f1)
-            
-            # Try conda-forge first
-            if mamba install -c conda-forge "$package_name" -y 2>/dev/null; then
-                log_info "Installed $package_name via conda"
-            else
-                # Fallback to pip
-                log_info "Installing $package_name via pip..."
-                pip install "$package"
-            fi
-        done < "$REQUIREMENTS_FILE"
+        # Step 4a: Handle git-based packages separately (macOS Homebrew/conda conflict workaround)
+        handle_git_packages_macos
+        
+        # Step 4b: Install regular packages
+        install_regular_packages_macos
+        
         log_success "Additional Python packages installed"
     else
         log_warning "requirements.txt not found, skipping additional Python packages"
