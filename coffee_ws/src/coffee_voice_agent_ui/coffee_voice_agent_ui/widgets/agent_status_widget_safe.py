@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Agent Status Widget - Displays agent overview information
+Agent Status Widget SAFE VERSION - Displays agent overview information
+
+SAFE VERSION: Uses QGridLayout instead of nested QHBoxLayout inside QVBoxLayout
+to avoid macOS Qt layout calculation crash in external terminals.
 
 Shows the current agent state, connection status, conversation metrics,
 and general system health in a compact overview panel.
@@ -18,11 +21,13 @@ from python_qt_binding.QtCore import Qt, QTimer
 from python_qt_binding.QtGui import QFont, QPalette, QColor
 
 from coffee_voice_agent_msgs.msg import AgentStatus
-from ..emoji_utils import format_title, get_connection_status
 
 
-class AgentStatusWidget(QWidget):
-    """Widget for displaying agent overview and status information"""
+class AgentStatusWidgetSafe(QWidget):
+    """SAFE VERSION: Widget for displaying agent overview and status information
+    
+    Uses QGridLayout instead of nested QHBoxLayouts to avoid macOS crash.
+    """
     
     # State colors for visual indication
     STATE_COLORS = {
@@ -55,12 +60,12 @@ class AgentStatusWidget(QWidget):
         self.update_timer.start(1000)  # Update every second
     
     def _setup_ui(self):
-        """Set up the widget UI"""
+        """Set up the widget UI using SAFE layout patterns"""
         layout = QVBoxLayout()
         self.setLayout(layout)
         
         # Title
-        title = QLabel(format_title('agent_status', 'AGENT STATUS'))
+        title = QLabel("🤖 AGENT STATUS (SAFE)")
         title.setAlignment(Qt.AlignCenter)
         font = QFont()
         font.setBold(True)
@@ -68,70 +73,59 @@ class AgentStatusWidget(QWidget):
         title.setFont(font)
         layout.addWidget(title)
         
-        # Status frame
+        # Status frame - KEEP this as it works fine
         self.status_frame = QFrame()
         self.status_frame.setFrameStyle(QFrame.Box)
         layout.addWidget(self.status_frame)
         
-        status_layout = QVBoxLayout()
+        # SAFE CHANGE: Use QGridLayout instead of QVBoxLayout with nested QHBoxLayouts
+        status_layout = QGridLayout()
         self.status_frame.setLayout(status_layout)
         
-        # Current state display
-        state_layout = QHBoxLayout()
-        state_layout.addWidget(QLabel("State:"))
+        # Row 0: Current state display
+        status_layout.addWidget(QLabel("State:"), 0, 0)
         self.state_label = QLabel("UNKNOWN")
         self.state_label.setAlignment(Qt.AlignCenter)
-        self.state_label.setStyleSheet("font-weight: bold; padding: 4px 8px; border-radius: 4px;")
-        state_layout.addWidget(self.state_label)
-        state_layout.addStretch()
-        status_layout.addLayout(state_layout)
+        # SAFE CHANGE: Use QFont.setBold() instead of font-weight in stylesheet
+        font = self.state_label.font()
+        font.setBold(True)
+        self.state_label.setFont(font)
+        self.state_label.setStyleSheet("padding: 4px 8px; border-radius: 4px;")  # No font-weight
+        status_layout.addWidget(self.state_label, 0, 1)
         
-        # Connection status
-        conn_layout = QHBoxLayout()
-        conn_layout.addWidget(QLabel("Connection:"))
-        self.connection_label = QLabel(get_connection_status(False))
-        conn_layout.addWidget(self.connection_label)
-        conn_layout.addStretch()
-        status_layout.addLayout(conn_layout)
+        # Row 1: Connection status
+        status_layout.addWidget(QLabel("Connection:"), 1, 0)
+        self.connection_label = QLabel("❌ Disconnected")
+        status_layout.addWidget(self.connection_label, 1, 1)
         
-        # Session info
-        session_layout = QHBoxLayout()
-        session_layout.addWidget(QLabel("Session:"))
+        # Row 2: Session info
+        status_layout.addWidget(QLabel("Session:"), 2, 0)
         self.session_label = QLabel("No active session")
-        session_layout.addWidget(self.session_label)
-        session_layout.addStretch()
-        status_layout.addLayout(session_layout)
+        status_layout.addWidget(self.session_label, 2, 1)
         
-        # Uptime
-        uptime_layout = QHBoxLayout()
-        uptime_layout.addWidget(QLabel("Uptime:"))
+        # Row 3: Uptime
+        status_layout.addWidget(QLabel("Uptime:"), 3, 0)
         self.uptime_label = QLabel("00:00:00")
-        uptime_layout.addWidget(self.uptime_label)
-        uptime_layout.addStretch()
-        status_layout.addLayout(uptime_layout)
+        status_layout.addWidget(self.uptime_label, 3, 1)
         
-        # Separator
+        # Row 4: Separator - span across both columns
         separator = QFrame()
         separator.setFrameShape(QFrame.HLine)
         separator.setFrameShadow(QFrame.Sunken)
-        status_layout.addWidget(separator)
+        status_layout.addWidget(separator, 4, 0, 1, 2)  # span 2 columns
         
-        # Additional info grid
-        info_layout = QGridLayout()
-        
-        info_layout.addWidget(QLabel("Phase:"), 0, 0)
+        # Row 5-7: Additional info - continue with grid layout
+        status_layout.addWidget(QLabel("Phase:"), 5, 0)
         self.phase_label = QLabel("-")
-        info_layout.addWidget(self.phase_label, 0, 1)
+        status_layout.addWidget(self.phase_label, 5, 1)
         
-        info_layout.addWidget(QLabel("Last Tool:"), 1, 0)
+        status_layout.addWidget(QLabel("Last Tool:"), 6, 0)
         self.tool_label = QLabel("-")
-        info_layout.addWidget(self.tool_label, 1, 1)
+        status_layout.addWidget(self.tool_label, 6, 1)
         
-        info_layout.addWidget(QLabel("Conversations:"), 2, 0)
+        status_layout.addWidget(QLabel("Conversations:"), 7, 0)
         self.conversation_count_label = QLabel("0")
-        info_layout.addWidget(self.conversation_count_label, 2, 1)
-        
-        status_layout.addLayout(info_layout)
+        status_layout.addWidget(self.conversation_count_label, 7, 1)
     
     def update_status(self, status: AgentStatus):
         """Update the widget with new agent status"""
@@ -142,10 +136,9 @@ class AgentStatusWidget(QWidget):
         state = status.behavioral_mode.upper()
         self.state_label.setText(state)
         
-        # Set state color
+        # Set state color - SAFE: Keep stylesheet simple, no font-weight
         color = self.STATE_COLORS.get(status.behavioral_mode, '#6c757d')
         self.state_label.setStyleSheet(f"""
-            font-weight: bold; 
             padding: 4px 8px; 
             border-radius: 4px;
             background-color: {color};
@@ -175,10 +168,10 @@ class AgentStatusWidget(QWidget):
         self.connection_status = connected
         
         if connected:
-            self.connection_label.setText(get_connection_status(True))
+            self.connection_label.setText("✅ Connected")
             self.connection_label.setStyleSheet("color: green;")
         else:
-            self.connection_label.setText(get_connection_status(False))
+            self.connection_label.setText("❌ Disconnected")
             self.connection_label.setStyleSheet("color: red;")
     
     def _update_dynamic_elements(self):

@@ -58,6 +58,7 @@ from python_qt_binding.QtWidgets import (
 )
 from python_qt_binding.QtCore import Qt
 from python_qt_binding.QtGui import QFont, QPainter, QColor, QPen
+from ..emoji_utils import format_title
 
 
 class AnalyticsWidget(QWidget):
@@ -119,7 +120,7 @@ class AnalyticsWidget(QWidget):
         scroll_widget.setLayout(layout)
         
         # Title
-        title = QLabel("📊 ANALYTICS")
+        title = QLabel(format_title('analytics', 'ANALYTICS'))
         title.setAlignment(Qt.AlignCenter)
         font = QFont()
         font.setBold(True)
@@ -152,7 +153,7 @@ class AnalyticsWidget(QWidget):
         perf_frame.setLayout(perf_layout)
         
         # Header
-        perf_header = QLabel("📈 SESSION PERFORMANCE")
+        perf_header = QLabel(format_title('session_performance', 'SESSION PERFORMANCE'))
         perf_header.setFont(QFont("Arial", 10, QFont.Bold))
         perf_layout.addWidget(perf_header)
         
@@ -197,7 +198,7 @@ class AnalyticsWidget(QWidget):
         interactions_frame.setLayout(interactions_layout)
         
         # Header
-        interactions_header = QLabel("🎯 POPULAR INTERACTIONS")
+        interactions_header = QLabel(format_title('popular_interactions', 'POPULAR INTERACTIONS'))
         interactions_header.setFont(QFont("Arial", 10, QFont.Bold))
         interactions_layout.addWidget(interactions_header)
         
@@ -218,7 +219,7 @@ class AnalyticsWidget(QWidget):
         emotion_frame.setLayout(emotion_layout)
         
         # Header
-        emotion_header = QLabel("🎭 EMOTION TRENDS")
+        emotion_header = QLabel(format_title('emotion_trends', 'EMOTION TRENDS'))
         emotion_header.setFont(QFont("Arial", 10, QFont.Bold))
         emotion_layout.addWidget(emotion_header)
         
@@ -242,7 +243,7 @@ class AnalyticsWidget(QWidget):
         metrics_frame.setLayout(metrics_layout)
         
         # Header
-        metrics_header = QLabel("⚙️ SYSTEM METRICS")
+        metrics_header = QLabel(format_title('system_metrics', 'SYSTEM METRICS'))
         metrics_header.setFont(QFont("Arial", 10, QFont.Bold))
         metrics_layout.addWidget(metrics_header)
         

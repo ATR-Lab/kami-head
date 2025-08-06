@@ -17,6 +17,7 @@ from python_qt_binding.QtCore import Qt, QTimer
 from python_qt_binding.QtGui import QFont, QTextCursor, QColor
 
 from coffee_voice_agent_msgs.msg import AgentStatus, ToolEvent
+from ..emoji_utils import format_title, get_emoji
 
 
 class ConversationWidget(QWidget):
@@ -60,7 +61,7 @@ class ConversationWidget(QWidget):
         header_layout = QHBoxLayout()
         
         # Title
-        title = QLabel("💬 CONVERSATION FLOW")
+        title = QLabel(format_title('conversation', 'CONVERSATION FLOW'))
         font = QFont()
         font.setBold(True)
         font.setPointSize(12)
@@ -70,7 +71,7 @@ class ConversationWidget(QWidget):
         header_layout.addStretch()
         
         # Auto-scroll toggle
-        self.auto_scroll_btn = QPushButton("🔒 Lock Scroll")
+        self.auto_scroll_btn = QPushButton(f"{get_emoji('lock_scroll')} Lock Scroll")
         self.auto_scroll_btn.setCheckable(True)
         self.auto_scroll_btn.clicked.connect(self._toggle_auto_scroll)
         self.auto_scroll_btn.setMaximumWidth(100)
@@ -102,7 +103,7 @@ class ConversationWidget(QWidget):
         self.max_timeout_frame.setLayout(max_timeout_layout)
         
         max_timeout_label_layout = QHBoxLayout()
-        max_timeout_label_layout.addWidget(QLabel("⏰ Conversation Time:"))
+        max_timeout_label_layout.addWidget(QLabel(f"{get_emoji('conversation_time')} Conversation Time:"))
         self.max_timeout_label = QLabel("--")
         max_timeout_label_layout.addWidget(self.max_timeout_label)
         max_timeout_label_layout.addStretch()
@@ -130,7 +131,7 @@ class ConversationWidget(QWidget):
         self.timeout_frame.setLayout(timeout_layout)
         
         timeout_label_layout = QHBoxLayout()
-        timeout_label_layout.addWidget(QLabel("⏱️ User Response Timeout:"))
+        timeout_label_layout.addWidget(QLabel(f"{get_emoji('user_timeout')} User Response Timeout:"))
         self.timeout_label = QLabel("--")
         timeout_label_layout.addWidget(self.timeout_label)
         timeout_label_layout.addStretch()
@@ -158,7 +159,7 @@ class ConversationWidget(QWidget):
         metrics_layout.addStretch()
         
         # Clear button
-        clear_btn = QPushButton("🗑️ Clear")
+        clear_btn = QPushButton(f"{get_emoji('clear')} Clear")
         clear_btn.clicked.connect(self._clear_conversation)
         clear_btn.setMaximumWidth(80)
         metrics_layout.addWidget(clear_btn)
@@ -218,7 +219,7 @@ class ConversationWidget(QWidget):
     
     def add_user_speech(self, speech_text: str):
         """Add user speech to conversation"""
-        self._add_conversation_item("👤 USER", speech_text, "#007bff")
+        self._add_conversation_item(f"{get_emoji('user')} USER", speech_text, "#007bff")
         self.turn_count += 1
         self.turns_label.setText(f"Turns: {self.turn_count}")
         
@@ -230,19 +231,20 @@ class ConversationWidget(QWidget):
     
     def add_tool_event(self, event: ToolEvent):
         """Add tool event to conversation"""
+        tool_prefix = f"{get_emoji('tool')} TOOL"
         if event.status == "started":
-            self._add_conversation_item("🔧 TOOL", f"{event.tool_name} [STARTED]", "#ffc107")
+            self._add_conversation_item(tool_prefix, f"{event.tool_name} [STARTED]", "#ffc107")
         elif event.status == "completed":
             # Show abbreviated result
             result_preview = event.result[:50] + "..." if len(event.result) > 50 else event.result
-            self._add_conversation_item("🔧 TOOL", f"{event.tool_name} [COMPLETED] → {result_preview}", "#28a745")
+            self._add_conversation_item(tool_prefix, f"{event.tool_name} [COMPLETED] → {result_preview}", "#28a745")
         elif event.status == "failed":
-            self._add_conversation_item("🔧 TOOL", f"{event.tool_name} [FAILED]", "#dc3545")
+            self._add_conversation_item(tool_prefix, f"{event.tool_name} [FAILED]", "#dc3545")
     
     def _add_agent_message(self, text: str, emotion: str = ""):
         """Add agent message to conversation"""
         emotion_prefix = f"[{emotion}] " if emotion else ""
-        self._add_conversation_item("🤖 AGENT", f"{emotion_prefix}{text}", "#28a745")
+        self._add_conversation_item(f"{get_emoji('agent')} AGENT", f"{emotion_prefix}{text}", "#28a745")
         self.last_agent_message_time = datetime.now()
         
         # Track this as the last agent message for potential updates
@@ -315,12 +317,12 @@ class ConversationWidget(QWidget):
         """Toggle auto-scroll functionality"""
         self.auto_scroll = not self.auto_scroll
         if self.auto_scroll:
-            self.auto_scroll_btn.setText("🔒 Lock Scroll")
+            self.auto_scroll_btn.setText(f"{get_emoji('lock_scroll')} Lock Scroll")
             # Scroll to bottom when re-enabling
             scrollbar = self.conversation_text.verticalScrollBar()
             scrollbar.setValue(scrollbar.maximum())
         else:
-            self.auto_scroll_btn.setText("📜 Auto Scroll")
+            self.auto_scroll_btn.setText(f"{get_emoji('auto_scroll')} Auto Scroll")
     
     def _clear_conversation(self):
         """Clear the conversation display"""

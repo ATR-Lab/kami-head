@@ -17,6 +17,7 @@ from python_qt_binding.QtCore import Qt, QTimer
 from python_qt_binding.QtGui import QFont, QColor
 
 from coffee_voice_agent_msgs.msg import ToolEvent
+from ..emoji_utils import format_title
 
 
 class ToolMonitorWidget(QWidget):
@@ -50,7 +51,7 @@ class ToolMonitorWidget(QWidget):
         self.setLayout(layout)
         
         # Title
-        title = QLabel("🔧 TOOL ACTIVITY")
+        title = QLabel(format_title('tool_activity', 'TOOL ACTIVITY'))
         title.setAlignment(Qt.AlignCenter)
         font = QFont()
         font.setBold(True)
@@ -67,7 +68,7 @@ class ToolMonitorWidget(QWidget):
         activity_frame.setLayout(activity_layout)
         
         # Active tools header
-        active_header = QLabel("⚡ ACTIVE TOOLS")
+        active_header = QLabel(format_title('active_tools', 'ACTIVE TOOLS'))
         active_header.setFont(QFont("Arial", 10, QFont.Bold))
         activity_layout.addWidget(active_header)
         
@@ -77,14 +78,14 @@ class ToolMonitorWidget(QWidget):
         
         # Total calls today
         stats_layout = QHBoxLayout()
-        stats_layout.addWidget(QLabel("📈 Total today:"))
+        stats_layout.addWidget(QLabel(format_title('total_today', 'Total today:')))
         self.total_calls_label = QLabel("0 calls")
         stats_layout.addWidget(self.total_calls_label)
         stats_layout.addStretch()
         activity_layout.addLayout(stats_layout)
         
         # Recent activity section
-        recent_label = QLabel("📋 RECENT ACTIVITY")
+        recent_label = QLabel(format_title('recent_activity', 'RECENT ACTIVITY'))
         recent_label.setFont(QFont("Arial", 10, QFont.Bold))
         layout.addWidget(recent_label)
         
@@ -105,7 +106,7 @@ class ToolMonitorWidget(QWidget):
         layout.addWidget(self.recent_table)
         
         # Usage statistics section
-        stats_label = QLabel("📊 USAGE STATISTICS")
+        stats_label = QLabel(format_title('usage_statistics', 'USAGE STATISTICS'))
         stats_label.setFont(QFont("Arial", 10, QFont.Bold))
         layout.addWidget(stats_label)
         

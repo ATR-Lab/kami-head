@@ -14,31 +14,13 @@ from python_qt_binding.QtWidgets import (
 )
 from python_qt_binding.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
 from python_qt_binding.QtGui import QFont, QPainter, QColor, QPen
+from ..emoji_utils import format_title, get_emoji
 
 
 class EmotionDisplayWidget(QWidget):
     """Widget for displaying agent emotional state and transitions"""
     
-    # Emotion to emoji mapping for visual display
-    EMOTION_EMOJIS = {
-        'friendly': '😊',
-        'excited': '🤩', 
-        'curious': '🤔',
-        'sleepy': '😴',
-        'waiting': '😌',
-        'excuse': '😅',
-        'helpful': '🤝',
-        'empathetic': '🥺',
-        'confused': '😕',
-        'proud': '😊',
-        'playful': '😄',
-        'focused': '🧐',
-        'surprised': '😮',
-        'enthusiastic': '🎉',
-        'warm': '🤗',
-        'professional': '👔',
-        'cheerful': '😁'
-    }
+    # Emotion to emoji mapping now handled by emoji_utils.py
     
     # Emotion colors for background/border effects
     EMOTION_COLORS = {
@@ -84,7 +66,7 @@ class EmotionDisplayWidget(QWidget):
         self.setLayout(layout)
         
         # Title
-        title = QLabel("🎭 EMOTION CENTER")
+        title = QLabel(format_title('emotion_center', 'EMOTION CENTER'))
         title.setAlignment(Qt.AlignCenter)
         font = QFont()
         font.setBold(True)
@@ -104,7 +86,7 @@ class EmotionDisplayWidget(QWidget):
         current_layout = QHBoxLayout()
         current_layout.addWidget(QLabel("Current:"))
         
-        self.current_emotion_label = QLabel("😌 waiting")
+        self.current_emotion_label = QLabel(f"{get_emoji('waiting')} waiting")
         self.current_emotion_label.setAlignment(Qt.AlignCenter)
         font = QFont()
         font.setPointSize(16)
@@ -149,7 +131,7 @@ class EmotionDisplayWidget(QWidget):
         # Eye animation preview
         animation_layout = QHBoxLayout()
         animation_layout.addWidget(QLabel("Eye Animation:"))
-        self.animation_label = QLabel("👀 Waiting patiently...")
+        self.animation_label = QLabel("Eyes: Waiting patiently...")
         animation_layout.addWidget(self.animation_label)
         emotion_layout.addLayout(animation_layout)
     
@@ -172,7 +154,7 @@ class EmotionDisplayWidget(QWidget):
     
     def _update_current_emotion_display(self):
         """Update the main emotion display"""
-        emoji = self.EMOTION_EMOJIS.get(self.current_emotion, '🤖')
+        emoji = get_emoji(self.current_emotion, get_emoji('agent'))
         text = f"{emoji} {self.current_emotion}"
         self.current_emotion_label.setText(text)
         
@@ -189,36 +171,36 @@ class EmotionDisplayWidget(QWidget):
     def _update_transition_display(self):
         """Update the emotion transition display"""
         if self.previous_emotion:
-            prev_emoji = self.EMOTION_EMOJIS.get(self.previous_emotion, '🤖')
-            curr_emoji = self.EMOTION_EMOJIS.get(self.current_emotion, '🤖')
+            prev_emoji = get_emoji(self.previous_emotion, get_emoji('agent'))
+            curr_emoji = get_emoji(self.current_emotion, get_emoji('agent'))
             self.transition_label.setText(f"{prev_emoji} {self.previous_emotion} → {curr_emoji} {self.current_emotion}")
         else:
-            emoji = self.EMOTION_EMOJIS.get(self.current_emotion, '🤖')
+            emoji = get_emoji(self.current_emotion, get_emoji('agent'))
             self.transition_label.setText(f"→ {emoji} {self.current_emotion}")
     
     def _update_animation_preview(self):
         """Update the eye animation preview description"""
         animations = {
-            'friendly': '👀 Warm, gentle gaze with soft blinks',
-            'excited': '✨ Wide eyes with rapid, enthusiastic blinks',
-            'curious': '🔍 Focused gaze with inquisitive movements',
-            'sleepy': '😴 Slow, drowsy blinks with droopy eyes',
-            'waiting': '⏳ Patient, steady gaze with regular blinks',
-            'excuse': '😅 Apologetic glances with nervous blinking',
-            'helpful': '🤝 Attentive, supportive eye contact',
-            'empathetic': '🥺 Caring, understanding expression',
-            'confused': '😕 Puzzled looks with questioning glances',
-            'proud': '😊 Confident, satisfied expression',
-            'playful': '😄 Mischievous winks and animated blinks',
-            'focused': '🧐 Intense concentration with minimal blinking',
-            'surprised': '😮 Wide open eyes with rapid blinking',
-            'enthusiastic': '🎉 Bright, energetic eye movements',
-            'warm': '🤗 Gentle, welcoming gaze',
-            'professional': '👔 Composed, attentive expression',
-            'cheerful': '😁 Happy, upbeat eye sparkles'
+            'friendly': 'Eyes: Warm, gentle gaze with soft blinks',
+            'excited': 'Eyes: Wide eyes with rapid, enthusiastic blinks',
+            'curious': 'Eyes: Focused gaze with inquisitive movements',
+            'sleepy': 'Eyes: Slow, drowsy blinks with droopy eyes',
+            'waiting': 'Eyes: Patient, steady gaze with regular blinks',
+            'excuse': 'Eyes: Apologetic glances with nervous blinking',
+            'helpful': 'Eyes: Attentive, supportive eye contact',
+            'empathetic': 'Eyes: Caring, understanding expression',
+            'confused': 'Eyes: Puzzled looks with questioning glances',
+            'proud': 'Eyes: Confident, satisfied expression',
+            'playful': 'Eyes: Mischievous winks and animated blinks',
+            'focused': 'Eyes: Intense concentration with minimal blinking',
+            'surprised': 'Eyes: Wide open eyes with rapid blinking',
+            'enthusiastic': 'Eyes: Bright, energetic eye movements',
+            'warm': 'Eyes: Gentle, welcoming gaze',
+            'professional': 'Eyes: Composed, attentive expression',
+            'cheerful': 'Eyes: Happy, upbeat eye sparkles'
         }
         
-        description = animations.get(self.current_emotion, '🤖 Standard neutral expression')
+        description = animations.get(self.current_emotion, 'Eyes: Standard neutral expression')
         self.animation_label.setText(description)
     
     def paintEvent(self, event):
@@ -247,7 +229,7 @@ class EmotionDisplayWidget(QWidget):
                 
                 # Draw emoji on top if space allows
                 if rect_width > 20:
-                    emoji = self.EMOTION_EMOJIS.get(emotion, '🤖')
+                    emoji = get_emoji(emotion, get_emoji('agent'))
                     painter.setPen(QPen(Qt.white))
                     painter.drawText(x + 2, y + timeline_rect.height() - 5, emoji)
     

@@ -14,6 +14,7 @@ from python_qt_binding.QtWidgets import (
 )
 from python_qt_binding.QtCore import Qt, pyqtSignal
 from python_qt_binding.QtGui import QFont
+from ..emoji_utils import format_title
 
 
 class VirtualRequestWidget(QWidget):
@@ -34,7 +35,7 @@ class VirtualRequestWidget(QWidget):
         self.setLayout(layout)
         
         # Title
-        title = QLabel("☕ VIRTUAL REQUESTS")
+        title = QLabel(format_title('virtual_requests', 'VIRTUAL REQUESTS'))
         title.setAlignment(Qt.AlignCenter)
         font = QFont()
         font.setBold(True)
@@ -57,7 +58,7 @@ class VirtualRequestWidget(QWidget):
         request_frame.setLayout(request_layout)
         
         # Header
-        request_header = QLabel("☕ TEST VIRTUAL REQUEST")
+        request_header = QLabel(format_title('test_request', 'TEST VIRTUAL REQUEST'))
         request_header.setFont(QFont("Arial", 10, QFont.Bold))
         request_layout.addWidget(request_header)
         

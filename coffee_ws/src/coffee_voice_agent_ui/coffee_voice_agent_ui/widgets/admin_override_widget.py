@@ -13,6 +13,7 @@ from python_qt_binding.QtWidgets import (
 )
 from python_qt_binding.QtCore import Qt, pyqtSlot
 from python_qt_binding.QtGui import QFont
+from ..emoji_utils import format_title
 
 
 class AdminOverrideWidget(QWidget):
@@ -36,7 +37,7 @@ class AdminOverrideWidget(QWidget):
         self.setLayout(layout)
         
         # Title
-        title = QLabel("⚙️ ADMIN OVERRIDE")
+        title = QLabel(format_title('admin_override', 'ADMIN OVERRIDE'))
         title.setAlignment(Qt.AlignCenter)
         font = QFont()
         font.setBold(True)
@@ -62,7 +63,7 @@ class AdminOverrideWidget(QWidget):
         status_frame.setLayout(status_layout)
         
         # Header
-        status_header = QLabel("📊 STATUS")
+        status_header = QLabel(format_title('vip_status', 'STATUS'))
         status_header.setFont(QFont("Arial", 10, QFont.Bold))
         status_layout.addWidget(status_header)
         
@@ -102,7 +103,7 @@ class AdminOverrideWidget(QWidget):
         history_frame.setLayout(history_layout)
         
         # Header
-        history_header = QLabel("📋 VIP HISTORY")
+        history_header = QLabel(format_title('vip_history', 'VIP HISTORY'))
         history_header.setFont(QFont("Arial", 10, QFont.Bold))
         history_layout.addWidget(history_header)
         
