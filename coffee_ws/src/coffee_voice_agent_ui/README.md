@@ -2,7 +2,7 @@
 
 A comprehensive PyQt-based monitoring dashboard for the Coffee Voice Agent system. This package provides real-time visualization and control of voice agent status, emotions, tool usage, conversation flow, and system analytics.
 
-![Coffee Voice Agent Monitor](https://img.shields.io/badge/ROS2-Jazzy-blue) ![PyQt5](https://img.shields.io/badge/UI-PyQt5-green) ![License](https://img.shields.io/badge/License-TODO-red)
+![Coffee Voice Agent Monitor](https://img.shields.io/badge/ROS2-Jazzy-blue) ![PyQt5](https://img.shields.io/badge/UI-PyQt5-green) ![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20macOS-brightgreen) ![License](https://img.shields.io/badge/License-TODO-red)
 
 ## 🎯 Overview
 
@@ -26,9 +26,21 @@ The Coffee Voice Agent UI is a standalone ROS2 application that provides compreh
 - **coffee_voice_agent_msgs** package
 - **coffee_voice_agent** package (for full system operation)
 
+### Platform Requirements
+
+#### Ubuntu 20.04+ / Linux
+- Standard ROS2 installation with `python_qt_binding`
+- All emoji and Unicode characters supported natively
+
+#### macOS 10.15+ / Apple Silicon
+- **RoboStack** environment recommended for ROS2 on macOS
+- **Mamba/Conda** package manager (via Miniforge)
+- Qt environment variables automatically configured for stability
+- Platform-specific emoji handling implemented for compatibility
+
 ## 🚀 Installation
 
-### 1. Clone and Build
+### 1. Linux/Ubuntu Installation
 
 ```bash
 # Navigate to your ROS2 workspace
@@ -42,7 +54,25 @@ colcon build --packages-select coffee_voice_agent_ui
 source install/setup.bash
 ```
 
-### 2. Verify Installation
+### 2. macOS Installation (RoboStack)
+
+```bash
+# Activate your ROS2 mamba environment
+mamba activate ros_env
+
+# Navigate to your workspace
+cd ~/your_ros2_ws
+
+# Build the package
+colcon build --packages-select coffee_voice_agent_ui
+
+# Source the workspace
+source install/setup.bash
+```
+
+**Note for macOS**: The application automatically configures Qt environment variables for optimal stability and cross-platform emoji compatibility.
+
+### 3. Verify Installation
 
 ```bash
 # Check if the package is available
@@ -104,6 +134,7 @@ Voice Agent ←→ Voice Agent Bridge ←→ ROS2 Topics ←→ Monitor UI
 
 ```
 VoiceAgentMonitorApp (QMainWindow)
+├── Platform-Specific Initialization (Qt environment, emoji system)
 ├── Left Column Container (vertical layout)
 │   ├── Agent Status Widget (connection, state, metrics)
 │   ├── Emotion Display Widget (current emotion, transitions, timeline)
@@ -112,6 +143,17 @@ VoiceAgentMonitorApp (QMainWindow)
 ├── Tool Monitor Widget (function tool usage, performance)
 ├── Analytics Widget (usage trends, performance metrics)
 └── Virtual Request Widget (manual testing, virtual coffee requests)
+```
+
+### Cross-Platform Components
+
+**Emoji Management System (`emoji_utils.py`)**:
+```
+EmojiManager
+├── Platform Detection (macOS vs Linux/Ubuntu)
+├── Emoji Mapping (Unicode ↔ Text alternatives)
+├── Widget Integration (automatic emoji replacement)
+└── Consistent UI Experience (cross-platform compatibility)
 ```
 
 ### ROS2 Integration
@@ -281,10 +323,22 @@ Launches both the voice agent bridge and monitor UI for complete system operatio
 - `QT_AUTO_SCREEN_SCALE_FACTOR=1` - Qt high DPI scaling
 - `ROS_DOMAIN_ID` - ROS2 domain for multi-robot systems
 
+**macOS-specific (automatically configured):**
+- `QT_QPA_PLATFORM=cocoa` - Native macOS Qt platform
+- `QT_MAC_WANTS_LAYER=1` - Layer-backed rendering for stability
+- `QT_XCB_GL_INTEGRATION=none` - Disable X11/GL conflicts
+
 ### Parameters
 The monitor can be configured through ROS2 parameters:
 - `use_sim_time` (default: false) - Use simulation time
 - `window_title` - Custom window title
+
+### Cross-Platform Emoji System
+The UI includes a platform-specific emoji handling system:
+- **Ubuntu/Linux**: Native emoji support with full Unicode rendering
+- **macOS**: Text-based alternatives for emojis to ensure stability and compatibility
+- Automatic platform detection and appropriate emoji mapping
+- Consistent visual experience across operating systems
 
 ## 🐛 Troubleshooting
 
@@ -323,6 +377,31 @@ python3 -c "from python_qt_binding.QtWidgets import QApplication; print('PyQt OK
 # Check ROS2 dependencies
 ros2 pkg deps coffee_voice_agent_ui
 ```
+
+**6. macOS-Specific Issues**
+
+**"Bus error: 10" on macOS:**
+- This was a known issue with emoji rendering on macOS external terminals
+- **Solution**: Automatically resolved by the built-in platform-specific emoji system
+- No manual intervention required - the UI now works reliably on all macOS terminals
+
+**RoboStack Environment Issues:**
+```bash
+# Ensure you're in the correct mamba environment
+mamba activate ros_env
+
+# Verify ROS2 installation
+ros2 --version
+
+# Check Qt platform detection
+echo $QT_QPA_PLATFORM  # Should show 'cocoa' on macOS
+```
+
+**Terminal Compatibility:**
+- Works in VS Code integrated terminal ✅
+- Works in macOS Terminal.app ✅  
+- Works in iTerm2 ✅
+- Works in external terminal applications ✅
 
 ### Debug Mode
 
