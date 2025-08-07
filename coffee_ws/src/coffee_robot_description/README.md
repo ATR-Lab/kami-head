@@ -35,9 +35,66 @@ The `coffee_robot_description` package contains:
 - **Ear Motors**: Left and right ear actuation (45° range each)
 - **Additional Sensors**: IMU, additional cameras
 
+## Quick Start
+
+### Automated Setup (Recommended)
+
+The Coffee Buddy project includes automated setup scripts that handle all dependencies and configuration for both Ubuntu and macOS:
+
+```bash
+# Initial setup (run once)
+./scripts/setup_workspace.sh
+
+# Daily activation (run in each new terminal)
+source scripts/activate_workspace.sh
+```
+
+**Platform Support:**
+- **Ubuntu/Debian**: Uses native ROS2 with apt + Python virtual environment
+- **macOS**: Uses RoboStack with mamba/conda environment
+
+**What the setup script installs:**
+- ROS2 Jazzy with all required packages (`xacro`, `joint-state-publisher-gui`, etc.)
+- Robot state publisher and visualization tools
+- Development tools (colcon, cmake, etc.)
+- Python dependencies
+- Builds all workspace packages automatically
+
+### Manual Control GUI
+
+Once setup is complete, run the robot description with manual joint control:
+
+```bash
+# Activate environment (if not already active)
+source scripts/activate_workspace.sh
+
+# Launch with manual control GUI
+cd coffee_ws
+ros2 launch coffee_robot_description rviz_display.launch.py use_manual_control:=true
+```
+
+This opens RViz with the 3D robot model and a GUI with sliders to manually control joint angles.
+
 ## Installation
 
-### Prerequisites
+### Automated Setup (Recommended)
+
+**Use the project setup scripts for the easiest installation:**
+
+```bash
+# From the project root directory
+./scripts/setup_workspace.sh
+```
+
+This handles all dependencies, environment setup, and builds all packages automatically for both Ubuntu and macOS.
+
+### Manual Installation (Advanced/Development)
+
+If you prefer manual installation or need to install individual components:
+
+#### Prerequisites
+
+**For Ubuntu/Debian (manual installation):**
 
 ```bash
 # Core ROS2 dependencies (required)
@@ -51,6 +108,11 @@ sudo apt install ros-jazzy-joint-state-publisher ros-jazzy-joint-state-publisher
 sudo apt install ros-jazzy-gazebo-ros-pkgs ros-jazzy-controller-manager ros-jazzy-joint-trajectory-controller
 ```
 
+**For macOS:**
+Use RoboStack with mamba (see automated setup script or RoboStack documentation).
+
+**Note**: The automated setup script (`./scripts/setup_workspace.sh`) handles all these dependencies automatically for both platforms.
+
 **Note**: If you encounter GPG key errors during installation, update your ROS2 repository configuration:
 ```bash
 # Modern repository setup (automatic key management)
@@ -62,6 +124,11 @@ sudo apt update
 
 ### Build the Package
 
+**Using Automated Setup (Recommended):**
+The setup script builds all packages automatically. If you used `./scripts/setup_workspace.sh`, you can skip this section.
+
+**Manual Build (for development/changes):**
+
 ```bash
 cd coffee_ws
 
@@ -72,7 +139,18 @@ colcon build --packages-select coffee_robot_description
 source install/setup.bash
 ```
 
+**Note**: After making changes to URDF files or launch files, you only need to rebuild this specific package using the commands above.
+
 ## Usage
+
+**Environment Setup**: Before running any commands, make sure your environment is activated:
+```bash
+# If using automated setup
+source scripts/activate_workspace.sh
+
+# Or manually (if you built manually)
+cd coffee_ws && source install/setup.bash
+```
 
 The package supports **dual-mode operation** for different use cases:
 
