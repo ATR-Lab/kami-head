@@ -1,131 +1,392 @@
 # Coffee Buddy Robot
 
+![Platform Support](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20macOS-brightgreen)
+![ROS2](https://img.shields.io/badge/ROS2-Jazzy-blue)
+![Python](https://img.shields.io/badge/Python-3.12-blue)
+
 ## Overview
 
-This repository contains the source code for the Coffee Buddy robot, a service robot designed to interact with humans in a coffee shop environment.
+Coffee Buddy is an interactive service robot designed for coffee shop environments. It features voice interaction, facial expressions, head tracking, and autonomous coffee machine operation through a comprehensive ROS2-based architecture.
 
-## Repository Structure
+## Platform Support
 
-- `coffee_ws/`: ROS2 workspace
-  - `src/`: Source packages
-    - `coffee_head/`: Head control and tracking system
-    - `coffee_camera/`: Camera and perception system
-    - Other packages...
+### Supported Platforms
+- **Ubuntu 24.04** (Native ROS2 installation)
+- **macOS** (RoboStack via mamba/conda)
 
-## Documentation
+### Cross-Platform Features
+- **Automated Setup**: One-command environment setup for both platforms
+- **Qt Application Compatibility**: Optimized PyQt UIs with platform-specific fixes
+- **Cross-Platform Emoji System**: Ubuntu displays emojis, macOS uses text fallbacks
+- **Audio Processing**: PyAudio with platform-specific installation handling
 
-The project documentation is built using Sphinx with ReadTheDocs theme and is available at the project's GitHub Pages site.
-
-### Accessing Documentation
-
-The documentation is automatically built and deployed to GitHub Pages when changes are pushed to the main branch.
-
-### Building Documentation Locally
-
-To build the documentation locally:
-
-1. Install the documentation dependencies:
-   ```bash
-   pip install -r coffee_ws/src/coffee_head/docs/requirements.txt
-   ```
-
-2. Build the documentation:
-   ```bash
-   cd coffee_ws/src/coffee_head/docs
-   make html
-   ```
-
-3. Open `coffee_ws/src/coffee_head/docs/build/html/index.html` in your browser to view the documentation.
-
-## Installation
+## Quick Start
 
 ### Prerequisites
 
+**Ubuntu:**
 - Ubuntu 24.04 (Noble Numbat)
-- Python 3.12
+- `sudo` privileges
+- Internet connection
 
-### 1. Install ROS2 Jazzy
+**macOS:**
+- macOS 10.15+ 
+- [Homebrew](https://brew.sh) installed
+- [Miniforge](https://github.com/conda-forge/miniforge) or [Mambaforge](https://github.com/conda-forge/miniforge) installed
+- Internet connection
 
-Follow the official ROS2 Jazzy installation guide for Ubuntu 24.04:
-[ROS2 Jazzy Installation](https://docs.ros.org/en/jazzy/Installation.html)
+### One-Command Setup
 
-The recommended method is to use the Debian packages:
 ```bash
-sudo apt update && sudo apt install -y software-properties-common
-sudo add-apt-repository universe
-sudo apt update && sudo apt install -y curl
-sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
-sudo apt update
-sudo apt install ros-jazzy-desktop
+# Clone the repository
+git clone <repository-url>
+cd coffee-buddy
+
+# Run automated setup (works on both Ubuntu and macOS)
+bash scripts/setup_workspace.sh
+
+# Activate the development environment
+source scripts/activate_workspace.sh
 ```
 
-### 2. Install Python Dependencies
-
-Install the required Python packages:
-```bash
-pip3 install -r requirements.txt
-```
-
-### 3. Build the ROS2 Workspace
+### Quick Test
 
 ```bash
-cd coffee_ws
-colcon build
-```
+# Test the voice agent UI
+ros2 run coffee_voice_agent_ui voice_agent_monitor
 
-### 4. Source the Setup Files
-
-Add the following to your `~/.bashrc` to create a convenient alias for sourcing ROS2:
-```bash
-echo 'alias ros-source="source /opt/ros/jazzy/setup.bash && source ~/path/to/coffee-budy/coffee_ws/install/setup.bash"' >> ~/.bashrc
-source ~/.bashrc
-```
-
-Alternatively, you can source the files manually each time:
-```bash
-source /opt/ros/jazzy/setup.bash
-source ~/path/to/coffee-budy/coffee_ws/install/setup.bash
-```
-
-### 5. Set Environment Variables
-
-For the Language Model Processor node to work, you need to set the Atoma API key as an environment variable:
-
-```bash
-# Add this to your ~/.bashrc file to make it persistent
-echo 'export ATOMA_API_KEY="your_atoma_api_key_here"' >> ~/.bashrc
-source ~/.bashrc
-
-# Or set it temporarily for the current session
-export ATOMA_API_KEY="your_atoma_api_key_here"
-```
-
-### 6. Running Coffee Buddy
-
-First, make sure you've sourced the setup files:
-```bash
-ros-source
-```
-
-To run the head tracking:
-```bash
+# Test head tracking (if hardware available)
 ros2 launch coffee_head all_nodes.launch.py
-```
 
-To run the eye visuals:
-```bash
+# Test facial expressions
 ros2 launch coffee_face coffee_eyes.launch.py
 ```
 
+## Architecture
+
+### Core Components
+
+**Head Control System:**
+- Multi-servo head tracking with Dynamixel motors
+- Real-time face detection and tracking
+- Smooth motion interpolation
+
+**Voice Interaction:**
+- Speech-to-text processing
+- LLM-powered conversation system
+- Text-to-speech with emotional expression
+
+**Visual Expression:**
+- Animated eye display system
+- Emotion-based facial expressions
+- Cross-platform emoji compatibility
+
+**Coffee Machine Interface:**
+- Automated brewing control
+- Order processing and queue management
+- Safety monitoring and error handling
+
+### Platform-Specific Features
+
+**macOS Optimizations:**
+- RoboStack integration for native ROS2 support
+- Qt application fixes for external terminal compatibility  
+- Emoji fallback system for stable rendering
+- Automatic Qt environment configuration
+
+**Ubuntu Optimizations:**
+- Native ROS2 package installation
+- Full emoji support in Qt applications
+- Optimized audio pipeline with ALSA/PulseAudio
+
+## Installation
+
+### Automated Installation (Recommended)
+
+The setup script handles all platform differences automatically:
+
+```bash
+# Setup everything
+bash scripts/setup_workspace.sh --help  # See all options
+
+# Default setup (ROS2 Jazzy)
+bash scripts/setup_workspace.sh
+
+# With specific ROS2 distribution
+bash scripts/setup_workspace.sh --ros-distro humble
+
+# Clean installation (removes existing environment)
+bash scripts/setup_workspace.sh --clean
+```
+
+### Daily Usage
+
+```bash
+# Activate development environment
+source scripts/activate_workspace.sh
+
+# Build packages (if needed)
+colcon build --symlink-install
+
+# Run applications
+ros2 run <package> <executable>
+```
+
+### Manual Installation
+
+<details>
+<summary>Click to expand manual installation steps</summary>
+
+**Ubuntu 24.04:**
+```bash
+# Install ROS2 Jazzy
+sudo apt update
+sudo apt install software-properties-common
+sudo add-apt-repository universe
+sudo apt update && sudo apt install curl -y
+sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+sudo apt update
+sudo apt install ros-jazzy-desktop python3-colcon-common-extensions python3-rosdep python3-pip
+
+# Audio dependencies
+sudo apt install portaudio19-dev
+
+# Python virtual environment
+python3 -m venv coffee_venv
+source coffee_venv/bin/activate
+pip install -r requirements.txt
+
+# Build workspace
+cd coffee_ws
+colcon build --symlink-install
+```
+
+**macOS:**
+```bash
+# Install RoboStack environment
+mamba create -n ros_env
+mamba activate ros_env
+mamba install ros-jazzy-desktop compilers cmake pkg-config make ninja colcon-common-extensions rosdep python pip
+
+# Audio dependencies  
+brew install portaudio
+pip install PyAudio
+
+# Python dependencies
+pip install -r requirements.txt
+
+# Build workspace
+cd coffee_ws
+colcon build --symlink-install
+```
+
+</details>
+
 ## Usage
 
-[Usage instructions here]
+### Voice Agent Interface
+
+```bash
+# Launch the voice agent monitor UI
+ros2 run coffee_voice_agent_ui voice_agent_monitor
+
+# Launch voice processing services
+ros2 launch coffee_voice_service voice_service.launch.py
+```
+
+### Head Control
+
+```bash
+# Launch all head control nodes
+ros2 launch coffee_head all_nodes.launch.py
+
+# Manual head control interface
+ros2 run coffee_head_manual_control manual_control_ui
+
+# Record head motion sequences
+ros2 run coffee_head_motion_recorder motion_recorder
+```
+
+### Facial Expressions
+
+```bash
+# Launch animated eyes
+ros2 launch coffee_face coffee_eyes.launch.py
+
+# Test expression states
+ros2 run coffee_expressions expression_test_ui
+```
+
+### Coffee Machine Control
+
+```bash
+# Launch coffee machine interface
+ros2 launch coffee_machine_control coffee_control.launch.py
+
+# Order processing interface
+ros2 run coffee_machine_control order_ui
+```
+
+## Development
+
+### Cross-Platform Considerations
+
+**Qt Applications on macOS:**
+- Environment variables are automatically configured
+- Emoji rendering uses text fallbacks to prevent crashes
+- External terminal compatibility is handled automatically
+
+**Audio Processing:**
+- PyAudio installation is handled platform-specifically
+- Ubuntu uses system PortAudio, macOS uses Homebrew PortAudio
+
+**Package Management:**
+- Ubuntu: apt + pip in venv
+- macOS: mamba + pip in conda environment
+
+### Adding New Packages
+
+```bash
+# Create new ROS2 package
+cd coffee_ws/src
+ros2 pkg create --build-type ament_python my_package
+
+# Add dependencies to package.xml
+# Add Python dependencies to setup.py
+# Build and test
+colcon build --packages-select my_package
+```
+
+### Cross-Platform Testing
+
+```bash
+# Test on current platform
+colcon test --packages-select my_package
+
+# Platform-specific testing
+source scripts/activate_workspace.sh
+ros2 run my_package my_executable
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**RoboStack Environment Issues (macOS):**
+```bash
+# Check environment
+mamba info
+mamba list | grep ros
+
+# Recreate environment
+mamba remove -n ros_env --all
+bash scripts/setup_workspace.sh --clean
+```
+
+**Git/Homebrew Conflicts During Setup (macOS):**
+- **Problem**: `git version did not run successfully` with `Symbol not found: _iconv`
+- **Solution**: Automatically handled by `setup_workspace.sh` (pre-downloads git packages)
+- **Manual fix if needed**: `mamba install git -c conda-forge`
+
+**PyAudio Installation Issues:**
+- **Ubuntu**: Automatically installs via pip after installing `portaudio19-dev`
+- **macOS**: Automatically installs via pip using Homebrew PortAudio
+- **Manual fix if needed**: 
+  - Ubuntu: `sudo apt install portaudio19-dev && pip install PyAudio`
+  - macOS: `brew install portaudio && pip install PyAudio`
+
+**macOS Qt Application Crashes:**
+- **Problem**: `Bus error: 10` in external terminals
+- **Solution**: Emoji characters cause Qt crashes; system uses text fallbacks automatically
+- **Manual fix**: Ensure you're using the proper activation script
+
+**Package Not Found After Build:**
+- **Problem**: `Package 'package_name' not found`
+- **Solution**: Ensure you're sourcing from the correct directory
+```bash
+cd coffee_ws/install
+source setup.bash
+cd ..
+```
+
+**Terminal Compatibility (macOS):**
+- ✅ **VS Code integrated terminal**: Full support
+- ✅ **Terminal.app with activation script**: Full support  
+- ❌ **Raw terminal without activation**: Qt environment not configured
+
+### Environment Validation
+
+```bash
+# Check ROS2 installation
+ros2 doctor
+
+# Verify workspace packages
+ros2 pkg list | grep coffee
+
+# Test PyAudio functionality
+python -c "import pyaudio; print('PyAudio OK')"
+
+# Check Qt environment (macOS)
+echo $QT_QPA_PLATFORM
+```
+
+### Getting Help
+
+1. **Check logs**: `ros2 doctor` and individual node logs
+2. **Validate environment**: Run environment validation commands above
+3. **Clean rebuild**: `rm -rf coffee_ws/build coffee_ws/install && colcon build`
+4. **Reset environment**: Use `--clean` flag with setup script
 
 ## Contributing
 
-[Contribution guidelines here]
+### Development Setup
+
+```bash
+# Fork and clone your fork
+git clone <your-fork-url>
+cd coffee-buddy
+
+# Setup development environment  
+bash scripts/setup_workspace.sh
+source scripts/activate_workspace.sh
+
+# Create feature branch
+git checkout -b feature/your-feature
+
+# Make changes and test
+colcon build --symlink-install
+colcon test
+
+# Submit pull request
+```
+
+### Code Standards
+
+- Follow [ROS2 Coding Conventions](ROS2_CODING_CONVENTIONS.md)
+- Use type hints in Python code
+- Include docstrings for all public functions
+- Test on both Ubuntu and macOS when possible
+
+## Repository Structure
+
+```
+coffee-buddy/
+├── coffee_ws/                  # ROS2 workspace
+│   └── src/                   # Source packages
+│       ├── coffee_voice_agent/         # Voice interaction system
+│       ├── coffee_head_control/        # Head tracking and control
+│       ├── coffee_face/               # Facial expression system
+│       ├── coffee_machine_control/    # Coffee machine interface
+│       ├── coffee_vision/             # Computer vision
+│       └── ...                        # Additional packages
+├── scripts/                   # Setup and utility scripts
+│   ├── setup_workspace.sh     # One-time environment setup
+│   └── activate_workspace.sh  # Daily environment activation  
+├── requirements.txt           # Python dependencies
+└── README.md                 # This file
+```
 
 ## License
 
-[License information here]
+[License information to be added]
