@@ -195,9 +195,10 @@ activate_ubuntu() {
     
     log_info "[4/4] Sourcing workspace overlay..."
     if [ -f "$COFFEE_WS_PATH/install/setup.bash" ]; then
-        pushd "$COFFEE_WS_PATH" > /dev/null
-        source install/setup.bash
-        popd > /dev/null
+        cd "$COFFEE_WS_PATH"
+        cd install
+        source setup.bash
+        cd ..
     else
         log_warning "Workspace not built yet. Run 'colcon build' in $COFFEE_WS_PATH"
     fi
@@ -229,9 +230,10 @@ activate_macos() {
     
     log_info "[3/3] Sourcing workspace overlay..."
     if [ -f "$COFFEE_WS_PATH/install/setup.bash" ]; then
-        pushd "$COFFEE_WS_PATH" > /dev/null
-        source install/setup.bash
-        popd > /dev/null
+        cd "$COFFEE_WS_PATH"
+        cd install
+        source setup.bash
+        cd ..
         
         # Set macOS-specific environment variables for Qt applications
         # Set macOS Qt environment variables for GUI applications
