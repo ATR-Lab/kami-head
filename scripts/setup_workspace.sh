@@ -130,6 +130,7 @@ NOTES:
 MACOS-SPECIFIC NOTES:
     - The script handles Homebrew/conda git conflicts automatically
     - Git-based packages (git+https://) are pre-downloaded to avoid library conflicts
+    - PyAudio requires Homebrew PortAudio for compilation (installed automatically)
     - If git issues persist, try: mamba install git -c conda-forge
 
 For more information, see: https://github.com/your-repo/coffee-buddy
@@ -407,6 +408,21 @@ setup_macos() {
     check_mamba
     log_success "Mamba is available"
 
+    # Step 1.5: Ensure Homebrew PortAudio for PyAudio compilation
+    log_info "Ensuring Homebrew PortAudio for PyAudio compilation..."
+    if command -v brew &> /dev/null; then
+        if ! brew list portaudio &>/dev/null; then
+            log_info "Installing PortAudio via Homebrew..."
+            brew install portaudio
+            log_success "PortAudio installed via Homebrew"
+        else
+            log_success "PortAudio already installed via Homebrew"
+        fi
+    else
+        log_warning "Homebrew not found. PyAudio compilation may fail."
+        log_warning "Install Homebrew and run: brew install portaudio"
+    fi
+
     # Step 2: Create conda environment
     log_info "[2/5] Setting up conda environment '$ENV_NAME'..."
     
@@ -506,12 +522,24 @@ validate_setup() {
     if command -v ros2 &> /dev/null; then
         log_success "ROS2 command available"
         
-        # Test if our packages are available
-        if ros2 pkg list | grep -q "coffee_voice_agent_ui"; then
-            log_success "Coffee Voice Agent UI package found"
-        else
-            log_warning "Coffee Voice Agent UI package not found in ROS2 package list"
+            # Test if our packages are available
+    if ros2 pkg list | grep -q "coffee_voice_agent_ui"; then
+        log_success "Coffee Voice Agent UI package found"
+    else
+        log_warning "Coffee Voice Agent UI package not found in ROS2 package list"
+    fi
+    
+    # Test PyAudio functionality
+    if python -c "import pyaudio; pa = pyaudio.PyAudio(); device_count = pa.get_device_count(); pa.terminate(); print(f'PyAudio devices: {device_count}')" 2>/dev/null; then
+        log_success "PyAudio is working correctly"
+    else
+        log_warning "PyAudio import or initialization failed"
+        if [[ "$PLATFORM" == "ubuntu" ]]; then
+            log_warning "Try: sudo apt install portaudio19-dev"
+        elif [[ "$PLATFORM" == "macos" ]]; then
+            log_warning "Try: mamba install pyaudio -c conda-forge"
         fi
+    fi
     else
         log_error "ROS2 command not available"
         return 1
