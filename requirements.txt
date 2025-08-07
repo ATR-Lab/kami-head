@@ -71,4 +71,5 @@ livekit-plugins-noise-cancellation
 # Blockchain/Sui dependencies (for sui_indexer packages)
 prisma>=0.10.0  # Database ORM for blockchain event indexing
 websockets>=11.0.0  # WebSocket support for blockchain connections
-git+https://github.com/OpenDive/sui-py.git  # Sui Python SDK
+# Sui Python SDK
+git+https://github.com/OpenDive/sui-py.git
