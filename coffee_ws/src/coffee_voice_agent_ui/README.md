@@ -397,6 +397,19 @@ ros2 --version
 echo $QT_QPA_PLATFORM  # Should show 'cocoa' on macOS
 ```
 
+**Git/Homebrew Conflicts During Setup:**
+- **Issue**: `git version did not run successfully` with `Symbol not found: _iconv`
+- **Cause**: Homebrew git conflicts with conda libiconv library
+- **Solution**: Automatically handled by setup script (pre-downloads git packages)
+- **Manual fix if needed**: `mamba install git -c conda-forge`
+
+**PyAudio Installation Issues:**
+- **Ubuntu**: Automatically installs via pip after installing `portaudio19-dev`
+- **macOS**: Requires Homebrew PortAudio, then installs via pip (handled automatically)
+- **Manual fix if needed**: 
+  - Ubuntu: `sudo apt install portaudio19-dev && pip install PyAudio`
+  - macOS: `brew install portaudio && pip install PyAudio`
+
 **Terminal Compatibility:**
 - Works in VS Code integrated terminal ✅
 - Works in macOS Terminal.app ✅  
