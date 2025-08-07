@@ -269,7 +269,12 @@ setup_ubuntu() {
         
         # Install ROS2
         sudo apt update
-        sudo apt install -y ros-$ROS_DISTRO-desktop python3-colcon-common-extensions
+        sudo apt install -y \
+            ros-$ROS_DISTRO-desktop \
+            ros-$ROS_DISTRO-xacro \
+            ros-$ROS_DISTRO-joint-state-publisher-gui \
+            ros-$ROS_DISTRO-robot-state-publisher \
+            python3-colcon-common-extensions
         
         log_success "ROS2 $ROS_DISTRO installed"
     else
@@ -456,6 +461,9 @@ setup_macos() {
     log_info "[3/5] Installing ROS2 $ROS_DISTRO and development tools..."
     mamba install -y \
         ros-$ROS_DISTRO-desktop \
+        ros-$ROS_DISTRO-xacro \
+        ros-$ROS_DISTRO-joint-state-publisher-gui \
+        ros-$ROS_DISTRO-robot-state-publisher \
         compilers \
         cmake \
         pkg-config \
