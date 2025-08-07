@@ -11,7 +11,7 @@ catkin_pkg==1.0.0  # Required for ROS2 build system
 lark==1.1.9  # Required for ROS2 message generation
 
 # Audio processing
-PyAudio==0.2.14
+PyAudio==0.2.14  # Installed via platform-specific method in setup scripts
 elevenlabs==1.57.0
 sounddevice>=0.5
 soundfile==0.13.1
