@@ -6,12 +6,16 @@ setuptools==79.0.1
 typing_extensions==4.13.2
 
 # ROS2 compatibility and build tools
-empy==3.3.4  # Required for ROS2 Jazzy package creation (newer versions cause AttributeError)
-catkin_pkg==1.0.0  # Required for ROS2 build system
-lark==1.1.9  # Required for ROS2 message generation
+# Required for ROS2 Jazzy package creation (newer versions cause AttributeError)
+empy==3.3.4
+# Required for ROS2 build system
+catkin_pkg==1.0.0
+# Required for ROS2 message generation
+lark==1.1.9
 
 # Audio processing
-PyAudio==0.2.14  # Installed via platform-specific method in setup scripts
+# Installed via platform-specific method in setup scripts
+PyAudio==0.2.14
 elevenlabs==1.57.0
 sounddevice>=0.5
 soundfile==0.13.1
@@ -69,7 +73,9 @@ livekit-plugins-silero
 livekit-plugins-noise-cancellation
 
 # Blockchain/Sui dependencies (for sui_indexer packages)
-prisma>=0.10.0  # Database ORM for blockchain event indexing
-websockets>=11.0.0  # WebSocket support for blockchain connections
+# Database ORM for blockchain event indexing
+prisma>=0.10.0
+# WebSocket support for blockchain connections
+websockets>=11.0.0
 # Sui Python SDK
 git+https://github.com/OpenDive/sui-py.git
