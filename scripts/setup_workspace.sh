@@ -44,15 +44,16 @@
 #
 # REQUIREMENTS:
 #   Ubuntu: sudo privileges, apt package manager
-#   macOS: miniforge/mamba installed (script will guide if missing)
+#   macOS: internet connection (script installs miniforge automatically if needed)
 #
 # WHAT IT DOES:
 #   1. Detects platform (Ubuntu vs macOS)
-#   2. Installs platform-specific dependencies
+#   2. Installs platform-specific infrastructure (miniforge, RoboStack, etc.)
 #   3. Creates appropriate environment (venv vs conda)
-#   4. Installs ROS2 and development tools
-#   5. Builds all ROS2 packages in workspace
-#   6. Validates the setup
+#   4. Installs ROS2 and all required development tools
+#   5. Initializes git submodules (DynamixelSDK, hardware interfaces)
+#   6. Builds all ROS2 packages in workspace
+#   7. Validates the complete setup
 
 set -e  # Exit on any error
 
@@ -184,16 +185,35 @@ detect_platform() {
     fi
 }
 
-# Check if mamba/conda is available (for macOS)
+# Check and install mamba/conda if needed (for macOS)
 check_mamba() {
     if ! command -v mamba &> /dev/null; then
         if ! command -v conda &> /dev/null; then
-            log_error "Neither mamba nor conda found!"
-            log_error "Please install miniforge first:"
-            log_error "  curl -L -O https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-$(uname -m).sh"
-            log_error "  bash Miniforge3-MacOSX-$(uname -m).sh"
-            log_error "Then restart your terminal and run this script again."
-            exit 1
+            log_info "Neither mamba nor conda found. Installing miniforge automatically..."
+            
+            # Download and install miniforge
+            local installer="Miniforge3-MacOSX-$(uname -m).sh"
+            local url="https://github.com/conda-forge/miniforge/releases/latest/download/$installer"
+            
+            log_info "Downloading miniforge installer..."
+            if ! curl -L -O "$url"; then
+                log_error "Failed to download miniforge installer"
+                exit 1
+            fi
+            
+            log_info "Installing miniforge..."
+            if ! bash "$installer" -b -p "$HOME/miniforge3"; then
+                log_error "Failed to install miniforge"
+                exit 1
+            fi
+            
+            # Clean up installer
+            rm -f "$installer"
+            
+            # Initialize conda for the current shell
+            eval "$($HOME/miniforge3/bin/conda shell.$(basename $SHELL) hook)"
+            
+            log_success "Miniforge installed successfully"
         else
             log_warning "conda found but mamba not available. Installing mamba..."
             conda install mamba -c conda-forge -y
@@ -243,7 +263,7 @@ setup_ubuntu() {
     log_info "Setting up Ubuntu environment..."
     
     # Step 1: Install system dependencies
-    log_info "[1/5] Installing system dependencies..."
+    log_info "[1/6] Installing system dependencies..."
     sudo apt update
     sudo apt install -y \
         portaudio19-dev \
@@ -259,7 +279,7 @@ setup_ubuntu() {
         software-properties-common
 
     # Step 2: Install ROS2 if not already installed
-    log_info "[2/5] Setting up ROS2 $ROS_DISTRO..."
+    log_info "[2/6] Setting up ROS2 $ROS_DISTRO..."
     if ! command -v ros2 &> /dev/null; then
         log_info "Installing ROS2 $ROS_DISTRO..."
         
@@ -282,7 +302,7 @@ setup_ubuntu() {
     fi
 
     # Step 3: Create Python virtual environment
-    log_info "[3/5] Setting up Python virtual environment..."
+    log_info "[3/6] Setting up Python virtual environment..."
     VENV_PATH="$REPO_ROOT/$ENV_NAME"
     
     if [ -d "$VENV_PATH" ]; then
@@ -294,7 +314,7 @@ setup_ubuntu() {
     fi
 
     # Step 4: Install Python packages
-    log_info "[4/5] Installing Python packages..."
+    log_info "[4/6] Installing Python packages..."
     source "$VENV_PATH/bin/activate"
     pip install --upgrade pip
     
@@ -305,8 +325,16 @@ setup_ubuntu() {
         log_warning "requirements.txt not found, skipping Python package installation"
     fi
 
-    # Step 5: Build ROS2 packages
-    log_info "[5/5] Building ROS2 packages..."
+    # Step 5: Initialize git submodules and build ROS2 packages
+    log_info "[5/6] Initializing git submodules..."
+    cd "$REPO_ROOT"
+    if ! git submodule update --init --recursive; then
+        log_error "Failed to initialize git submodules"
+        return 1
+    fi
+    log_success "Git submodules initialized successfully"
+    
+    log_info "[6/6] Building ROS2 packages..."
     cd "$REPO_ROOT/coffee_ws"
     source /opt/ros/$ROS_DISTRO/setup.bash
     colcon build --symlink-install
@@ -393,13 +421,31 @@ install_regular_packages_macos() {
         
         package_name=$(echo "$package" | cut -d'=' -f1 | cut -d'>' -f1 | cut -d'<' -f1)
         
-        # Try conda-forge first
-        if mamba install -c conda-forge "$package_name" -y 2>/dev/null; then
-            log_info "Installed $package_name via conda"
+        # Special handling for PyAudio (avoid Homebrew/conda conflicts)
+        if [[ "$package_name" == "PyAudio" ]]; then
+            log_info "Installing PyAudio via conda (avoiding Homebrew conflicts)..."
+            if mamba install -c conda-forge pyaudio -y 2>/dev/null; then
+                log_success "PyAudio installed via conda"
+                continue
+            else
+                log_warning "PyAudio conda installation failed, trying pip with Homebrew PortAudio..."
+                # Ensure PortAudio is available via Homebrew
+                if command -v brew &> /dev/null; then
+                    if ! brew list portaudio &>/dev/null; then
+                        brew install portaudio
+                    fi
+                fi
+                pip install "$package"
+            fi
         else
-            # Fallback to pip
-            log_info "Installing $package_name via pip..."
-            pip install "$package"
+            # Try conda-forge first for other packages
+            if mamba install -c conda-forge "$package_name" -y 2>/dev/null; then
+                log_info "Installed $package_name via conda"
+            else
+                # Fallback to pip
+                log_info "Installing $package_name via pip..."
+                pip install "$package"
+            fi
         fi
     done < "$REQUIREMENTS_FILE"
 }
@@ -409,7 +455,7 @@ setup_macos() {
     log_info "Setting up macOS environment with RoboStack..."
     
     # Step 1: Check mamba installation
-    log_info "[1/5] Checking mamba installation..."
+    log_info "[1/6] Checking mamba installation..."
     check_mamba
     log_success "Mamba is available"
 
@@ -429,7 +475,7 @@ setup_macos() {
     fi
 
     # Step 2: Create conda environment
-    log_info "[2/5] Setting up conda environment '$ENV_NAME'..."
+    log_info "[2/6] Setting up conda environment '$ENV_NAME'..."
     
     # Check if already in target environment
     local already_in_target_env=false
@@ -458,12 +504,17 @@ setup_macos() {
     conda config --env --add channels robostack-$ROS_DISTRO
 
     # Step 3: Install ROS2 and development tools
-    log_info "[3/5] Installing ROS2 $ROS_DISTRO and development tools..."
+    log_info "[3/6] Installing ROS2 $ROS_DISTRO and development tools..."
     mamba install -y \
         ros-$ROS_DISTRO-desktop \
         ros-$ROS_DISTRO-xacro \
         ros-$ROS_DISTRO-joint-state-publisher-gui \
         ros-$ROS_DISTRO-robot-state-publisher \
+        ros-$ROS_DISTRO-hardware-interface \
+        ros-$ROS_DISTRO-controller-interface \
+        ros-$ROS_DISTRO-controller-manager \
+        ros-$ROS_DISTRO-ros2-control \
+        ros-$ROS_DISTRO-ros2-controllers \
         compilers \
         cmake \
         pkg-config \
@@ -477,7 +528,7 @@ setup_macos() {
     log_success "ROS2 and development tools installed"
 
     # Step 4: Install additional Python packages
-    log_info "[4/5] Installing additional Python packages..."
+    log_info "[4/6] Installing additional Python packages..."
     if [ -f "$REQUIREMENTS_FILE" ]; then
         # Step 4a: Handle git-based packages separately (macOS Homebrew/conda conflict workaround)
         handle_git_packages_macos
@@ -494,8 +545,16 @@ setup_macos() {
     mamba deactivate
     mamba activate "$ENV_NAME"
 
-    # Step 5: Build ROS2 packages
-    log_info "[5/5] Building ROS2 packages..."
+    # Step 5: Initialize git submodules and build ROS2 packages
+    log_info "[5/6] Initializing git submodules..."
+    cd "$REPO_ROOT"
+    if ! git submodule update --init --recursive; then
+        log_error "Failed to initialize git submodules"
+        return 1
+    fi
+    log_success "Git submodules initialized successfully"
+    
+    log_info "[6/6] Building ROS2 packages..."
     cd "$REPO_ROOT/coffee_ws"
     colcon build --symlink-install
     log_success "ROS2 packages built successfully"
@@ -613,15 +672,8 @@ main() {
     echo "🎉 Setup complete!"
     echo ""
     echo "Next steps:"
-    if [[ "$PLATFORM" == "macos" ]]; then
-        echo "  1. To activate your development environment:"
-        echo "     mamba activate $ENV_NAME"
-        echo "     cd $REPO_ROOT/coffee_ws"
-        echo "     source install/setup.bash"
-    else
-        echo "  1. To activate your development environment:"
-        echo "     source $REPO_ROOT/scripts/activate_workspace.sh $ENV_NAME"
-    fi
+    echo "  1. To activate your development environment for daily use:"
+    echo "     source $REPO_ROOT/scripts/activate_workspace.sh"
     echo ""
     echo "  2. Test your setup:"
     echo "     ros2 run coffee_voice_agent_ui voice_agent_monitor"
