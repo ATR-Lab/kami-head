@@ -45,6 +45,7 @@
 # REQUIREMENTS:
 #   Ubuntu: sudo privileges, apt package manager
 #   macOS: internet connection (script installs miniforge automatically if needed)
+#         Homebrew (optional - required only for voice functionality via PyAudio)
 #
 # WHAT IT DOES:
 #   1. Detects platform (Ubuntu vs macOS)
@@ -427,15 +428,17 @@ install_regular_packages_macos() {
             if mamba install -c conda-forge pyaudio -y 2>/dev/null; then
                 log_success "PyAudio installed via conda"
                 continue
-            else
+            elif [[ "$HOMEBREW_AVAILABLE" == "true" ]]; then
                 log_warning "PyAudio conda installation failed, trying pip with Homebrew PortAudio..."
-                # Ensure PortAudio is available via Homebrew
-                if command -v brew &> /dev/null; then
-                    if ! brew list portaudio &>/dev/null; then
-                        brew install portaudio
-                    fi
+                if pip install "$package"; then
+                    log_success "PyAudio installed via pip with Homebrew PortAudio"
+                else
+                    log_error "PyAudio installation failed even with Homebrew PortAudio"
+                    PYAUDIO_FAILED=true
                 fi
-                pip install "$package"
+            else
+                log_warning "PyAudio installation skipped (Homebrew not available)"
+                PYAUDIO_SKIPPED=true
             fi
         else
             # Try conda-forge first for other packages
@@ -459,9 +462,12 @@ setup_macos() {
     check_mamba
     log_success "Mamba is available"
 
-    # Step 1.5: Ensure Homebrew PortAudio for PyAudio compilation
-    log_info "Ensuring Homebrew PortAudio for PyAudio compilation..."
+    # Step 1.5: Check Homebrew availability for PyAudio compilation
+    HOMEBREW_AVAILABLE=false
+    PYAUDIO_SKIPPED=false
+    PYAUDIO_FAILED=false
     if command -v brew &> /dev/null; then
+        log_info "Homebrew found. Ensuring PortAudio for PyAudio compilation..."
         if ! brew list portaudio &>/dev/null; then
             log_info "Installing PortAudio via Homebrew..."
             brew install portaudio
@@ -469,9 +475,10 @@ setup_macos() {
         else
             log_success "PortAudio already installed via Homebrew"
         fi
+        HOMEBREW_AVAILABLE=true
     else
-        log_warning "Homebrew not found. PyAudio compilation may fail."
-        log_warning "Install Homebrew and run: brew install portaudio"
+        log_warning "Homebrew not found. Voice functionality (PyAudio) will be skipped."
+        log_info "You can install voice functionality later by installing Homebrew first."
     fi
 
     # Step 2: Create conda environment
@@ -678,6 +685,25 @@ main() {
     echo "  2. Test your setup:"
     echo "     ros2 run coffee_voice_agent_ui voice_agent_monitor"
     echo ""
+    
+    # Check for PyAudio installation issues
+    if [[ "$PYAUDIO_SKIPPED" == "true" ]]; then
+        echo "⚠️  IMPORTANT: Voice functionality is not available"
+        echo "   PyAudio was skipped because Homebrew is not installed."
+        echo ""
+        echo "   To enable voice functionality:"
+        echo "   1. Install Homebrew:"
+        echo "      /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+        echo "   2. Re-run this setup script:"
+        echo "      ./scripts/setup_workspace.sh"
+        echo ""
+    elif [[ "$PYAUDIO_FAILED" == "true" ]]; then
+        echo "⚠️  WARNING: PyAudio installation failed"
+        echo "   Voice functionality may not work properly."
+        echo "   Try re-running this setup script or install PyAudio manually."
+        echo ""
+    fi
+    
     echo "  3. If you encounter issues:"
     echo "     - Check the build logs in coffee_ws/log/"
     echo "     - Re-run this setup script"
