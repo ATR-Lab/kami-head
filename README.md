@@ -1,7 +1,7 @@
 # Coffee Buddy Robot
 
 ![Platform Support](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20macOS-brightgreen)
-![ROS2](https://img.shields.io/badge/ROS2-Jazzy-blue)
+![ROS2](https://img.shields.io/badge/ROS2-Humble-blue)
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 
 ## Overview
@@ -44,6 +44,9 @@ cd coffee-buddy
 
 # Run automated setup (works on both Ubuntu and macOS)
 bash scripts/setup_workspace.sh
+
+# For specific ROS2 distribution (if needed)
+bash scripts/setup_workspace.sh --ros-distro humble
 
 # Activate the development environment
 source scripts/activate_workspace.sh
@@ -109,11 +112,11 @@ The setup script handles all platform differences automatically:
 # Setup everything
 bash scripts/setup_workspace.sh --help  # See all options
 
-# Default setup (ROS2 Jazzy)
+# Default setup (ROS2 Humble)
 bash scripts/setup_workspace.sh
 
-# With specific ROS2 distribution
-bash scripts/setup_workspace.sh --ros-distro humble
+# With specific ROS2 distribution (e.g., for Jazzy)
+bash scripts/setup_workspace.sh --ros-distro jazzy
 
 # Clean installation (removes existing environment)
 bash scripts/setup_workspace.sh --clean
@@ -122,8 +125,14 @@ bash scripts/setup_workspace.sh --clean
 ### Daily Usage
 
 ```bash
-# Activate development environment
+# Activate development environment (default: ros_env, humble)
 source scripts/activate_workspace.sh
+
+# Activate with specific environment name
+source scripts/activate_workspace.sh my_ros_env
+
+# Activate with specific ROS2 distribution
+source scripts/activate_workspace.sh ros_env humble
 
 # Build packages (if needed)
 colcon build --symlink-install
@@ -139,7 +148,7 @@ ros2 run <package> <executable>
 
 **Ubuntu 24.04:**
 ```bash
-# Install ROS2 Jazzy
+# Install ROS2 Humble
 sudo apt update
 sudo apt install software-properties-common
 sudo add-apt-repository universe
@@ -147,7 +156,7 @@ sudo apt update && sudo apt install curl -y
 sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
 sudo apt update
-sudo apt install ros-jazzy-desktop python3-colcon-common-extensions python3-rosdep python3-pip
+sudo apt install ros-humble-desktop python3-colcon-common-extensions python3-rosdep python3-pip
 
 # Audio dependencies
 sudo apt install portaudio19-dev
@@ -167,7 +176,7 @@ colcon build --symlink-install
 # Install RoboStack environment
 mamba create -n ros_env
 mamba activate ros_env
-mamba install ros-jazzy-desktop compilers cmake pkg-config make ninja colcon-common-extensions rosdep python pip
+mamba install ros-humble-desktop compilers cmake pkg-config make ninja colcon-common-extensions rosdep python pip
 
 # Audio dependencies  
 brew install portaudio
@@ -267,6 +276,10 @@ colcon test --packages-select my_package
 # Platform-specific testing
 source scripts/activate_workspace.sh
 ros2 run my_package my_executable
+
+# Test with different ROS2 distributions
+source scripts/activate_workspace.sh ros_env jazzy
+ros2 run my_package my_executable
 ```
 
 ## Troubleshooting
@@ -350,6 +363,10 @@ cd coffee-buddy
 # Setup development environment  
 bash scripts/setup_workspace.sh
 source scripts/activate_workspace.sh
+
+# Or with specific ROS2 distribution
+bash scripts/setup_workspace.sh --ros-distro humble
+source scripts/activate_workspace.sh ros_env humble
 
 # Create feature branch
 git checkout -b feature/your-feature
