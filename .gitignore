@@ -16,6 +16,7 @@ env/
 venv/
 venv*/
 coffee_buddy_venv
+ros_env/
 build/
 develop-eggs/
 dist/
