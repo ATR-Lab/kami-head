@@ -17,10 +17,10 @@
 #   env_name     Optional. Name of the environment to activate.
 #                Default: ros_env (for both venv and conda environments)
 #   ros_distro   Optional. ROS2 distribution to use.
-#                Default: jazzy
+#                Default: humble
 #
 # EXAMPLES:
-#   # Use defaults (ros_env, jazzy)
+#   # Use defaults (ros_env, humble)
 #   source activate_workspace.sh
 #
 #   # Use specific environment name
@@ -57,7 +57,7 @@ fi
 
 # Default values
 DEFAULT_ENV_NAME="ros_env"
-DEFAULT_ROS_DISTRO="jazzy"
+DEFAULT_ROS_DISTRO="humble"
 ENV_NAME="${1:-$DEFAULT_ENV_NAME}"
 ROS_DISTRO="${2:-$DEFAULT_ROS_DISTRO}"
 
