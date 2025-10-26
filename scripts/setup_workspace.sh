@@ -295,6 +295,11 @@ setup_ubuntu() {
             ros-$ROS_DISTRO-xacro \
             ros-$ROS_DISTRO-joint-state-publisher-gui \
             ros-$ROS_DISTRO-robot-state-publisher \
+            ros-$ROS_DISTRO-hardware-interface \
+            ros-$ROS_DISTRO-controller-interface \
+            ros-$ROS_DISTRO-controller-manager \
+            ros-$ROS_DISTRO-ros2-control \
+            ros-$ROS_DISTRO-ros2-controllers \
             python3-colcon-common-extensions
         
         log_success "ROS2 $ROS_DISTRO installed"
