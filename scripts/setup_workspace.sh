@@ -279,8 +279,10 @@ setup_ubuntu() {
         lsb-release \
         software-properties-common
 
-    # Step 2: Install ROS2 if not already installed
+    # Step 2: Install ROS2 and required packages
     log_info "[2/6] Setting up ROS2 $ROS_DISTRO..."
+    
+    # Check if ROS2 base is installed, if not install it
     if ! command -v ros2 &> /dev/null; then
         log_info "Installing ROS2 $ROS_DISTRO..."
         
@@ -288,24 +290,26 @@ setup_ubuntu() {
         sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
         
-        # Install ROS2
         sudo apt update
-        sudo apt install -y \
-            ros-$ROS_DISTRO-desktop \
-            ros-$ROS_DISTRO-xacro \
-            ros-$ROS_DISTRO-joint-state-publisher-gui \
-            ros-$ROS_DISTRO-robot-state-publisher \
-            ros-$ROS_DISTRO-hardware-interface \
-            ros-$ROS_DISTRO-controller-interface \
-            ros-$ROS_DISTRO-controller-manager \
-            ros-$ROS_DISTRO-ros2-control \
-            ros-$ROS_DISTRO-ros2-controllers \
-            python3-colcon-common-extensions
-        
-        log_success "ROS2 $ROS_DISTRO installed"
     else
-        log_success "ROS2 already installed"
+        log_success "ROS2 base already installed"
     fi
+    
+    # Always ensure all required packages are installed (whether ROS2 was already present or not)
+    log_info "Ensuring all required ROS2 packages are installed..."
+    sudo apt install -y \
+        ros-$ROS_DISTRO-desktop \
+        ros-$ROS_DISTRO-xacro \
+        ros-$ROS_DISTRO-joint-state-publisher-gui \
+        ros-$ROS_DISTRO-robot-state-publisher \
+        ros-$ROS_DISTRO-hardware-interface \
+        ros-$ROS_DISTRO-controller-interface \
+        ros-$ROS_DISTRO-controller-manager \
+        ros-$ROS_DISTRO-ros2-control \
+        ros-$ROS_DISTRO-ros2-controllers \
+        python3-colcon-common-extensions
+    
+    log_success "All required ROS2 packages installed"
 
     # Step 3: Create Python virtual environment
     log_info "[3/6] Setting up Python virtual environment..."
