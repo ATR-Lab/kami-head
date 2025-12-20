@@ -17,16 +17,16 @@
 #   env_name     Optional. Name of the environment to activate.
 #                Default: ros_env (for both venv and conda environments)
 #   ros_distro   Optional. ROS2 distribution to use.
-#                Default: humble
+#                Default: jazzy
 #
 # EXAMPLES:
-#   # Use defaults (ros_env, humble)
+#   # Use defaults (ros_env, jazzy)
 #   source activate_workspace.sh
 #
 #   # Use specific environment name
 #   source activate_workspace.sh my_ros_env
 #
-#   # Use specific ROS distribution
+#   # Use specific ROS distribution (e.g., humble)
 #   source activate_workspace.sh ros_env humble
 #
 #   # Run from any directory
@@ -57,12 +57,18 @@ fi
 
 # Default values
 DEFAULT_ENV_NAME="ros_env"
-DEFAULT_ROS_DISTRO="humble"
+DEFAULT_ROS_DISTRO="jazzy"
 ENV_NAME="${1:-$DEFAULT_ENV_NAME}"
 ROS_DISTRO="${2:-$DEFAULT_ROS_DISTRO}"
 
-# Find the repository root
-REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# Find the repository root (resolve absolute path, handling sourcing from any directory)
+# Use bash parameter expansion to avoid external commands
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+# Get directory of script (equivalent to dirname)
+SCRIPT_DIR="${SCRIPT_PATH%/*}"
+# Convert to absolute path
+SCRIPT_DIR="$(cd "$SCRIPT_DIR" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Define paths
 SCRIPTS_PATH="$REPO_ROOT/scripts"
@@ -133,31 +139,114 @@ check_macos_env() {
         return 0
     fi
     
-    if ! command -v mamba &> /dev/null && ! command -v conda &> /dev/null; then
-        log_error "Neither mamba nor conda found!"
-        echo ""
-        echo "Please install miniforge first:"
-        echo "  curl -L -O https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-$(uname -m).sh"
-        echo "  bash Miniforge3-MacOSX-$(uname -m).sh"
-        echo ""
-        return 1
+    # Check if mamba/conda commands are available in PATH
+    if command -v mamba &> /dev/null || command -v conda &> /dev/null; then
+        log_info "Conda/mamba found in PATH"
+        
+        # Determine which manager to use
+        local manager="mamba"
+        if ! command -v mamba &> /dev/null; then
+            manager="conda"
+        fi
+        
+        # Check if environment exists
+        # Use absolute path to grep to avoid conda PATH issues
+        # Match environment name with word boundaries
+        if ! $manager env list | /usr/bin/grep -q "^\s*$ENV_NAME\s"; then
+            log_error "Conda environment '$ENV_NAME' not found!"
+            echo ""
+            echo "It looks like you haven't run the initial setup yet."
+            echo "Please run the setup script first:"
+            echo "  ./scripts/setup_workspace.sh --env-name $ENV_NAME --ros-distro $ROS_DISTRO"
+            echo ""
+            echo "This will create the mamba environment with RoboStack."
+            return 1
+        fi
+        
+        return 0
     fi
     
-    local manager="mamba"
-    if ! command -v mamba &> /dev/null; then
-        manager="conda"
-    fi
+    # Commands not found in PATH - check if miniforge/conda is installed but not initialized
+    log_info "Conda/mamba not found in PATH, searching for existing installations..."
     
-    if ! $manager env list | grep -q "\s$ENV_NAME\s"; then
-        log_error "Conda environment '$ENV_NAME' not found!"
-        echo ""
-        echo "It looks like you haven't run the initial setup yet."
-        echo "Please run the setup script first:"
-        echo "  ./scripts/setup_workspace.sh --env-name $ENV_NAME --ros-distro $ROS_DISTRO"
-        echo ""
-        echo "This will create the mamba environment with RoboStack."
-        return 1
-    fi
+    local miniforge_paths=(
+        "$HOME/miniforge3"
+        "$HOME/mambaforge"
+        "$HOME/miniconda3"
+        "$HOME/anaconda3"
+    )
+    
+    for path in "${miniforge_paths[@]}"; do
+        if [ -d "$path" ] && [ -f "$path/bin/conda" ]; then
+            log_info "Found existing conda installation at: $path"
+            log_info "Initializing conda for current shell session..."
+            
+            # Save original PATH to restore system paths after conda initialization
+            # Conda's hook may corrupt PATH during initialization
+            local original_path="$PATH"
+            
+            # Initialize conda for the current shell
+            # Note: We always use conda for initialization (even if mamba exists)
+            # because conda's shell hook is more reliable
+            local shell_name="${SHELL##*/}"
+            eval "$($path/bin/conda shell.$shell_name hook)"
+            
+            # Ensure system paths are present after conda initialization
+            # Conda may have removed them during its hook execution
+            # Only add back system paths if they're missing
+            if [[ ":$PATH:" != *":/usr/bin:"* ]]; then
+                export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+            fi
+            
+            # Check if mamba is available after initialization
+            if command -v mamba &> /dev/null; then
+                log_success "Mamba is now available"
+            elif command -v conda &> /dev/null; then
+                log_success "Conda is now available"
+            else
+                log_error "Failed to initialize conda from $path"
+                return 1
+            fi
+            
+            # Determine which manager to use
+            local manager="mamba"
+            if ! command -v mamba &> /dev/null; then
+                manager="conda"
+            fi
+            
+            # Check if environment exists
+            # Use absolute path to grep to avoid conda PATH issues
+            # Match environment name with word boundaries
+            if ! $manager env list | /usr/bin/grep -q "^\s*$ENV_NAME\s"; then
+                log_error "Conda environment '$ENV_NAME' not found!"
+                echo ""
+                echo "It looks like you haven't run the initial setup yet."
+                echo "Please run the setup script first:"
+                echo "  ./scripts/setup_workspace.sh --env-name $ENV_NAME --ros-distro $ROS_DISTRO"
+                echo ""
+                echo "This will create the mamba environment with RoboStack."
+                return 1
+            fi
+            
+            log_info "For permanent access to conda/mamba in future shells, run:"
+            log_info "  $path/bin/conda init $shell_name"
+            echo ""
+            
+            return 0
+        fi
+    done
+    
+    # No existing installation found
+    log_error "Neither mamba nor conda found!"
+    echo ""
+    echo "Please install miniforge first:"
+    echo "  curl -L -O https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-$(uname -m).sh"
+    echo "  bash Miniforge3-MacOSX-$(uname -m).sh"
+    echo ""
+    echo "Or run the setup script which will install it automatically:"
+    echo "  ./scripts/setup_workspace.sh --env-name $ENV_NAME --ros-distro $ROS_DISTRO"
+    echo ""
+    return 1
 }
 
 # Check if already in conda environment
@@ -206,9 +295,15 @@ activate_ubuntu() {
 
 # Activate macOS environment
 activate_macos() {
+    # Determine which manager to use
     local manager="mamba"
     if ! command -v mamba &> /dev/null; then
-        manager="conda"
+        if command -v conda &> /dev/null; then
+            manager="conda"
+        else
+            log_error "Neither mamba nor conda available. This should not happen after check_macos_env."
+            return 1
+        fi
     fi
     
     # Check if already in correct environment
@@ -216,8 +311,49 @@ activate_macos() {
         log_info "[1/3] Already in conda environment '$ENV_NAME', skipping activation..."
     else
         log_info "[1/3] Activating conda environment '$ENV_NAME'..."
-        eval "$($manager shell hook)"
-        $manager activate "$ENV_NAME"
+        
+        # If we're already in ANY conda environment, we need to ensure proper initialization
+        if [[ -n "$CONDA_DEFAULT_ENV" ]]; then
+            log_info "Switching from '$CONDA_DEFAULT_ENV' to '$ENV_NAME'..."
+            
+            # Save PATH before activation to restore system paths if needed
+            local pre_activation_path="$PATH"
+            
+            # If in a conda environment, the shell is already initialized
+            # Just activate using conda (more reliable than mamba for switching)
+            conda activate "$ENV_NAME"
+            
+            # Ensure system paths are present after activation
+            if [[ ":$PATH:" != *":/usr/bin:"* ]]; then
+                export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+            fi
+        else
+            # Save PATH before initialization
+            local pre_init_path="$PATH"
+            
+            # Not in any conda environment - need to initialize first
+            # Use appropriate syntax based on the manager
+            if [[ "$manager" == "mamba" ]]; then
+                # Mamba uses: mamba shell hook (auto-detects shell)
+                eval "$(mamba shell hook)"
+            else
+                # Conda uses: conda shell.<shell> hook
+                local shell_name="${SHELL##*/}"
+                eval "$(conda shell.$shell_name hook)"
+            fi
+            
+            # Ensure system paths are present after initialization
+            if [[ ":$PATH:" != *":/usr/bin:"* ]]; then
+                export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+            fi
+            
+            $manager activate "$ENV_NAME"
+            
+            # Final check: ensure system paths after activation
+            if [[ ":$PATH:" != *":/usr/bin:"* ]]; then
+                export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+            fi
+        fi
     fi
     
     log_info "[2/3] ROS2 environment configured via RoboStack..."
@@ -270,7 +406,8 @@ verify_setup() {
     fi
     
     # Check if workspace packages are available
-    if ros2 pkg list | grep -q "coffee_voice_agent_ui"; then
+    # Use absolute path to grep to avoid conda PATH issues
+    if ros2 pkg list | /usr/bin/grep -q "coffee_voice_agent_ui"; then
         log_success "Coffee Voice Agent UI package found"
     else
         log_warning "Coffee Voice Agent UI package not found. Workspace may need to be built."

@@ -64,8 +64,14 @@ DEFAULT_ROS_DISTRO="jazzy"
 ENV_NAME=""
 ROS_DISTRO=""
 
-# Find the repository root
-REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# Find the repository root (resolve absolute path, no external commands)
+# Use bash parameter expansion to avoid dirname dependency
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+# Get directory of script (equivalent to dirname)
+SCRIPT_DIR="${SCRIPT_PATH%/*}"
+# Convert to absolute path
+SCRIPT_DIR="$(cd "$SCRIPT_DIR" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REQUIREMENTS_FILE="$REPO_ROOT/requirements.txt"
 
 # Colors for output
@@ -188,38 +194,101 @@ detect_platform() {
 
 # Check and install mamba/conda if needed (for macOS)
 check_mamba() {
-    if ! command -v mamba &> /dev/null; then
-        if ! command -v conda &> /dev/null; then
-            log_info "Neither mamba nor conda found. Installing miniforge automatically..."
+    # First, check if mamba/conda commands are available
+    if command -v mamba &> /dev/null; then
+        log_success "Mamba command is available"
+        return 0
+    fi
+    
+    if command -v conda &> /dev/null; then
+        log_warning "conda found but mamba not available. Installing mamba..."
+        conda install mamba -c conda-forge -y
+        return 0
+    fi
+    
+    # Commands not found in PATH - check if miniforge is installed but not initialized
+    local miniforge_paths=(
+        "$HOME/miniforge3"
+        "$HOME/mambaforge"
+        "$HOME/miniconda3"
+        "$HOME/anaconda3"
+    )
+    
+    for path in "${miniforge_paths[@]}"; do
+        if [ -d "$path" ] && [ -f "$path/bin/conda" ]; then
+            log_info "Found existing conda installation at: $path"
+            log_info "Initializing conda for current shell session..."
             
-            # Download and install miniforge
-            local installer="Miniforge3-MacOSX-$(uname -m).sh"
-            local url="https://github.com/conda-forge/miniforge/releases/latest/download/$installer"
-            
-            log_info "Downloading miniforge installer..."
-            if ! curl -L -O "$url"; then
-                log_error "Failed to download miniforge installer"
-                exit 1
-            fi
-            
-            log_info "Installing miniforge..."
-            if ! bash "$installer" -b -p "$HOME/miniforge3"; then
-                log_error "Failed to install miniforge"
-                exit 1
-            fi
-            
-            # Clean up installer
-            rm -f "$installer"
+            # Save original PATH to restore system paths after conda initialization
+            local original_path="$PATH"
             
             # Initialize conda for the current shell
-            eval "$($HOME/miniforge3/bin/conda shell.$(basename $SHELL) hook)"
+            # Use shell parameter expansion instead of basename for better compatibility
+            local shell_name="${SHELL##*/}"
+            eval "$($path/bin/conda shell.$shell_name hook)"
             
-            log_success "Miniforge installed successfully"
-        else
-            log_warning "conda found but mamba not available. Installing mamba..."
-            conda install mamba -c conda-forge -y
+            # Ensure system paths are present after conda initialization
+            # Only add back system paths if they're missing
+            if [[ ":$PATH:" != *":/usr/bin:"* ]]; then
+                export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+            fi
+            
+            # Check if mamba is available after initialization
+            if command -v mamba &> /dev/null; then
+                log_success "Mamba is now available"
+                return 0
+            elif command -v conda &> /dev/null; then
+                log_warning "Conda initialized but mamba not available. Installing mamba..."
+                conda install mamba -c conda-forge -y
+                log_success "Mamba installed successfully"
+                return 0
+            else
+                log_error "Failed to initialize conda from $path"
+                exit 1
+            fi
         fi
+    done
+    
+    # No existing installation found - install miniforge
+    log_info "No conda installation found. Installing miniforge automatically..."
+    
+    # Download and install miniforge
+    local installer="Miniforge3-MacOSX-$(uname -m).sh"
+    local url="https://github.com/conda-forge/miniforge/releases/latest/download/$installer"
+    
+    log_info "Downloading miniforge installer..."
+    if ! curl -L -O "$url"; then
+        log_error "Failed to download miniforge installer"
+        exit 1
     fi
+    
+    log_info "Installing miniforge to $HOME/miniforge3..."
+    if ! bash "$installer" -b -p "$HOME/miniforge3"; then
+        log_error "Failed to install miniforge"
+        log_error "If $HOME/miniforge3 already exists, try removing it first:"
+        log_error "  rm -rf $HOME/miniforge3"
+        exit 1
+    fi
+    
+    # Clean up installer
+    rm -f "$installer"
+    
+    # Initialize conda for the current shell
+    local shell_name="${SHELL##*/}"
+    eval "$($HOME/miniforge3/bin/conda shell.$shell_name hook)"
+    
+    # Ensure system paths are present after initialization
+    if [[ ":$PATH:" != *":/usr/bin:"* ]]; then
+        export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    fi
+    
+    log_success "Miniforge installed and initialized successfully"
+    
+    # Offer to initialize conda permanently in shell config
+    log_info ""
+    log_info "To make conda/mamba available in future shell sessions, run:"
+    log_info "  $HOME/miniforge3/bin/conda init $shell_name"
+    log_info ""
 }
 
 # Validate ROS2 distribution support
@@ -500,7 +569,9 @@ setup_macos() {
     fi
     
     # Check if environment exists
-    if mamba env list | grep -q "^$ENV_NAME "; then
+    # Use absolute path to grep to avoid conda PATH issues
+    # Match environment name with word boundaries
+    if mamba env list | /usr/bin/grep -q "^\s*$ENV_NAME\s"; then
         log_warning "Environment '$ENV_NAME' already exists"
         if [[ "$already_in_target_env" == false ]]; then
             log_info "Activating existing environment..."
@@ -606,7 +677,8 @@ validate_setup() {
         log_success "ROS2 command available"
         
             # Test if our packages are available
-    if ros2 pkg list | grep -q "coffee_voice_agent_ui"; then
+    # Use absolute path to grep to avoid conda PATH issues  
+    if ros2 pkg list | /usr/bin/grep -q "coffee_voice_agent_ui"; then
         log_success "Coffee Voice Agent UI package found"
     else
         log_warning "Coffee Voice Agent UI package not found in ROS2 package list"
